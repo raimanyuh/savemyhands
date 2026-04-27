@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(tar -tzf \"C:/Users/Raimana/.claude/projects/C--Users-Raimana-Desktop-savemyhands/178023f1-be9e-4cab-a74e-c72b72105aec/tool-results/webfetch-1777329422045-3656ep.bin\")",
+      "Bash(tar -tzf design.tar.gz)",
+      "Bash(tar -xzf design.tar.gz)",
+      "Bash(npx next *)",
+      "Bash(npm run *)"
     ]
   }
 }
