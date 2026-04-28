@@ -9,7 +9,12 @@ export type SavedHand = {
   date: string;
   stakes: string;
   loc: string;
+  // Hero's position only (e.g. "BTN"). Earlier saves may carry a full
+  // "X vs Y" string — render code coerces those to just the hero side.
   positions: string;
+  // True if more than two players reached the flop. Older rows may be
+  // undefined; derive from `_full` lazily in that case.
+  multiway?: boolean;
   board: string[]; // length 5, "—" for missing
   type: "SRP" | "3BP" | "4BP";
   tags: string[];
@@ -30,8 +35,24 @@ export type SavedHand = {
     notes?: string;
     venue?: string;
     date?: string;
+    // Annotations keyed by index into `actions`, populated in the recorder.
+    annotations?: Record<number, string>;
   };
 };
+
+// True if more than 2 players were still in when the flop dealt — i.e. count
+// of seats that didn't fold preflop is > 2.
+export function isMultiway(args: {
+  playerCount: number;
+  actions: Action[];
+}): boolean {
+  const { playerCount, actions } = args;
+  let foldedPreflop = 0;
+  for (const a of actions) {
+    if (a.street === "preflop" && a.action === "fold") foldedPreflop += 1;
+  }
+  return playerCount - foldedPreflop > 2;
+}
 
 export type ReplayStep = {
   street: Street | "showdown";
@@ -41,6 +62,8 @@ export type ReplayStep = {
   action?: string;
   board?: string[];
   winner?: number;
+  // Recorder annotation tied to this action, surfaced under the narration.
+  annotation?: string;
 };
 
 export type ReplayHand = {
@@ -159,8 +182,12 @@ export function recordedToHand(rec: SavedHand): ReplayHand | null {
         }
       }
     }
-    const acts = f.actions.filter((a) => a.street === ph);
-    for (const a of acts) {
+    const annotations = f.annotations ?? {};
+    const phaseActions: { a: Action; index: number }[] = [];
+    f.actions.forEach((a, i) => {
+      if (a.street === ph) phaseActions.push({ a, index: i });
+    });
+    for (const { a, index } of phaseActions) {
       const prev = streetBets[a.seat] || 0;
       let delta = 0;
       let actStr: string = a.action;
@@ -185,6 +212,7 @@ export function recordedToHand(rec: SavedHand): ReplayHand | null {
         pot: running,
         active: a.seat,
         action: actStr,
+        annotation: annotations[index],
       });
     }
   }

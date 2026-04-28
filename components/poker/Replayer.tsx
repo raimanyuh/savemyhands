@@ -40,7 +40,15 @@ const SAMPLE_HAND: ReplayHand = {
     { street: "preflop", label: "UTG raises to $15", pot: 22, active: 3, action: "raise 15" },
     { street: "preflop", label: "MP folds", pot: 22, active: 4, action: "fold" },
     { street: "preflop", label: "CO folds", pot: 22, active: 5, action: "fold" },
-    { street: "preflop", label: "BTN 3-bets to $45", pot: 67, active: 0, action: "raise 45" },
+    {
+      street: "preflop",
+      label: "BTN 3-bets to $45",
+      pot: 67,
+      active: 0,
+      action: "raise 45",
+      annotation:
+        "Pretty standard 3-bet sizing with AA in position. Want to build the pot and isolate UTG.",
+    },
     { street: "preflop", label: "SB folds", pot: 67, active: 1, action: "fold" },
     { street: "preflop", label: "BB calls $40", pot: 107, active: 2, action: "call" },
     { street: "preflop", label: "UTG calls $30", pot: 137, active: 3, action: "call" },
@@ -52,7 +60,15 @@ const SAMPLE_HAND: ReplayHand = {
     { street: "flop", label: "UTG calls $140", pot: 577, active: 3, action: "call" },
     { street: "turn", label: "Turn  Q♥", pot: 577, board: ["K♠", "7♦", "2♣", "Q♥"] },
     { street: "turn", label: "UTG checks", pot: 577, active: 3, action: "check" },
-    { street: "turn", label: "BTN bets $400", pot: 977, active: 0, action: "bet 400" },
+    {
+      street: "turn",
+      label: "BTN bets $400",
+      pot: 977,
+      active: 0,
+      action: "bet 400",
+      annotation:
+        "Big bet on the Q to pressure UTG off TT/JJ and the random Kx hands. Don't think they call without 2p+.",
+    },
     { street: "turn", label: "UTG folds", pot: 977, active: 3, action: "fold" },
     { street: "showdown", label: "Hero wins $977", pot: 977, winner: 0 },
   ],
@@ -400,14 +416,41 @@ function ReplayerInner({
 
         {/* Action log + transport */}
         <div className="flex flex-col gap-3 w-full max-w-[820px]">
-          <div className="rounded-xl border border-white/10 bg-[oklch(0.205_0_0)] px-5 py-4 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <StreetPill street={street} />
-              <span className="text-base font-medium truncate">{cur.label}</span>
+          <div className="flex flex-col gap-2">
+            <div className="rounded-xl border border-white/10 bg-[oklch(0.205_0_0)] px-5 py-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <StreetPill street={street} />
+                <span className="text-base font-medium truncate">
+                  {cur.label}
+                </span>
+              </div>
+              <div className="text-sm text-muted-foreground tabular-nums shrink-0">
+                {step + 1} / {HAND.steps.length}
+              </div>
             </div>
-            <div className="text-sm text-muted-foreground tabular-nums shrink-0">
-              {step + 1} / {HAND.steps.length}
-            </div>
+            {cur.annotation && (
+              <div
+                className="rounded-xl border px-4 py-3 flex items-start gap-3"
+                style={{
+                  borderColor: "oklch(0.696 0.205 155 / 0.4)",
+                  background: "oklch(0.696 0.205 155 / 0.06)",
+                }}
+              >
+                <span
+                  className="px-1.5 h-5 inline-flex items-center rounded text-[10px] font-semibold uppercase tracking-[0.18em] shrink-0 mt-0.5"
+                  style={{
+                    background: "oklch(0.696 0.205 155 / 0.18)",
+                    color: "oklch(0.795 0.184 155)",
+                    border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+                  }}
+                >
+                  Note
+                </span>
+                <p className="text-[14px] leading-relaxed whitespace-pre-wrap text-zinc-100">
+                  {cur.annotation}
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3 justify-center">

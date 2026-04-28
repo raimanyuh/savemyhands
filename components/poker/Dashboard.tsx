@@ -18,17 +18,37 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Header, Shell } from "@/components/Shell";
-import type { SavedHand } from "./hand";
+import { isMultiway, type SavedHand } from "./hand";
 
 const SAMPLE_HANDS: SavedHand[] = [
-  { id: "k4n2zx", name: "River bluff vs reg",        date: "Apr 24, 25", stakes: "1/2",  loc: "Lucky Chances", positions: "UTG vs BB",  board: ["K♠","7♥","2♣","Q♦","—"],  type: "SRP", tags: ["bluff","river"],   result: 148,    fav: false },
-  { id: "q7p9aa", name: "QQ overplay",               date: "Apr 21, 25", stakes: "1/3",  loc: "Lucky Chances", positions: "CO vs BTN",  board: ["9♣","5♥","5♦","A♠","—"],  type: "3BP", tags: ["leak","review"],   result: -320,   fav: false },
-  { id: "b2m1xy", name: "Aces hold",                 date: "Apr 20, 25", stakes: "2/5",  loc: "Bay 101",       positions: "BTN vs UTG", board: ["T♠","7♦","2♣","—","—"],   type: "4BP", tags: ["premium","win"],   result: 1250,   fav: true  },
-  { id: "h6t3rs", name: "Suited connector flush",    date: "Apr 18, 25", stakes: "1/2",  loc: "Lucky Chances", positions: "BB vs UTG",  board: ["8♥","6♥","3♥","J♥","2♣"], type: "SRP", tags: ["draw","flush"],    result: 42,     fav: false },
-  { id: "r9w2vc", name: "JJ vs ace-high",            date: "Apr 14, 25", stakes: "2/5",  loc: "Bay 101",       positions: "MP vs BB",   board: ["A♣","8♦","4♠","—","—"],   type: "SRP", tags: ["fold-equity"],     result: -200,   fav: false },
-  { id: "a1c8bn", name: "Double-barrel BTN",         date: "Apr 10, 25", stakes: "1/3",  loc: "Hustler",       positions: "BTN vs SB",  board: ["T♥","9♣","3♠","5♦","—"],  type: "3BP", tags: ["barrel","win"],    result: 615,    fav: true  },
-  { id: "c4d8mp", name: "Set over set",              date: "Apr 08, 25", stakes: "2/5",  loc: "Bay 101",       positions: "CO vs BB",   board: ["Q♣","Q♦","7♠","3♣","—"],  type: "SRP", tags: ["cooler","review"], result: -540,   fav: false },
+  { id: "k4n2zx", name: "River bluff vs reg",        date: "Apr 24, 25", stakes: "1/2",  loc: "Lucky Chances", positions: "BTN", multiway: false, board: ["K♠","7♥","2♣","Q♦","—"],  type: "SRP", tags: ["bluff","river"],   result: 148,    fav: false },
+  { id: "q7p9aa", name: "QQ overplay",               date: "Apr 21, 25", stakes: "1/3",  loc: "Lucky Chances", positions: "CO", multiway: false, board: ["9♣","5♥","5♦","A♠","—"],  type: "3BP", tags: ["leak","review"],   result: -320,   fav: false },
+  { id: "b2m1xy", name: "Aces hold",                 date: "Apr 20, 25", stakes: "2/5",  loc: "Bay 101",       positions: "BTN", multiway: true,  board: ["T♠","7♦","2♣","—","—"],   type: "4BP", tags: ["premium","win"],   result: 1250,   fav: true  },
+  { id: "h6t3rs", name: "Suited connector flush",    date: "Apr 18, 25", stakes: "1/2",  loc: "Lucky Chances", positions: "BB",  multiway: true,  board: ["8♥","6♥","3♥","J♥","2♣"], type: "SRP", tags: ["draw","flush"],    result: 42,     fav: false },
+  { id: "r9w2vc", name: "JJ vs ace-high",            date: "Apr 14, 25", stakes: "2/5",  loc: "Bay 101",       positions: "MP",  multiway: false, board: ["A♣","8♦","4♠","—","—"],   type: "SRP", tags: ["fold-equity"],     result: -200,   fav: false },
+  { id: "a1c8bn", name: "Double-barrel BTN",         date: "Apr 10, 25", stakes: "1/3",  loc: "Hustler",       positions: "BTN", multiway: false, board: ["T♥","9♣","3♠","5♦","—"],  type: "3BP", tags: ["barrel","win"],    result: 615,    fav: true  },
+  { id: "c4d8mp", name: "Set over set",              date: "Apr 08, 25", stakes: "2/5",  loc: "Bay 101",       positions: "CO",  multiway: true,  board: ["Q♣","Q♦","7♠","3♣","—"],  type: "SRP", tags: ["cooler","review"], result: -540,   fav: false },
 ];
+
+// Hero's position only — older saves stored "X vs Y", strip back to the hero side.
+function heroPositionOf(h: SavedHand): string {
+  const raw = (h.positions || "").trim();
+  if (!raw) return "—";
+  const i = raw.toLowerCase().indexOf(" vs ");
+  return i >= 0 ? raw.slice(0, i).trim() : raw;
+}
+
+// Multiway flag — derived on the fly when the row predates the field.
+function multiwayOf(h: SavedHand): boolean | null {
+  if (typeof h.multiway === "boolean") return h.multiway;
+  if (h._full?.actions && typeof h._full.playerCount === "number") {
+    return isMultiway({
+      playerCount: h._full.playerCount,
+      actions: h._full.actions,
+    });
+  }
+  return null;
+}
 
 // Four-color deck on the dashboard's dark background:
 //   ♠ near-white (the "black" suit), ♣ green, ♦ blue, ♥ red.
@@ -370,7 +390,7 @@ function EditableName({
 }
 
 const ROW_COLS =
-  "grid-cols-[28px_28px_minmax(160px,1.6fr)_92px_minmax(120px,1fr)_70px_110px_180px_minmax(140px,1.4fr)_90px]";
+  "grid-cols-[28px_28px_minmax(160px,1.6fr)_92px_minmax(120px,1fr)_70px_70px_80px_180px_minmax(140px,1.4fr)_90px]";
 
 function HandListRow({
   hand,
@@ -440,7 +460,22 @@ function HandListRow({
         ${hand.stakes}
       </span>
       <span className="text-[12px] text-zinc-300 font-mono tracking-tight">
-        {hand.positions}
+        {heroPositionOf(hand)}
+      </span>
+      <span
+        className={`text-[12px] tabular-nums ${
+          multiwayOf(hand) === null
+            ? "text-muted-foreground italic"
+            : multiwayOf(hand)
+              ? "text-[oklch(0.795_0.184_155)]"
+              : "text-zinc-400"
+        }`}
+      >
+        {multiwayOf(hand) === null
+          ? "—"
+          : multiwayOf(hand)
+            ? "Yes"
+            : "No"}
       </span>
       <div className="flex items-center gap-0.5">
         {hand.board.map((c, i) => (
@@ -538,6 +573,7 @@ export default function Dashboard({
   const [playersFilter, setPlayersFilter] = useState<Set<string>>(new Set());
   const [resultFilter, setResultFilter] = useState<Set<string>>(new Set());
   const [positionsFilter, setPositionsFilter] = useState<Set<string>>(new Set());
+  const [multiwayFilter, setMultiwayFilter] = useState<Set<string>>(new Set());
 
   // Distinct values discovered from the dataset, used to populate dropdowns.
   const filterOptions = useMemo(() => {
@@ -552,7 +588,8 @@ export default function Dashboard({
       h.tags.forEach((t) => tags.add(t));
       const pc = h._full?.playerCount;
       if (typeof pc === "number") players.add(String(pc));
-      if (h.positions) positions.add(h.positions);
+      const hp = heroPositionOf(h);
+      if (hp && hp !== "—") positions.add(hp);
     }
     const toOpts = (s: Set<string>) =>
       [...s].sort().map((v) => ({ value: v, label: v }));
@@ -574,6 +611,10 @@ export default function Dashboard({
         { value: "breakeven", label: "Break-even" },
       ],
       positions: toOpts(positions),
+      multiway: [
+        { value: "yes", label: "Multiway" },
+        { value: "no", label: "Heads-up" },
+      ],
     };
   }, [hands]);
 
@@ -592,8 +633,17 @@ export default function Dashboard({
           h.result > 0 ? "win" : h.result < 0 ? "loss" : "breakeven";
         if (!resultFilter.has(bucket)) return false;
       }
-      if (positionsFilter.size && !positionsFilter.has(h.positions))
+      if (
+        positionsFilter.size &&
+        !positionsFilter.has(heroPositionOf(h))
+      )
         return false;
+      if (multiwayFilter.size) {
+        const m = multiwayOf(h);
+        if (m === null) return false;
+        const tag = m ? "yes" : "no";
+        if (!multiwayFilter.has(tag)) return false;
+      }
       if (
         search &&
         !`${h.name} ${h.loc} ${h.positions} ${h.tags.join(" ")} ${h.notes ?? ""}`
@@ -613,6 +663,7 @@ export default function Dashboard({
     playersFilter,
     resultFilter,
     positionsFilter,
+    multiwayFilter,
     search,
   ]);
 
@@ -725,6 +776,12 @@ export default function Dashboard({
               onChange={setPlayersFilter}
             />
             <FilterDropdown
+              label="Multiway"
+              options={filterOptions.multiway}
+              selected={multiwayFilter}
+              onChange={setMultiwayFilter}
+            />
+            <FilterDropdown
               label="Result"
               options={filterOptions.result}
               selected={resultFilter}
@@ -784,7 +841,8 @@ export default function Dashboard({
             <SortHeader label="Date" sortKey="date" sort={sort} setSort={setSort} />
             <SortHeader label="Venue" sortKey="loc" sort={sort} setSort={setSort} />
             <SortHeader label="Stakes" sortKey="stakes" sort={sort} setSort={setSort} />
-            <PlainHeader label="Positions" />
+            <PlainHeader label="Position" />
+            <PlainHeader label="Multiway" />
             <PlainHeader label="Board" />
             <PlainHeader label="Tags" />
             <SortHeader

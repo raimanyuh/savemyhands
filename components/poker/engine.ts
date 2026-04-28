@@ -43,11 +43,15 @@ export type RecorderState = {
   notes: string;
   venue: string;
   date: string; // ISO yyyy-mm-dd
+  // Per-action annotations, keyed by index into `actions`. Surface in the
+  // replayer beneath the action narration when the corresponding step plays.
+  annotations: Record<number, string>;
 };
 
 export type Event =
   | { type: "setPlayerCount"; n: number }
   | { type: "updatePlayer"; seat: number; patch: Partial<Player> }
+  | { type: "setAllStacks"; stack: number }
   | { type: "setBlinds"; sb: number; bb: number }
   | { type: "setStraddle"; on: boolean; amt?: number }
   | { type: "setHeroPosition"; position: number }
@@ -64,10 +68,13 @@ export type Event =
   | { type: "startPlay" }
   | { type: "recordAction"; action: Omit<Action, "street"> }
   | { type: "undoAction" }
+  | { type: "setAnnotation"; index: number; text: string }
   | { type: "advanceStreet" }
   | { type: "rewindStreet" }
   | { type: "goShowdown" }
-  | { type: "finish" };
+  | { type: "finish" }
+  | { type: "loadSetup"; setup: Partial<RecorderState> }
+  | { type: "resetHand" };
 
 export function defaultPlayers(n: number): Player[] {
   return Array.from({ length: n }, (_, i) => ({
@@ -104,6 +111,66 @@ export function initialState(n = 6): RecorderState {
     notes: "",
     venue: "",
     date: todayIso(),
+    annotations: {},
+  };
+}
+
+// Persisted setup defaults (player count, blinds, straddle, starting stack).
+// Loaded into a fresh recorder so the user doesn't re-enter every time.
+export type SetupDefaults = {
+  playerCount: number;
+  sb: number;
+  bb: number;
+  straddleOn: boolean;
+  straddleAmt: number;
+  defaultStack: number;
+};
+
+export const DEFAULTS_KEY = "smh:defaults";
+
+export function readSetupDefaults(): SetupDefaults | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(DEFAULTS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SetupDefaults>;
+    if (
+      typeof parsed.playerCount === "number" &&
+      typeof parsed.sb === "number" &&
+      typeof parsed.bb === "number" &&
+      typeof parsed.defaultStack === "number"
+    ) {
+      return {
+        playerCount: parsed.playerCount,
+        sb: parsed.sb,
+        bb: parsed.bb,
+        straddleOn: !!parsed.straddleOn,
+        straddleAmt: parsed.straddleAmt ?? parsed.bb * 2,
+        defaultStack: parsed.defaultStack,
+      };
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
+export function writeSetupDefaults(d: SetupDefaults) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(DEFAULTS_KEY, JSON.stringify(d));
+}
+
+export function initialStateFromDefaults(): RecorderState {
+  const d = readSetupDefaults();
+  if (!d) return initialState(6);
+  const base = initialState(d.playerCount);
+  return {
+    ...base,
+    sb: d.sb,
+    bb: d.bb,
+    straddleOn: d.straddleOn,
+    straddleAmt: d.straddleAmt,
+    players: base.players.map((p) => ({ ...p, stack: d.defaultStack })),
   };
 }
 
@@ -151,6 +218,10 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
       const players = state.players.map((p) =>
         p.seat === ev.seat ? { ...p, ...ev.patch } : p,
       );
+      return { ...state, players };
+    }
+    case "setAllStacks": {
+      const players = state.players.map((p) => ({ ...p, stack: ev.stack }));
       return { ...state, players };
     }
     case "setBlinds":
@@ -230,8 +301,87 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
     }
     case "undoAction": {
       if (!state.actions.length) return state;
-      return { ...state, actions: state.actions.slice(0, -1) };
+      // Drop the annotation tied to the removed action so indices stay aligned.
+      const removedIdx = state.actions.length - 1;
+      const annotations = { ...state.annotations };
+      delete annotations[removedIdx];
+      const newActions = state.actions.slice(0, -1);
+
+      // Walk forward from preflop and advance through any street that's still
+      // closed AND whose next-street cards remain on the board — i.e. replay
+      // what the auto-advance effect would land on given this action set. Stop
+      // at the first open street; that's our resolved phase.
+      const streets: Street[] = ["preflop", "flop", "turn", "river"];
+      let resolvedPhase: Phase = "preflop";
+      for (const ph of streets) {
+        const test = { ...state, actions: newActions, phase: ph };
+        const d = deriveStreet(test);
+        if (!d) {
+          resolvedPhase = ph;
+          break;
+        }
+        const nextFilled =
+          ph === "preflop"
+            ? !!(state.board[0] && state.board[1] && state.board[2])
+            : ph === "flop"
+              ? !!state.board[3]
+              : ph === "turn"
+                ? !!state.board[4]
+                : false;
+        if (d.streetClosed && nextFilled && ph !== "river") {
+          resolvedPhase = streets[streets.indexOf(ph) + 1];
+          continue;
+        }
+        resolvedPhase = ph;
+        break;
+      }
+
+      // Clear any board cards that belong to streets we've fallen back past —
+      // otherwise the felt would still show a flop/turn that nobody has acted on.
+      const board = state.board.slice() as (string | null)[];
+      if (resolvedPhase === "preflop") {
+        for (let i = 0; i < 5; i++) board[i] = null;
+      } else if (resolvedPhase === "flop") {
+        board[3] = null;
+        board[4] = null;
+      } else if (resolvedPhase === "turn") {
+        board[4] = null;
+      }
+
+      // If we rewound out of showdown, there can't be any leftover muck flags
+      // that might be misapplied to the new phase.
+      const muckedSeats =
+        state.phase === "showdown" || state.phase === "done"
+          ? []
+          : state.muckedSeats;
+
+      return {
+        ...state,
+        actions: newActions,
+        annotations,
+        phase: resolvedPhase,
+        board,
+        muckedSeats,
+      };
     }
+    case "setAnnotation": {
+      const annotations = { ...state.annotations };
+      const trimmed = ev.text.trim();
+      if (trimmed) annotations[ev.index] = trimmed;
+      else delete annotations[ev.index];
+      return { ...state, annotations };
+    }
+    case "loadSetup": {
+      // Merge a saved/default setup payload into the current state. Only used
+      // pre-play to seed the recorder — after `startPlay` the action log is
+      // live and shouldn't be overwritten.
+      if (state.phase !== "setup") return state;
+      return { ...state, ...ev.setup };
+    }
+    case "resetHand":
+      // Wipe the current draft and re-seed from the user's saved defaults.
+      // Used by Cancel — keeps the user on /record without losing their config.
+      return initialStateFromDefaults();
     case "advanceStreet": {
       const order: Phase[] = ["preflop", "flop", "turn", "river", "showdown"];
       const i = order.indexOf(state.phase as Phase);

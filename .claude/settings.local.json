@@ -6,7 +6,10 @@
       "Bash(tar -tzf design.tar.gz)",
       "Bash(tar -xzf design.tar.gz)",
       "Bash(npx next *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(npx --no-install tsc --noEmit)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(npx --no-install next lint)"
     ]
   }
 }

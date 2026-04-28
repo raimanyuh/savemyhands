@@ -127,4 +127,15 @@
   html {
     @apply font-sans;
   }
+  /* Hide spinner buttons on number inputs — typing the value directly is the
+     primary affordance and the spinners introduce noisy width changes. */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
 }

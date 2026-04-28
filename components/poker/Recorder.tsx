@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import {
   Check,
   ChevronRight,
+  MessageSquarePlus,
   Minus,
   Plus,
   RotateCcw,
+  Save,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,12 +28,14 @@ import {
   committedBySeat,
   deriveStreet,
   formatAction,
-  initialState,
+  initialStateFromDefaults,
   reducer,
+  readSetupDefaults,
   totalPot,
+  writeSetupDefaults,
 } from "./engine";
 import type { Action, ActionType, Player, RecorderState } from "./engine";
-import type { SavedHand } from "./hand";
+import { isMultiway, type SavedHand } from "./hand";
 import { determineWinner, type HandScore } from "./hand-eval";
 
 // Convert a cycle index (BTN=0 etc.) to a visual seat slot (0=bottom, then
@@ -243,8 +248,13 @@ function ActionBar({
           onClick={placeBet}
           size="lg"
           disabled={cannotBet}
-          style={{ background: EMERALD, color: BG, fontWeight: 600 }}
-          className="hover:!bg-[oklch(0.745_0.198_155)] disabled:opacity-50"
+          style={{
+            background: EMERALD,
+            color: BG,
+            fontWeight: 600,
+            minWidth: 196,
+          }}
+          className="hover:!bg-[oklch(0.745_0.198_155)] disabled:opacity-50 tabular-nums justify-center"
         >
           {isBetMode ? "Bet" : "Raise to"} ${Number(amount || 0).toLocaleString()}
         </Button>
@@ -280,6 +290,50 @@ function SetupBar({
   const hero = state.players[heroPosition];
   const heroOk = !!(hero?.cards?.[0] && hero?.cards?.[1]);
   const positions = POSITION_NAMES[playerCount];
+
+  // Stack-default editor: seeded from hero's stack (first stack you'd typically
+  // adjust). "Apply to all" pushes this value to every seat.
+  const [stackInput, setStackInput] = useState(String(hero?.stack ?? 200));
+  const applyToAllStacks = () => {
+    const n = Number(stackInput);
+    if (!Number.isFinite(n) || n <= 0) return;
+    dispatch({ type: "setAllStacks", stack: n });
+  };
+
+  const [savedFlash, setSavedFlash] = useState(false);
+  const saveAsDefault = () => {
+    const n = Number(stackInput);
+    const stack = Number.isFinite(n) && n > 0 ? n : (hero?.stack ?? 200);
+    writeSetupDefaults({
+      playerCount,
+      sb,
+      bb,
+      straddleOn,
+      straddleAmt,
+      defaultStack: stack,
+    });
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 1500);
+  };
+
+  const resetToDefaults = () => {
+    const d = readSetupDefaults();
+    if (!d) return;
+    dispatch({
+      type: "loadSetup",
+      setup: {
+        playerCount: d.playerCount,
+        sb: d.sb,
+        bb: d.bb,
+        straddleOn: d.straddleOn,
+        straddleAmt: d.straddleAmt,
+      },
+    });
+    dispatch({ type: "setAllStacks", stack: d.defaultStack });
+    setStackInput(String(d.defaultStack));
+  };
+
+  const hasDefaults = readSetupDefaults() !== null;
 
   return (
     <div
@@ -401,9 +455,40 @@ function SetupBar({
 
         <div className="flex flex-col gap-2">
           <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            Stack
+          </span>
+          <div className="flex items-center gap-1.5">
+            <Input
+              type="number"
+              value={stackInput}
+              min={1}
+              onChange={(e) => setStackInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyToAllStacks();
+              }}
+              className="w-20 h-9 text-sm text-center"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={applyToAllStacks}
+              title="Set every seat's starting stack to this value"
+            >
+              Apply to all
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
             Hero position
           </span>
-          <div className="flex items-center gap-1 flex-wrap max-w-[320px]">
+          {/* Fixed-size 5x2 grid: stays the same dimensions whether N=2 or N=9
+              so the SetupBar doesn't reflow when player count changes. */}
+          <div
+            className="grid grid-cols-5 gap-1 content-start"
+            style={{ width: 266, minHeight: 60 }}
+          >
             {positions.map((label, cycleIdx) => {
               const isActive = cycleIdx === heroPosition;
               return (
@@ -413,7 +498,7 @@ function SetupBar({
                   onClick={() =>
                     dispatch({ type: "setHeroPosition", position: cycleIdx })
                   }
-                  className={`h-7 px-2 rounded-md text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors cursor-pointer border ${
+                  className={`h-7 px-1 rounded-md text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors cursor-pointer border ${
                     isActive
                       ? "bg-[oklch(0.696_0.205_155_/_0.18)] text-[oklch(0.795_0.184_155)] border-[oklch(0.696_0.205_155_/_0.4)]"
                       : "bg-transparent text-zinc-300 border-white/10 hover:bg-white/5"
@@ -446,6 +531,30 @@ function SetupBar({
           Click your two hole cards to start.
         </div>
       )}
+      <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-center gap-2 flex-wrap">
+        <span className="text-[11px] text-zinc-500">
+          Defaults — players, blinds, straddle, stack
+        </span>
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={saveAsDefault}
+          title="Save this configuration as the default for new hands"
+        >
+          {savedFlash ? <Check /> : <Save />}
+          {savedFlash ? "Saved" : "Save as default"}
+        </Button>
+        {hasDefaults && (
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={resetToDefaults}
+            title="Reset this hand's setup to your saved default"
+          >
+            <RotateCcw /> Reset to default
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -453,20 +562,42 @@ function SetupBar({
 function ActionLog({
   state,
   derivedTotalPot,
+  dispatch,
 }: {
   state: RecorderState;
   derivedTotalPot: number;
+  dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
 }) {
+  // Editing state for the per-action annotation popover. `null` = nothing open.
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+
   if (!state.actions.length && state.phase === "setup") return null;
+
+  // Group actions while preserving their original index in state.actions —
+  // annotations are keyed by that index.
   const grouped = (["preflop", "flop", "turn", "river"] as const)
     .map((ph) => ({
       street: ph,
-      acts: state.actions.filter((a) => a.street === ph),
+      acts: state.actions
+        .map((a, i) => ({ a, i }))
+        .filter(({ a }) => a.street === ph),
     }))
     .filter((g) => g.acts.length);
 
+  const startEdit = (idx: number) => {
+    setEditing(idx);
+    setDraft(state.annotations[idx] ?? "");
+  };
+  const commit = () => {
+    if (editing === null) return;
+    dispatch({ type: "setAnnotation", index: editing, text: draft });
+    setEditing(null);
+  };
+  const cancel = () => setEditing(null);
+
   return (
-    <div className="rounded-xl border border-white/10 bg-[oklch(0.205_0_0)] px-4 py-3 w-full max-w-[1100px] max-h-[180px] overflow-auto">
+    <div className="rounded-xl border border-white/10 bg-[oklch(0.205_0_0)] px-4 py-3 w-full max-w-[1100px] max-h-[280px] overflow-auto">
       <div className="flex items-center gap-2 mb-2">
         <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
           Action log
@@ -474,12 +605,15 @@ function ActionLog({
         <span className="text-[11px] text-zinc-500 tabular-nums">
           pot ${derivedTotalPot}
         </span>
+        <span className="text-[11px] text-zinc-600 ml-auto">
+          Hover an action to add a thought
+        </span>
       </div>
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         {grouped.map(({ street, acts }) => (
           <div key={street} className="flex items-start gap-3">
             <span
-              className="px-1.5 h-5 inline-flex items-center rounded text-[10px] font-semibold uppercase tracking-[0.16em] shrink-0"
+              className="px-1.5 h-5 inline-flex items-center rounded text-[10px] font-semibold uppercase tracking-[0.16em] shrink-0 mt-0.5"
               style={{
                 background: "oklch(1 0 0 / 0.05)",
                 color: "oklch(0.708 0 0)",
@@ -488,8 +622,98 @@ function ActionLog({
             >
               {street}
             </span>
-            <div className="text-[13px] text-zinc-200 leading-snug">
-              {acts.map((a) => formatAction(a, state.playerCount)).join(" · ")}
+            <div className="flex flex-wrap gap-x-2 gap-y-1 min-w-0 flex-1">
+              {acts.map(({ a, i }, k) => {
+                const note = state.annotations[i];
+                const isEditing = editing === i;
+                return (
+                  <div key={i} className="flex flex-col group min-w-0">
+                    <div className="flex items-center gap-1 text-[13px] text-zinc-200 leading-snug">
+                      <span>
+                        {formatAction(a, state.playerCount)}
+                        {k < acts.length - 1 && (
+                          <span className="text-zinc-600 ml-2">·</span>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => startEdit(i)}
+                        title={note ? "Edit thought" : "Add a thought"}
+                        className={`inline-flex items-center justify-center w-5 h-5 rounded text-[oklch(0.55_0.005_60)] hover:text-[oklch(0.795_0.184_155)] hover:bg-white/5 cursor-pointer transition-opacity ${
+                          note ? "opacity-100 text-[oklch(0.795_0.184_155)]" : "opacity-0 group-hover:opacity-100"
+                        }`}
+                        aria-label={note ? "Edit annotation" : "Add annotation"}
+                      >
+                        <MessageSquarePlus size={12} />
+                      </button>
+                    </div>
+                    {note && !isEditing && (
+                      <button
+                        type="button"
+                        onClick={() => startEdit(i)}
+                        className="mt-1 text-left max-w-[420px] rounded-md border border-[oklch(0.696_0.205_155_/_0.3)] bg-[oklch(0.696_0.205_155_/_0.06)] px-2 py-1 text-[12px] text-zinc-200 leading-snug hover:bg-[oklch(0.696_0.205_155_/_0.10)] cursor-text"
+                      >
+                        {note}
+                      </button>
+                    )}
+                    {isEditing && (
+                      <div className="mt-1 flex flex-col gap-1.5 max-w-[420px]">
+                        <textarea
+                          autoFocus
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              cancel();
+                            } else if (
+                              e.key === "Enter" &&
+                              (e.metaKey || e.ctrlKey)
+                            ) {
+                              e.preventDefault();
+                              commit();
+                            }
+                          }}
+                          placeholder="What were you thinking on this action?"
+                          className="w-full min-h-[60px] rounded-md border border-input bg-background px-2 py-1.5 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 resize-y"
+                        />
+                        <div className="flex items-center gap-1.5">
+                          <Button size="xs" onClick={commit}>
+                            <Check /> Save
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={cancel}
+                          >
+                            <X /> Cancel
+                          </Button>
+                          {note && (
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => {
+                                dispatch({
+                                  type: "setAnnotation",
+                                  index: i,
+                                  text: "",
+                                });
+                                setEditing(null);
+                              }}
+                              className="text-[oklch(0.704_0.191_22.216)]"
+                            >
+                              Remove
+                            </Button>
+                          )}
+                          <span className="text-[10px] text-zinc-600 ml-auto">
+                            ⌘↵ save · esc cancel
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}
@@ -500,7 +724,9 @@ function ActionLog({
 
 export default function Recorder() {
   const router = useRouter();
-  const [state, dispatch] = useReducer(reducer, undefined, () => initialState(6));
+  const [state, dispatch] = useReducer(reducer, undefined, () =>
+    initialStateFromDefaults(),
+  );
   const derived = useMemo(() => deriveStreet(state), [state]);
 
   // Used cards (so the picker greys out duplicates)
@@ -642,7 +868,11 @@ export default function Recorder() {
       date: displayDate,
       stakes: `${state.sb}/${state.bb}`,
       loc: state.venue.trim() || "—",
-      positions: `${posNames[heroPos]} vs others`,
+      positions: posNames[heroPos] ?? "",
+      multiway: isMultiway({
+        playerCount: state.playerCount,
+        actions: state.actions,
+      }),
       board: padded,
       type: "SRP",
       tags: [],
@@ -663,6 +893,10 @@ export default function Recorder() {
         notes: state.notes.trim() || undefined,
         venue: state.venue.trim() || undefined,
         date: state.date,
+        annotations:
+          Object.keys(state.annotations).length > 0
+            ? { ...state.annotations }
+            : undefined,
       },
     };
     hands.unshift(newHand);
@@ -677,6 +911,31 @@ export default function Recorder() {
         ? "draft · showdown"
         : `draft · ${state.phase}`;
 
+  // Has the user entered anything that would be lost on a navigation away?
+  const isDirty = () =>
+    state.phase !== "setup" ||
+    state.actions.length > 0 ||
+    !!state.players[state.heroPosition]?.cards?.[0] ||
+    !!state.players[state.heroPosition]?.cards?.[1] ||
+    state.notes.trim().length > 0 ||
+    state.handName !== "New hand" ||
+    state.venue.trim().length > 0;
+
+  // Cancel discards the in-progress hand and re-seeds setup from defaults.
+  // Stays on /record — leaving is what the back link is for.
+  const handleCancel = () => {
+    if (isDirty() && !window.confirm("Discard this hand and start over?"))
+      return;
+    dispatch({ type: "resetHand" });
+  };
+
+  // Back link → /dashboard. Confirm if there's unsaved work.
+  const handleBack = () => {
+    if (isDirty() && !window.confirm("Leave without saving this hand?"))
+      return false;
+    return true;
+  };
+
   return (
     <Shell
       header={
@@ -684,12 +943,13 @@ export default function Recorder() {
           title=""
           back="Dashboard"
           backHref="/dashboard"
+          onBack={handleBack}
           right={
             <>
               <span className="text-xs font-mono text-muted-foreground">
                 {phaseLabel}
               </span>
-              <Button variant="outline" size="sm" onClick={() => router.push("/dashboard")}>
+              <Button variant="outline" size="sm" onClick={handleCancel}>
                 Cancel
               </Button>
               <Button
@@ -997,6 +1257,7 @@ export default function Recorder() {
           <ActionLog
             state={state}
             derivedTotalPot={derived?.totalPot ?? totalPot(state)}
+            dispatch={dispatch}
           />
         )}
 

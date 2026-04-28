@@ -19,11 +19,14 @@ export function Header({
   title,
   back,
   backHref,
+  onBack,
   right,
 }: {
   title?: string;
   back?: string;
   backHref?: string;
+  // If provided, called on click and can cancel navigation by returning false.
+  onBack?: () => boolean | void;
   right?: React.ReactNode;
 }) {
   return (
@@ -32,6 +35,10 @@ export function Header({
         {back && backHref && (
           <Link
             href={backHref}
+            onClick={(e) => {
+              if (!onBack) return;
+              if (onBack() === false) e.preventDefault();
+            }}
             className="text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             ← {back}
