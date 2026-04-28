@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -20,8 +20,9 @@ import {
   StackDisplay,
   TableSurface,
 } from "./table-pieces";
-import { CardSlot } from "./CardPicker";
+import { CardRow, CardSlot } from "./CardPicker";
 import {
+  committedBySeat,
   deriveStreet,
   formatAction,
   initialState,
@@ -30,6 +31,70 @@ import {
 } from "./engine";
 import type { Action, ActionType, Player, RecorderState } from "./engine";
 import type { SavedHand } from "./hand";
+import { determineWinner, type HandScore } from "./hand-eval";
+
+// Convert a cycle index (BTN=0 etc.) to a visual seat slot (0=bottom, then
+// clockwise). Hero is always at visual slot 0.
+function cycleToVisual(cycleIdx: number, heroPos: number, n: number): number {
+  return (cycleIdx - heroPos + n) % n;
+}
+
+// Inline-editable title at the top of the recorder.
+function HandNameDisplay({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (v: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const ref = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (editing) {
+      ref.current?.focus();
+      ref.current?.select();
+    }
+  }, [editing]);
+
+  const commit = () => {
+    const next = draft.trim() || value;
+    onCommit(next);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={ref}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          else if (e.key === "Escape") {
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+        className="text-xl font-semibold tracking-tight bg-transparent outline-none border-b border-white/30 min-w-[220px] max-w-[420px]"
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
+      className="text-xl font-semibold tracking-tight cursor-text outline-none hover:text-zinc-300 transition-colors text-left"
+    >
+      {value}
+    </button>
+  );
+}
 
 const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_HOVER = "oklch(0.745 0.198 155)";
@@ -44,7 +109,8 @@ function ActionBar({
   derived: NonNullable<ReturnType<typeof deriveStreet>>;
   dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
 }) {
-  const { activeSeat, toCall, canCheck, minRaise, totalPot: tp, lastBet } = derived;
+  const { activeSeat, toCall, canCheck, minRaise, totalPot: tp, lastBet, committed, bets } =
+    derived;
   const seat = activeSeat !== null ? state.players[activeSeat] : null;
   const posName =
     activeSeat !== null
@@ -55,6 +121,16 @@ function ActionBar({
   const [amount, setAmount] = useState(String(minRaise));
 
   if (!seat || activeSeat === null) return null;
+
+  // Live remaining stack = initial stack minus everything already committed
+  // across blinds + previous streets + bets so far this street.
+  const seatCommitted = committed[activeSeat] || 0;
+  const liveStack = Math.max(0, seat.stack - seatCommitted);
+  // "Bet to X" / "Raise to X" amounts are absolute — they include what's
+  // already in front of the player on this street. So all-in amount is the
+  // total they could put in front of them this street.
+  const seatStreetCommitted = bets[activeSeat] || 0;
+  const allInAmount = seatStreetCommitted + liveStack;
 
   const fold = () =>
     dispatch({ type: "recordAction", action: { seat: activeSeat, action: "fold" } });
@@ -82,12 +158,17 @@ function ActionBar({
   const fillPot = (frac: number) => {
     const potAfter = tp + toCall;
     const target = Math.round(lastBet + frac * potAfter);
-    setAmount(String(Math.max(target, minRaise)));
+    setAmount(String(Math.min(allInAmount, Math.max(target, minRaise))));
   };
-  const allIn = () => setAmount(String(seat.stack));
+  const allIn = () => setAmount(String(allInAmount));
 
   const isBetMode = lastBet === 0;
-  const cannotBet = isBetMode ? Number(amount) <= 0 : Number(amount) < minRaise;
+  const amt = Number(amount);
+  // Allow short-stack all-ins below minRaise (they're valid even if they don't
+  // technically reopen action). Disallow betting more than the seat has.
+  const cannotBet = isBetMode
+    ? amt <= 0 || amt > allInAmount
+    : amt > allInAmount || (amt < minRaise && amt !== allInAmount);
 
   return (
     <div
@@ -117,7 +198,7 @@ function ActionBar({
         </span>
         <span className="text-[12px] text-zinc-500">·</span>
         <span className="text-[12px] tabular-nums text-zinc-400">
-          stack ${seat.stack.toLocaleString()}
+          stack ${liveStack.toLocaleString()}
         </span>
         <span className="text-[12px] text-zinc-500">·</span>
         <span className="text-[12px] tabular-nums text-zinc-400">
@@ -194,9 +275,11 @@ function SetupBar({
   dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
   onStart: () => void;
 }) {
-  const { playerCount, sb, bb, straddleOn, straddleAmt } = state;
+  const { playerCount, sb, bb, straddleOn, straddleAmt, heroPosition } = state;
   const canStraddle = playerCount >= 4;
-  const heroOk = !!(state.players[0].cards?.[0] && state.players[0].cards?.[1]);
+  const hero = state.players[heroPosition];
+  const heroOk = !!(hero?.cards?.[0] && hero?.cards?.[1]);
+  const positions = POSITION_NAMES[playerCount];
 
   return (
     <div
@@ -318,6 +401,33 @@ function SetupBar({
 
         <div className="flex flex-col gap-2">
           <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            Hero position
+          </span>
+          <div className="flex items-center gap-1 flex-wrap max-w-[320px]">
+            {positions.map((label, cycleIdx) => {
+              const isActive = cycleIdx === heroPosition;
+              return (
+                <button
+                  key={cycleIdx}
+                  type="button"
+                  onClick={() =>
+                    dispatch({ type: "setHeroPosition", position: cycleIdx })
+                  }
+                  className={`h-7 px-2 rounded-md text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors cursor-pointer border ${
+                    isActive
+                      ? "bg-[oklch(0.696_0.205_155_/_0.18)] text-[oklch(0.795_0.184_155)] border-[oklch(0.696_0.205_155_/_0.4)]"
+                      : "bg-transparent text-zinc-300 border-white/10 hover:bg-white/5"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
             Begin
           </span>
           <Button
@@ -401,12 +511,15 @@ export default function Recorder() {
     return s;
   }, [state.players, state.board]);
 
-  const seatPositions = Array.from(
-    { length: state.playerCount },
-    (_, i) => seatXY(i, state.playerCount),
-  );
-  const posNames = POSITION_NAMES[state.playerCount];
-  const btnIdx = 0;
+  const N = state.playerCount;
+  const heroPos = state.heroPosition;
+  // Visual seat positions, indexed by visual slot (0 = bottom-center / hero).
+  const visualSeatPos = Array.from({ length: N }, (_, i) => seatXY(i, N));
+  // Helper: render-time visual slot for a given cycle-indexed seat.
+  const visualOf = (cycleIdx: number) => cycleToVisual(cycleIdx, heroPos, N);
+  const posNames = POSITION_NAMES[N];
+  // Dealer button is always at cycle 0 (BTN). Bring it to its visual slot.
+  const btnVisual = visualOf(0);
 
   const setupPot =
     state.sb +
@@ -417,22 +530,22 @@ export default function Recorder() {
       ? setupPot
       : derived?.totalPot ?? totalPot(state);
 
-  // Setup-phase blind/straddle bubbles
+  // Setup-phase blind/straddle bubbles, keyed by cycle index.
   const setupBets = useMemo(() => {
     if (state.phase !== "setup") return null;
     const b: Record<number, number> = {};
-    if (state.playerCount === 2) {
+    if (N === 2) {
       b[0] = state.sb;
       b[1] = state.bb;
     } else {
       b[1] = state.sb;
       b[2] = state.bb;
-      if (state.straddleOn && state.playerCount >= 4) b[3] = state.straddleAmt;
+      if (state.straddleOn && N >= 4) b[3] = state.straddleAmt;
     }
     return b;
   }, [
     state.phase,
-    state.playerCount,
+    N,
     state.sb,
     state.bb,
     state.straddleOn,
@@ -440,8 +553,26 @@ export default function Recorder() {
   ]);
 
   const playBets = derived?.bets || {};
-  const folded = derived?.folded || new Set<number>();
+  // Compute folded directly from the action log so it stays accurate in setup
+  // and showdown phases (deriveStreet returns null in those, which would leave
+  // `folded` empty and break the showdown panel's survivor filter).
+  const folded = useMemo(() => {
+    const s = new Set<number>();
+    for (const a of state.actions) if (a.action === "fold") s.add(a.seat);
+    return s;
+  }, [state.actions]);
   const activeSeat = derived?.activeSeat;
+  const muckedSet = useMemo(
+    () => new Set(state.muckedSeats),
+    [state.muckedSeats],
+  );
+  // Live stacks (initial - everything committed) for every seat. derived.committed
+  // is null in setup/showdown/done — fall back to a fresh compute so showdown
+  // panels still show the post-hand stacks.
+  const committed = useMemo(
+    () => derived?.committed ?? committedBySeat(state),
+    [derived, state],
+  );
 
   const flopFilled = !!(state.board[0] && state.board[1] && state.board[2]);
   const turnFilled = !!state.board[3];
@@ -473,37 +604,51 @@ export default function Recorder() {
     return null;
   })();
 
-  const saveHand = (winnerSeat: number | null) => {
+  const saveHand = (winnerSeats: number[] | null) => {
     const hands: SavedHand[] = JSON.parse(localStorage.getItem("smh:hands") || "[]");
     const finalPot = totalPot(state);
     const heroPaid = state.actions
       .filter(
         (a: Action) =>
-          a.seat === 0 && (a.action === "call" || a.action === "bet" || a.action === "raise"),
+          a.seat === heroPos &&
+          (a.action === "call" || a.action === "bet" || a.action === "raise"),
       )
       .reduce((sum, a) => sum + (a.amount ?? 0), 0);
-    const result = winnerSeat === 0 ? finalPot : -heroPaid;
+    // Hero is in the winner set: take their share of the pot. Otherwise they
+    // lose what they put in. Split pots divide the pot evenly across winners.
+    const heroWon = winnerSeats?.includes(heroPos) ?? false;
+    const heroShare = heroWon
+      ? Math.round(finalPot / Math.max(1, winnerSeats!.length))
+      : 0;
+    const result = heroWon ? heroShare - heroPaid : -heroPaid;
     const id = Math.random().toString(36).slice(2, 8);
     const board = state.board.filter((c): c is string => Boolean(c));
     const padded: string[] = [...board];
     while (padded.length < 5) padded.push("—");
 
+    // Render the user-chosen ISO date as "Mon DD, YY" for the dashboard column.
+    // We parse as local time to avoid the off-by-one timezone shift.
+    const [yy, mm, dd] = state.date.split("-").map(Number);
+    const dateObj = new Date(yy, (mm || 1) - 1, dd || 1);
+    const displayDate = dateObj.toLocaleDateString("en-US", {
+      month: "short",
+      day: "2-digit",
+      year: "2-digit",
+    });
+
     const newHand: SavedHand = {
       id,
-      name: "Untitled hand",
-      date: new Date().toLocaleDateString("en-US", {
-        month: "short",
-        day: "2-digit",
-        year: "2-digit",
-      }),
+      name: state.handName.trim() || "Untitled hand",
+      date: displayDate,
       stakes: `${state.sb}/${state.bb}`,
-      loc: "—",
-      positions: `${posNames[0]} vs others`,
+      loc: state.venue.trim() || "—",
+      positions: `${posNames[heroPos]} vs others`,
       board: padded,
       type: "SRP",
       tags: [],
       result,
       fav: false,
+      notes: state.notes.trim() || undefined,
       _full: {
         players: state.players,
         actions: state.actions,
@@ -511,8 +656,13 @@ export default function Recorder() {
         sb: state.sb,
         bb: state.bb,
         playerCount: state.playerCount,
+        heroPosition: state.heroPosition,
         straddleOn: state.straddleOn,
         straddleAmt: state.straddleAmt,
+        muckedSeats: [...state.muckedSeats],
+        notes: state.notes.trim() || undefined,
+        venue: state.venue.trim() || undefined,
+        date: state.date,
       },
     };
     hands.unshift(newHand);
@@ -545,7 +695,14 @@ export default function Recorder() {
               <Button
                 size="sm"
                 onClick={() => saveHand(null)}
-                disabled={state.actions.length === 0}
+                disabled={
+                  state.phase !== "showdown" && state.phase !== "done"
+                }
+                title={
+                  state.phase !== "showdown" && state.phase !== "done"
+                    ? "Play through to showdown before saving"
+                    : undefined
+                }
                 style={{ background: EMERALD, color: BG, fontWeight: 600 }}
                 className="hover:!bg-[oklch(0.745_0.198_155)] disabled:opacity-50"
               >
@@ -556,14 +713,46 @@ export default function Recorder() {
         />
       }
     >
-      <div className="flex-1 flex flex-col items-center px-6 py-8 gap-6 max-w-[1600px] w-full mx-auto">
-        <div className="flex items-center gap-3 self-start">
-          <h2 className="text-xl font-semibold tracking-tight">New hand</h2>
+      <div className="flex-1 flex flex-col items-center px-6 py-6 gap-5 max-w-[1600px] w-full mx-auto">
+        {/* Title row: editable hand name + phase hint + venue + date inline. */}
+        <div className="self-stretch flex items-center gap-x-4 gap-y-2 flex-wrap">
+          <HandNameDisplay
+            value={state.handName}
+            onCommit={(name) => dispatch({ type: "setHandName", name })}
+          />
           <span className="text-sm text-muted-foreground">
             {state.phase === "setup"
               ? "· set up the table, then start the hand"
               : `· ${state.phase}`}
           </span>
+          <div className="flex-1" />
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Venue
+            </span>
+            <Input
+              type="text"
+              placeholder="—"
+              value={state.venue}
+              onChange={(e) =>
+                dispatch({ type: "setVenue", venue: e.target.value })
+              }
+              className="h-8 w-44 text-sm"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Date
+            </span>
+            <Input
+              type="date"
+              value={state.date}
+              onChange={(e) =>
+                dispatch({ type: "setDate", date: e.target.value })
+              }
+              className="h-8 w-40 text-sm"
+            />
+          </div>
         </div>
 
         {/* Table */}
@@ -583,65 +772,76 @@ export default function Recorder() {
             >
               ${pot}
             </span>
-            <div className="flex gap-1.5">
-              {[0, 1, 2, 3, 4].map((i) => {
-                const c = state.board[i];
-                return (
-                  <CardSlot
-                    key={i}
-                    card={c}
-                    size="md"
-                    disabled={state.phase === "setup"}
-                    used={usedCards}
-                    onPick={(card) => dispatch({ type: "setBoard", idx: i, card })}
-                    onClear={
-                      c ? () => dispatch({ type: "clearCard", card: c }) : undefined
-                    }
-                    label={`Board card ${i + 1}`}
-                  />
-                );
-              })}
-            </div>
+            <CardRow
+              cards={state.board}
+              used={usedCards}
+              disabled={state.phase === "setup"}
+              autoAdvanceCount={3}
+              size="md"
+              ariaLabelPrefix="Board card"
+              // Pulse the empty slots when we're waiting for the next street.
+              highlight={
+                !!derived?.streetClosed &&
+                ((state.phase === "preflop" && !flopFilled) ||
+                  (state.phase === "flop" && !turnFilled) ||
+                  (state.phase === "turn" && !riverFilled))
+              }
+              onPick={(idx, card) =>
+                dispatch({ type: "setBoard", idx, card })
+              }
+              onClear={(card) => dispatch({ type: "clearCard", card })}
+            />
             <span className="text-white/15 font-medium tracking-[0.28em] uppercase text-[10px] pointer-events-none">
               savemyhands
             </span>
           </div>
 
-          <DealerButtonChip seatPos={seatPositions[btnIdx]} />
+          <DealerButtonChip seatPos={visualSeatPos[btnVisual]} />
 
-          {/* Bet bubbles */}
+          {/* Bet bubbles — positions are cycle-indexed; render at visual slot. */}
           {state.phase === "setup"
-            ? Object.entries(setupBets || {}).map(([s, amt]) => (
-                <BetBubble
-                  key={s}
-                  seatPos={seatPositions[Number(s)]}
-                  amount={amt}
-                />
-              ))
-            : Object.entries(playBets).map(([s, amt]) => {
-                const seat = Number(s);
-                if (!amt || folded.has(seat)) return null;
+            ? Object.entries(setupBets || {}).map(([s, amt]) => {
+                const cycleIdx = Number(s);
+                const v = visualOf(cycleIdx);
                 return (
                   <BetBubble
-                    key={seat}
-                    seatPos={seatPositions[seat]}
+                    key={cycleIdx}
+                    seatPos={visualSeatPos[v]}
                     amount={amt}
+                    isHero={v === 0}
+                  />
+                );
+              })
+            : Object.entries(playBets).map(([s, amt]) => {
+                const cycleIdx = Number(s);
+                if (!amt || folded.has(cycleIdx)) return null;
+                const v = visualOf(cycleIdx);
+                return (
+                  <BetBubble
+                    key={cycleIdx}
+                    seatPos={visualSeatPos[v]}
+                    amount={amt}
+                    isHero={v === 0}
                   />
                 );
               })}
 
-          {/* Seats */}
-          {seatPositions.map((p, i) => {
-            const player: Player = state.players[i];
-            const isFolded = folded.has(i);
+          {/* Seats — iterate VISUAL slots; map back to cycle for player data. */}
+          {visualSeatPos.map((p, visualI) => {
+            const cycleIdx = (heroPos + visualI) % N;
+            const player: Player = state.players[cycleIdx];
+            const isHero = visualI === 0;
+            const isFolded = folded.has(cycleIdx);
+            const isMucked = muckedSet.has(cycleIdx);
+            const dimmed = isFolded || isMucked;
             const isActive =
-              activeSeat === i &&
+              activeSeat === cycleIdx &&
               state.phase !== "setup" &&
               state.phase !== "showdown";
             const cards = player.cards;
             return (
               <div
-                key={i}
+                key={visualI}
                 className="absolute z-10"
                 style={{
                   left: `${p.left}%`,
@@ -657,8 +857,8 @@ export default function Recorder() {
                   }`}
                   style={{
                     minWidth: 100,
-                    opacity: isFolded ? 0.32 : 1,
-                    filter: isFolded ? "grayscale(0.6)" : "none",
+                    opacity: dimmed ? 0.32 : 1,
+                    filter: dimmed ? "grayscale(0.6)" : "none",
                     background: isActive
                       ? "rgba(20, 60, 40, 0.85)"
                       : "rgba(9,9,11,0.85)",
@@ -669,74 +869,96 @@ export default function Recorder() {
                   }}
                 >
                   <span className="text-[12px] font-semibold text-zinc-300 leading-none tracking-[0.14em] uppercase">
-                    {posNames[i]}
+                    {posNames[cycleIdx]}
                   </span>
                   <NameDisplay
                     value={player.name}
                     onCommit={(n) =>
-                      dispatch({ type: "updatePlayer", seat: i, patch: { name: n } })
+                      dispatch({
+                        type: "updatePlayer",
+                        seat: cycleIdx,
+                        patch: { name: n },
+                      })
                     }
-                    placeholder={i === 0 ? "Hero" : "Player"}
+                    placeholder={isHero ? "Hero" : "Player"}
                   />
                   <StackDisplay
-                    value={player.stack}
+                    value={Math.max(0, player.stack - (committed[cycleIdx] || 0))}
                     onCommit={(n) =>
-                      dispatch({ type: "updatePlayer", seat: i, patch: { stack: n } })
+                      dispatch({
+                        type: "updatePlayer",
+                        seat: cycleIdx,
+                        patch: { stack: n + (committed[cycleIdx] || 0) },
+                      })
                     }
                   />
-                  {isFolded && (
+                  {(isFolded || isMucked) && (
                     <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[oklch(0.55_0.005_60)] leading-none">
-                      Folded
+                      {isMucked ? "Mucked" : "Folded"}
                     </span>
                   )}
                 </div>
                 {/* Hole cards */}
-                {i === 0 ? (
+                {isHero ? (
                   <div
-                    className="absolute left-1/2 -translate-x-1/2 -top-24 flex gap-1.5"
+                    className="absolute left-1/2 -translate-x-1/2 -top-24"
                     style={{ opacity: isFolded ? 0.3 : 1 }}
                   >
-                    {[0, 1].map((j) => (
-                      <CardSlot
-                        key={j}
-                        card={cards?.[j]}
-                        size="md"
-                        used={usedCards}
-                        onPick={(c) =>
-                          dispatch({ type: "setHeroCard", idx: j as 0 | 1, card: c })
-                        }
-                        onClear={
-                          cards?.[j]
-                            ? () => dispatch({ type: "clearCard", card: cards[j]! })
-                            : undefined
-                        }
-                        label={`Hero card ${j + 1}`}
-                      />
-                    ))}
+                    <CardRow
+                      cards={[cards?.[0] ?? null, cards?.[1] ?? null]}
+                      used={usedCards}
+                      autoAdvanceCount={2}
+                      size="md"
+                      ariaLabelPrefix="Hero card"
+                      // Glow during setup if cards aren't filled yet — hero
+                      // hole cards are required before "Start hand" works.
+                      highlight={
+                        state.phase === "setup" &&
+                        (!cards?.[0] || !cards?.[1])
+                      }
+                      onPick={(idx, c) =>
+                        dispatch({
+                          type: "setHeroCard",
+                          idx: idx as 0 | 1,
+                          card: c,
+                        })
+                      }
+                      onClear={(c) => dispatch({ type: "clearCard", card: c })}
+                    />
                   </div>
                 ) : (
-                  !isFolded && (
+                  !isFolded &&
+                  !muckedSet.has(cycleIdx) && (
                     <div
                       className="absolute left-1/2 -translate-x-1/2 -top-14 flex gap-1"
                       style={{ opacity: isFolded ? 0.3 : 1 }}
                     >
                       {[0, 1].map((j) => {
                         const c = cards?.[j];
+                        // Villain hole cards can only be entered at showdown.
+                        // Pre-showdown the slots render as locked card backs.
+                        const villainEditable = state.phase === "showdown";
                         return c ? (
                           <CardSlot
                             key={j}
                             card={c}
                             size="sm"
                             used={usedCards}
+                            disabled={!villainEditable}
                             onPick={(card) =>
                               dispatch({
                                 type: "setOppCard",
-                                seat: i,
+                                seat: cycleIdx,
                                 idx: j as 0 | 1,
                                 card,
                               })
                             }
-                            onClear={() => dispatch({ type: "clearCard", card: c })}
+                            onClear={
+                              villainEditable
+                                ? () =>
+                                    dispatch({ type: "clearCard", card: c })
+                                : undefined
+                            }
                           />
                         ) : (
                           <CardSlot
@@ -744,16 +966,17 @@ export default function Recorder() {
                             card={"__face_down__"}
                             faceDown
                             size="sm"
+                            disabled={!villainEditable}
                             used={usedCards}
                             onPick={(card) =>
                               dispatch({
                                 type: "setOppCard",
-                                seat: i,
+                                seat: cycleIdx,
                                 idx: j as 0 | 1,
                                 card,
                               })
                             }
-                            label={`Reveal ${posNames[i]}'s card ${j + 1}`}
+                            label={`Reveal ${posNames[cycleIdx]}'s card ${j + 1}`}
                           />
                         );
                       })}
@@ -764,6 +987,10 @@ export default function Recorder() {
             );
           })}
         </TableSurface>
+
+        {/* Below-table area: action stuff on the left, notes on the right. */}
+        <div className="self-stretch flex flex-col lg:flex-row gap-5 items-stretch">
+          <div className="flex-1 flex flex-col gap-4 min-w-0">
 
         {/* Action log */}
         {state.phase !== "setup" && state.actions.length > 0 && (
@@ -838,65 +1065,283 @@ export default function Recorder() {
             </>
           )}
 
-        {(state.phase === "showdown" || state.phase === "done") && (
-          <div
-            className="rounded-2xl border border-[oklch(0.696_0.205_155_/_0.4)] px-6 py-5 flex flex-col gap-4 w-full max-w-[820px]"
-            style={{ background: "oklch(0.696 0.205 155 / 0.06)" }}
-          >
-            <div className="flex items-center gap-3 flex-wrap">
-              <span
-                className="px-2 h-6 inline-flex items-center rounded-md text-[10px] font-semibold uppercase tracking-[0.18em]"
-                style={{
-                  background: "oklch(0.696 0.205 155 / 0.18)",
-                  color: EMERALD_HOVER,
-                  border: "1px solid oklch(0.696 0.205 155 / 0.4)",
-                }}
-              >
-                Showdown
-              </span>
-              <span className="text-[14px] text-zinc-200">
-                {derived?.handOver
-                  ? "All others folded."
-                  : "Reveal opponent hands by clicking their cards above."}
-              </span>
-              <div className="flex-1" />
-              <span className="text-[14px] tabular-nums text-zinc-300">
-                Pot ${derived?.totalPot ?? totalPot(state)}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[12px] text-zinc-400 mr-2">Winner:</span>
-              {state.players
-                .filter((p) => !folded.has(p.seat))
-                .map((p) => (
-                  <Button
-                    key={p.seat}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => saveHand(p.seat)}
+        {(state.phase === "showdown" || state.phase === "done") && (() => {
+          // Survivors = made it to showdown (didn't fold preflop/postflop).
+          const survivors = state.players.filter((p) => !folded.has(p.seat));
+          const villainSurvivors = survivors.filter(
+            (p) => p.seat !== heroPos,
+          );
+          // Each villain is "decided" once they've either shown cards or mucked.
+          const isShown = (p: Player) =>
+            !!(p.cards?.[0] && p.cards?.[1]);
+          const villainsAwaiting = villainSurvivors.filter(
+            (v) => !muckedSet.has(v.seat) && !isShown(v),
+          );
+
+          // Hero alone if everyone else folded or mucked.
+          const heroAlone =
+            villainSurvivors.length === 0 ||
+            villainSurvivors.every((v) => muckedSet.has(v.seat));
+
+          let winners: number[] = [];
+          let scores: Record<number, HandScore> = {};
+          let evalError: string | null = null;
+
+          const board5 = state.board.filter((c): c is string => Boolean(c));
+          const heroCards = state.players[heroPos].cards;
+          const heroCardsOk = !!(heroCards?.[0] && heroCards?.[1]);
+
+          if (heroAlone) {
+            winners = [heroPos];
+          } else if (villainsAwaiting.length === 0) {
+            if (board5.length < 5) {
+              evalError =
+                "Fill in the rest of the board to determine the winner.";
+            } else if (!heroCardsOk) {
+              evalError = "Hero hole cards are missing.";
+            } else {
+              const contestants = [
+                state.players[heroPos],
+                ...villainSurvivors.filter(
+                  (v) => !muckedSet.has(v.seat) && isShown(v),
+                ),
+              ]
+                .filter(isShown)
+                .map((p) => ({
+                  seat: p.seat,
+                  cards: [p.cards![0]!, p.cards![1]!],
+                }));
+              try {
+                const out = determineWinner(contestants, board5);
+                winners = out.winners;
+                scores = out.scores;
+              } catch (e) {
+                evalError = (e as Error).message;
+              }
+            }
+          }
+
+          const decided =
+            heroAlone || villainsAwaiting.length === 0;
+          const canSave = winners.length > 0;
+          const heroWonShare =
+            winners.includes(heroPos) && winners.length > 0
+              ? Math.round(
+                  (derived?.totalPot ?? totalPot(state)) / winners.length,
+                )
+              : 0;
+
+          return (
+            <div
+              className="rounded-2xl border border-[oklch(0.696_0.205_155_/_0.4)] px-5 py-4 flex flex-col gap-3 w-full max-w-[820px]"
+              style={{ background: "oklch(0.696 0.205 155 / 0.06)" }}
+            >
+              <div className="flex items-center gap-3 flex-wrap">
+                <span
+                  className="px-2 h-6 inline-flex items-center rounded-md text-[10px] font-semibold uppercase tracking-[0.18em]"
+                  style={{
+                    background: "oklch(0.696 0.205 155 / 0.18)",
+                    color: EMERALD_HOVER,
+                    border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+                  }}
+                >
+                  Showdown
+                </span>
+                <span className="text-[14px] text-zinc-200">
+                  {heroAlone
+                    ? "Everyone else folded or mucked."
+                    : "For each villain, click their cards above to reveal — or muck."}
+                </span>
+                <div className="flex-1" />
+                <span className="text-[14px] tabular-nums text-zinc-300">
+                  Pot ${derived?.totalPot ?? totalPot(state)}
+                </span>
+              </div>
+
+              {!heroAlone && (
+                <div className="flex flex-col gap-1.5">
+                  {villainSurvivors.map((v) => {
+                    const isMucked = muckedSet.has(v.seat);
+                    const shown = isShown(v);
+                    return (
+                      <div
+                        key={v.seat}
+                        className="flex items-center gap-3 px-3 h-10 rounded-lg border border-white/10 bg-zinc-900/40"
+                      >
+                        <span
+                          className="px-1.5 h-5 inline-flex items-center rounded text-[10px] font-semibold uppercase tracking-[0.14em] border"
+                          style={{
+                            background: "oklch(1 0 0 / 0.04)",
+                            color: "oklch(0.85 0 0)",
+                            borderColor: "oklch(1 0 0 / 0.1)",
+                          }}
+                        >
+                          {posNames[v.seat]}
+                        </span>
+                        {v.name && (
+                          <span className="text-[13px] text-zinc-200">
+                            {v.name}
+                          </span>
+                        )}
+                        <div className="flex-1" />
+                        {shown ? (
+                          <>
+                            <span className="text-[12px] text-[oklch(0.795_0.184_155)] tabular-nums">
+                              shows {v.cards![0]} {v.cards![1]}
+                              {scores[v.seat] && (
+                                <span className="text-zinc-400 ml-2">
+                                  · {scores[v.seat].description}
+                                </span>
+                              )}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => {
+                                if (v.cards?.[0])
+                                  dispatch({
+                                    type: "clearCard",
+                                    card: v.cards[0],
+                                  });
+                                if (v.cards?.[1])
+                                  dispatch({
+                                    type: "clearCard",
+                                    card: v.cards[1],
+                                  });
+                              }}
+                            >
+                              Edit
+                            </Button>
+                          </>
+                        ) : isMucked ? (
+                          <>
+                            <span className="text-[12px] text-zinc-500">
+                              mucks
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() =>
+                                dispatch({
+                                  type: "setMuck",
+                                  seat: v.seat,
+                                  mucked: false,
+                                })
+                              }
+                            >
+                              Undo
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-[11px] text-muted-foreground italic">
+                              click cards above to show
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                dispatch({
+                                  type: "setMuck",
+                                  seat: v.seat,
+                                  mucked: true,
+                                })
+                              }
+                            >
+                              Mucks
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Winner readout */}
+              {decided && winners.length > 0 && (
+                <div
+                  className="flex items-center gap-3 flex-wrap rounded-lg border px-3 py-2"
+                  style={{
+                    borderColor: "oklch(0.696 0.205 155 / 0.4)",
+                    background: "oklch(0.696 0.205 155 / 0.10)",
+                  }}
+                >
+                  <span
+                    className="px-2 h-5 inline-flex items-center rounded text-[10px] font-semibold uppercase tracking-[0.18em]"
+                    style={{
+                      background: "oklch(0.696 0.205 155 / 0.22)",
+                      color: EMERALD_HOVER,
+                      border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+                    }}
                   >
-                    <Check /> {posNames[p.seat]} {p.name && `(${p.name})`}
-                  </Button>
-                ))}
-              <div className="flex-1" />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => dispatch({ type: "undoAction" })}
-              >
-                <RotateCcw /> Back
-              </Button>
-              <Button
-                onClick={() => saveHand(null)}
-                size="lg"
-                style={{ background: EMERALD, color: BG, fontWeight: 600 }}
-                className="hover:!bg-[oklch(0.745_0.198_155)]"
-              >
-                Save hand
-              </Button>
+                    Winner
+                  </span>
+                  <span className="text-[14px] font-medium text-zinc-100">
+                    {winners.map((s) => posNames[s]).join(" & ")}
+                    {winners.length > 1 ? " — split pot" : ""}
+                  </span>
+                  {scores[heroPos] && (
+                    <span className="text-[12px] text-zinc-400">
+                      Hero: {scores[heroPos].description}
+                    </span>
+                  )}
+                  <div className="flex-1" />
+                  {winners.includes(heroPos) ? (
+                    <span className="text-[13px] tabular-nums text-[oklch(0.795_0.184_155)]">
+                      Hero +${heroWonShare.toLocaleString()}
+                    </span>
+                  ) : (
+                    <span className="text-[13px] tabular-nums text-[oklch(0.704_0.191_22.216)]">
+                      Hero loses
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {evalError && (
+                <div className="text-[12px] text-amber-300">{evalError}</div>
+              )}
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => dispatch({ type: "undoAction" })}
+                >
+                  <RotateCcw /> Back
+                </Button>
+                <div className="flex-1" />
+                <Button
+                  onClick={() => saveHand(canSave ? winners : null)}
+                  size="lg"
+                  disabled={!decided}
+                  style={{ background: EMERALD, color: BG, fontWeight: 600 }}
+                  className="hover:!bg-[oklch(0.745_0.198_155)] disabled:opacity-50"
+                >
+                  Save hand
+                </Button>
+              </div>
             </div>
+          );
+        })()}
           </div>
-        )}
+
+          {/* Notes — side column on wide viewports, stacked below otherwise. */}
+          <div className="w-full lg:w-[320px] flex flex-col gap-1.5 lg:flex-shrink-0">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+              Notes
+            </span>
+            <textarea
+              value={state.notes}
+              placeholder="Articulate your read, decision points, anything you want the viewer to know."
+              onChange={(e) =>
+                dispatch({ type: "setNotes", notes: e.target.value })
+              }
+              className="flex w-full min-w-0 rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none flex-1 min-h-[200px]"
+            />
+          </div>
+        </div>
       </div>
     </Shell>
   );

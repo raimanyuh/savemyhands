@@ -6,10 +6,19 @@ import { useEffect, useRef, useState } from "react";
 import type { SeatPos } from "./lib";
 
 // Bet bubble: chip token + dollar pill, sitting between a seat and the pot.
-// Bottom seats need a bigger nudge toward the pot because hero hole cards extend above the plate.
-export function BetBubble({ seatPos, amount }: { seatPos: SeatPos; amount: number }) {
-  const isBottom = seatPos.top > 60;
-  const t = isBottom ? 0.55 : 0.22;
+// Default placement is snug against the plate (t=0.22). Only the hero seat
+// (BTN at the very bottom, with full-size hole cards above it) needs a bigger
+// nudge toward the pot to clear the cards.
+export function BetBubble({
+  seatPos,
+  amount,
+  isHero = false,
+}: {
+  seatPos: SeatPos;
+  amount: number;
+  isHero?: boolean;
+}) {
+  const t = isHero ? 0.62 : 0.22;
   const left = seatPos.left + t * (50 - seatPos.left);
   const top = seatPos.top + t * (50 - seatPos.top);
   return (

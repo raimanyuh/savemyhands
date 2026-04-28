@@ -1,7 +1,7 @@
 // Shared geometry + constants for the poker table, used by PokerTable, Recorder, and Replayer.
 
-export const RING_A = 39; // horizontal semi-axis (% of table container width)
-export const RING_B = 32; // vertical semi-axis
+export const RING_A = 43; // horizontal semi-axis (% of table container width)
+export const RING_B = 40; // vertical semi-axis
 export const CX = 50;
 export const CY = 50;
 

@@ -15,6 +15,7 @@ export type SavedHand = {
   tags: string[];
   result: number;
   fav: boolean;
+  notes?: string;
   _full?: {
     players: Player[];
     actions: Action[];
@@ -22,8 +23,13 @@ export type SavedHand = {
     sb: number;
     bb: number;
     playerCount: number;
+    heroPosition?: number;
     straddleOn: boolean;
     straddleAmt: number;
+    muckedSeats?: number[];
+    notes?: string;
+    venue?: string;
+    date?: string;
   };
 };
 
@@ -43,6 +49,14 @@ export type ReplayHand = {
   straddleOn?: boolean;
   straddleAmt?: number;
   playerCount: number;
+  // Cycle index of the hero. Used to rotate the visual layout so the hero
+  // always sits at the bottom-center seat.
+  heroPosition?: number;
+  // Surviving villains who mucked at showdown — rendered like folded.
+  muckedSeats?: number[];
+  notes?: string;
+  venue?: string;
+  date?: string;
   players: {
     seat: number;
     name: string;
@@ -59,16 +73,17 @@ export function recordedToHand(rec: SavedHand): ReplayHand | null {
   const f = rec._full;
   const posNames = POSITION_NAMES[f.playerCount] || [];
 
+  const heroPos = f.heroPosition ?? 0;
   const players = f.players.map((p, i) => ({
     seat: i,
     name: p.name || `Seat ${i + 1}`,
     stack: p.stack,
     pos: posNames[i] || `S${i + 1}`,
-    cards: i === 0 ? p.cards : null,
+    cards: i === heroPos ? p.cards : null,
   }));
   // Reveal opponents whose hole cards were entered.
   f.players.forEach((p, i) => {
-    if (i === 0) return;
+    if (i === heroPos) return;
     if (p.cards && p.cards[0] && p.cards[1]) players[i].cards = p.cards;
   });
 
@@ -201,6 +216,11 @@ export function recordedToHand(rec: SavedHand): ReplayHand | null {
     straddleOn: f.straddleOn,
     straddleAmt: f.straddleAmt,
     playerCount: f.playerCount,
+    heroPosition: heroPos,
+    muckedSeats: f.muckedSeats ?? [],
+    notes: f.notes ?? rec.notes,
+    venue: f.venue ?? rec.loc,
+    date: f.date ?? rec.date,
     players,
     steps: steps.length
       ? steps
@@ -258,4 +278,63 @@ export function hasFolded(steps: ReplayStep[], upTo: number, seat: number): bool
     if (steps[i].action === "fold" && steps[i].active === seat) return true;
   }
   return false;
+}
+
+// Cumulative chips committed by each seat through step `upTo` (inclusive).
+// Used to display live stacks in the replayer.
+export function committedThroughStep(
+  steps: ReplayStep[],
+  upTo: number,
+  hand: ReplayHand,
+): Record<number, number> {
+  const total: Record<number, number> = {};
+  // Walk through each street segment we've passed (or are inside).
+  let curStreet: ReplayStep["street"] | null = null;
+  const streetSegments: { street: ReplayStep["street"]; lastIdx: number }[] = [];
+  for (let i = 0; i <= upTo; i++) {
+    if (steps[i].street !== curStreet) {
+      curStreet = steps[i].street;
+      streetSegments.push({ street: curStreet, lastIdx: i });
+    } else {
+      streetSegments[streetSegments.length - 1].lastIdx = i;
+    }
+  }
+
+  for (const { street, lastIdx } of streetSegments) {
+    if (street === "showdown") continue;
+    const streetBets: Record<number, number> = {};
+    let lastBet = 0;
+    if (street === "preflop") {
+      if (hand.playerCount === 2) {
+        streetBets[0] = hand.stakes.sb;
+        streetBets[1] = hand.stakes.bb;
+        lastBet = hand.stakes.bb;
+      } else {
+        streetBets[1] = hand.stakes.sb;
+        streetBets[2] = hand.stakes.bb;
+        lastBet = hand.stakes.bb;
+        if (hand.straddleOn && hand.playerCount >= 4 && hand.straddleAmt) {
+          streetBets[3] = hand.straddleAmt;
+          lastBet = hand.straddleAmt;
+        }
+      }
+    }
+    for (let i = 0; i <= lastIdx; i++) {
+      const s = steps[i];
+      if (s.street !== street) continue;
+      if (s.action === undefined || s.active === undefined) continue;
+      const m = /(?:raise|3-bet|4-bet|bet)\s+(\d+)/.exec(s.action);
+      if (m) {
+        const amt = Number(m[1]);
+        streetBets[s.active] = amt;
+        lastBet = amt;
+      } else if (s.action === "call") {
+        streetBets[s.active] = lastBet;
+      }
+    }
+    for (const [s, v] of Object.entries(streetBets)) {
+      total[Number(s)] = (total[Number(s)] || 0) + (v || 0);
+    }
+  }
+  return total;
 }

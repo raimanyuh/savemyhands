@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
   ChevronUp,
   Copy,
-  Info,
   LogOut,
   Plus,
   Search,
@@ -30,15 +30,17 @@ const SAMPLE_HANDS: SavedHand[] = [
   { id: "c4d8mp", name: "Set over set",              date: "Apr 08, 25", stakes: "2/5",  loc: "Bay 101",       positions: "CO vs BB",   board: ["Q♣","Q♦","7♠","3♣","—"],  type: "SRP", tags: ["cooler","review"], result: -540,   fav: false },
 ];
 
+// Four-color deck on the dashboard's dark background:
+//   ♠ near-white (the "black" suit), ♣ green, ♦ blue, ♥ red.
 const suitColor = (s: string) =>
   s === "♥"
-    ? "oklch(0.65 0.20 22)"
+    ? "oklch(0.7 0.20 22)"
     : s === "♦"
-      ? "oklch(0.7 0.18 35)"
+      ? "oklch(0.72 0.16 250)"
       : s === "♣"
-        ? "oklch(0.7 0.16 145)"
+        ? "oklch(0.7 0.17 145)"
         : s === "♠"
-          ? "oklch(0.92 0.005 60)"
+          ? "oklch(0.95 0.005 60)"
           : "transparent";
 
 function MiniCard({ card }: { card: string }) {
@@ -106,19 +108,171 @@ function TagChip({
   );
 }
 
-function FilterDropdown({ label }: { label: string }) {
+type FilterOption = { value: string; label: string };
+
+function FilterPopover({
+  anchor,
+  options,
+  selected,
+  onChange,
+  onClose,
+}: {
+  anchor: HTMLElement;
+  options: FilterOption[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  const rect = anchor.getBoundingClientRect();
+  const W = 220;
+  const top = rect.bottom + 6;
+  let left = rect.left;
+  left = Math.max(8, Math.min(window.innerWidth - W - 8, left));
+
+  const toggle = (v: string) => {
+    const next = new Set(selected);
+    if (next.has(v)) next.delete(v);
+    else next.add(v);
+    onChange(next);
+  };
+  const clearAll = () => onChange(new Set());
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-[200] rounded-lg overflow-hidden flex flex-col"
+      style={{
+        left,
+        top,
+        width: W,
+        background: "oklch(0.215 0.010 60)",
+        border: "1px solid oklch(1 0 0 / 0.12)",
+        boxShadow:
+          "0 24px 60px rgba(0,0,0,0.7), 0 6px 18px rgba(0,0,0,0.5)",
+      }}
+    >
+      <div className="max-h-[260px] overflow-auto py-1">
+        {options.length === 0 ? (
+          <div className="px-3 py-2 text-[12px] text-muted-foreground italic">
+            No options
+          </div>
+        ) : (
+          options.map((opt) => {
+            const checked = selected.has(opt.value);
+            return (
+              <label
+                key={opt.value}
+                className="flex items-center gap-2 px-3 py-1.5 text-[13px] text-zinc-200 cursor-pointer hover:bg-white/5"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggle(opt.value)}
+                  className="w-3.5 h-3.5 rounded-sm accent-[oklch(0.696_0.205_155)] cursor-pointer"
+                />
+                <span className="truncate">{opt.label}</span>
+              </label>
+            );
+          })
+        )}
+      </div>
+      {selected.size > 0 && (
+        <button
+          onClick={clearAll}
+          className="text-left px-3 py-2 text-[11px] text-muted-foreground hover:text-foreground border-t border-white/10 cursor-pointer"
+        >
+          Clear ({selected.size})
+        </button>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
+function FilterDropdown({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: FilterOption[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const count = selected.size;
+  const active = !!anchor;
   return (
-    <button className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[13px] font-medium border bg-transparent text-[oklch(0.85_0.005_60)] border-border hover:bg-muted transition-colors cursor-pointer">
-      {label}
-      <ChevronDown size={12} className="opacity-60" />
-    </button>
+    <>
+      <button
+        onClick={(e) => setAnchor(e.currentTarget)}
+        className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[13px] font-medium border transition-colors cursor-pointer ${
+          count > 0 || active
+            ? "bg-[oklch(0.285_0.012_60)] text-foreground border-[oklch(0.95_0.04_60_/_0.2)]"
+            : "bg-transparent text-[oklch(0.85_0.005_60)] border-border hover:bg-muted"
+        }`}
+      >
+        {label}
+        {count > 0 && (
+          <span className="text-[10px] font-semibold px-1 rounded bg-[oklch(0.696_0.205_155_/_0.2)] text-[oklch(0.795_0.184_155)] tabular-nums">
+            {count}
+          </span>
+        )}
+        <ChevronDown size={12} className="opacity-60" />
+      </button>
+      {anchor && (
+        <FilterPopover
+          anchor={anchor}
+          options={options}
+          selected={selected}
+          onChange={onChange}
+          onClose={() => setAnchor(null)}
+        />
+      )}
+    </>
   );
 }
 
 type SortKey = keyof Pick<
   SavedHand,
-  "name" | "date" | "stakes" | "positions" | "tags" | "result"
-> | "board";
+  "name" | "date" | "stakes" | "loc" | "result"
+>;
+
+function PlainHeader({
+  label,
+  align = "left",
+}: {
+  label: string;
+  align?: "left" | "right";
+}) {
+  return (
+    <div
+      className={`flex items-center h-9 px-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground ${
+        align === "right" ? "justify-end" : ""
+      }`}
+    >
+      {label}
+    </div>
+  );
+}
 
 function SortHeader({
   label,
@@ -216,7 +370,7 @@ function EditableName({
 }
 
 const ROW_COLS =
-  "grid-cols-[28px_28px_28px_minmax(160px,1.6fr)_92px_70px_110px_180px_minmax(140px,1.4fr)_90px]";
+  "grid-cols-[28px_28px_minmax(160px,1.6fr)_92px_minmax(120px,1fr)_70px_110px_180px_minmax(140px,1.4fr)_90px]";
 
 function HandListRow({
   hand,
@@ -268,16 +422,19 @@ function HandListRow({
           className={hand.fav ? "text-[oklch(0.85_0.15_85)]" : ""}
         />
       </button>
-      <button
-        onClick={(e) => e.stopPropagation()}
-        className="flex items-center justify-center text-[oklch(0.55_0.005_60)] hover:text-[oklch(0.85_0.005_60)] cursor-pointer"
-        aria-label="Hand info"
-      >
-        <Info size={14} />
-      </button>
       <EditableName value={hand.name} onChange={onRename} />
       <span className="text-[12px] text-muted-foreground tabular-nums">
         {hand.date}
+      </span>
+      <span
+        className={`text-[12px] truncate ${
+          hand.loc && hand.loc !== "—"
+            ? "text-zinc-300"
+            : "text-muted-foreground italic"
+        }`}
+        title={hand.loc}
+      >
+        {hand.loc && hand.loc !== "—" ? hand.loc : "—"}
       </span>
       <span className="text-[12px] text-zinc-300 tabular-nums">
         ${hand.stakes}
@@ -373,33 +530,106 @@ export default function Dashboard({
   });
   const [search, setSearch] = useState("");
 
-  const sorted = useMemo(() => {
-    const arr = hands.filter(
-      (h) =>
-        !search ||
-        `${h.name} ${h.loc} ${h.positions} ${h.tags.join(" ")}`
+  // Filter state — each filter holds the set of selected values; intersected with AND across.
+  const [potTypeFilter, setPotTypeFilter] = useState<Set<string>>(new Set());
+  const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
+  const [venueFilter, setVenueFilter] = useState<Set<string>>(new Set());
+  const [stakesFilter, setStakesFilter] = useState<Set<string>>(new Set());
+  const [playersFilter, setPlayersFilter] = useState<Set<string>>(new Set());
+  const [resultFilter, setResultFilter] = useState<Set<string>>(new Set());
+  const [positionsFilter, setPositionsFilter] = useState<Set<string>>(new Set());
+
+  // Distinct values discovered from the dataset, used to populate dropdowns.
+  const filterOptions = useMemo(() => {
+    const venues = new Set<string>();
+    const stakes = new Set<string>();
+    const tags = new Set<string>();
+    const players = new Set<string>();
+    const positions = new Set<string>();
+    for (const h of hands) {
+      if (h.loc && h.loc !== "—") venues.add(h.loc);
+      if (h.stakes) stakes.add(h.stakes);
+      h.tags.forEach((t) => tags.add(t));
+      const pc = h._full?.playerCount;
+      if (typeof pc === "number") players.add(String(pc));
+      if (h.positions) positions.add(h.positions);
+    }
+    const toOpts = (s: Set<string>) =>
+      [...s].sort().map((v) => ({ value: v, label: v }));
+    return {
+      potType: [
+        { value: "SRP", label: "SRP — single raised" },
+        { value: "3BP", label: "3BP — 3-bet pot" },
+        { value: "4BP", label: "4BP — 4-bet pot" },
+      ],
+      tags: toOpts(tags),
+      venue: toOpts(venues),
+      stakes: toOpts(stakes),
+      players: [...players]
+        .sort((a, b) => Number(a) - Number(b))
+        .map((v) => ({ value: v, label: `${v}-handed` })),
+      result: [
+        { value: "win", label: "Wins" },
+        { value: "loss", label: "Losses" },
+        { value: "breakeven", label: "Break-even" },
+      ],
+      positions: toOpts(positions),
+    };
+  }, [hands]);
+
+  const filtered = useMemo(() => {
+    return hands.filter((h) => {
+      if (potTypeFilter.size && !potTypeFilter.has(h.type)) return false;
+      if (tagFilter.size && !h.tags.some((t) => tagFilter.has(t))) return false;
+      if (venueFilter.size && !venueFilter.has(h.loc)) return false;
+      if (stakesFilter.size && !stakesFilter.has(h.stakes)) return false;
+      if (playersFilter.size) {
+        const pc = String(h._full?.playerCount ?? "");
+        if (!pc || !playersFilter.has(pc)) return false;
+      }
+      if (resultFilter.size) {
+        const bucket =
+          h.result > 0 ? "win" : h.result < 0 ? "loss" : "breakeven";
+        if (!resultFilter.has(bucket)) return false;
+      }
+      if (positionsFilter.size && !positionsFilter.has(h.positions))
+        return false;
+      if (
+        search &&
+        !`${h.name} ${h.loc} ${h.positions} ${h.tags.join(" ")} ${h.notes ?? ""}`
           .toLowerCase()
-          .includes(search.toLowerCase()),
-    );
+          .includes(search.toLowerCase())
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    hands,
+    potTypeFilter,
+    tagFilter,
+    venueFilter,
+    stakesFilter,
+    playersFilter,
+    resultFilter,
+    positionsFilter,
+    search,
+  ]);
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
     arr.sort((a, b) => {
       const k = sort.key;
-      let va: unknown = (a as Record<string, unknown>)[k];
-      let vb: unknown = (b as Record<string, unknown>)[k];
-      if (k === "tags") {
-        va = a.tags.join(" ");
-        vb = b.tags.join(" ");
-      }
-      if (k === "board") {
-        va = a.board.join("");
-        vb = b.board.join("");
-      }
+      const va: unknown = (a as Record<string, unknown>)[k];
+      const vb: unknown = (b as Record<string, unknown>)[k];
       if (typeof va === "string" && typeof vb === "string") {
         return va.localeCompare(vb) * (sort.dir === "asc" ? 1 : -1);
       }
       return ((va as number) - (vb as number)) * (sort.dir === "asc" ? 1 : -1);
     });
     return arr;
-  }, [hands, sort, search]);
+  }, [filtered, sort]);
+
 
   const toggleSel = (id: string) =>
     setSelected((s) => {
@@ -476,14 +706,49 @@ export default function Dashboard({
         {/* Filter bar */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
-            <FilterDropdown label="Positions" />
-            <FilterDropdown label="Stakes" />
-            <FilterDropdown label="Players" />
-            <FilterDropdown label="Result" />
-            <FilterDropdown label="Tags" />
+            <FilterDropdown
+              label="Positions"
+              options={filterOptions.positions}
+              selected={positionsFilter}
+              onChange={setPositionsFilter}
+            />
+            <FilterDropdown
+              label="Stakes"
+              options={filterOptions.stakes}
+              selected={stakesFilter}
+              onChange={setStakesFilter}
+            />
+            <FilterDropdown
+              label="Players"
+              options={filterOptions.players}
+              selected={playersFilter}
+              onChange={setPlayersFilter}
+            />
+            <FilterDropdown
+              label="Result"
+              options={filterOptions.result}
+              selected={resultFilter}
+              onChange={setResultFilter}
+            />
+            <FilterDropdown
+              label="Tags"
+              options={filterOptions.tags}
+              selected={tagFilter}
+              onChange={setTagFilter}
+            />
             <span className="w-px h-6 bg-border mx-1" />
-            <FilterDropdown label="Pot type" />
-            <FilterDropdown label="Venue" />
+            <FilterDropdown
+              label="Pot type"
+              options={filterOptions.potType}
+              selected={potTypeFilter}
+              onChange={setPotTypeFilter}
+            />
+            <FilterDropdown
+              label="Venue"
+              options={filterOptions.venue}
+              selected={venueFilter}
+              onChange={setVenueFilter}
+            />
           </div>
           <div className="relative">
             <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
@@ -515,15 +780,13 @@ export default function Dashboard({
             <div className="flex items-center justify-center text-muted-foreground">
               <Star size={12} />
             </div>
-            <div className="flex items-center justify-center text-muted-foreground">
-              <Info size={12} />
-            </div>
             <SortHeader label="Name" sortKey="name" sort={sort} setSort={setSort} />
             <SortHeader label="Date" sortKey="date" sort={sort} setSort={setSort} />
+            <SortHeader label="Venue" sortKey="loc" sort={sort} setSort={setSort} />
             <SortHeader label="Stakes" sortKey="stakes" sort={sort} setSort={setSort} />
-            <SortHeader label="Positions" sortKey="positions" sort={sort} setSort={setSort} />
-            <SortHeader label="Board" sortKey="board" sort={sort} setSort={setSort} />
-            <SortHeader label="Tags" sortKey="tags" sort={sort} setSort={setSort} />
+            <PlainHeader label="Positions" />
+            <PlainHeader label="Board" />
+            <PlainHeader label="Tags" />
             <SortHeader
               label="Result"
               sortKey="result"

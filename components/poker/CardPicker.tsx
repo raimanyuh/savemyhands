@@ -17,7 +17,7 @@ function pickerSuitColor(s: string): string {
   return "#fafafa";
 }
 
-function CardPicker({
+export function CardPicker({
   anchor,
   used,
   onPick,
@@ -257,5 +257,149 @@ export function CardSlot({
         />
       )}
     </div>
+  );
+}
+
+// CardRow — N card slots sharing one CardPicker. After picking slot i, if
+// `i + 1 < autoAdvanceCount` and the next slot is empty, the picker re-anchors
+// to the next slot instead of closing. Used for the flop (autoAdvance=3) and
+// hero hole cards (autoAdvance=2).
+export function CardRow({
+  cards,
+  used,
+  disabled,
+  onPick,
+  onClear,
+  size = "md",
+  autoAdvanceCount = 0,
+  gapClass = "gap-1.5",
+  ariaLabelPrefix = "Card",
+  highlight = false,
+}: {
+  cards: (string | null | undefined)[];
+  used: Set<string>;
+  disabled?: boolean;
+  onPick: (idx: number, card: string) => void;
+  onClear?: (card: string) => void;
+  size?: "sm" | "md";
+  autoAdvanceCount?: number;
+  gapClass?: string;
+  ariaLabelPrefix?: string;
+  // When true, empty slots glow emerald to signal "you must pick this".
+  highlight?: boolean;
+}) {
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const close = () => {
+    setOpenIdx(null);
+    setAnchor(null);
+  };
+
+  const openSlot = (i: number, el: HTMLButtonElement) => {
+    setOpenIdx(i);
+    setAnchor(el);
+  };
+
+  const handlePick = (card: string) => {
+    if (openIdx === null) return;
+    onPick(openIdx, card);
+    const nextIdx = openIdx + 1;
+    if (nextIdx < autoAdvanceCount && !cards[nextIdx]) {
+      const nextEl = buttonRefs.current[nextIdx];
+      if (nextEl) {
+        setOpenIdx(nextIdx);
+        setAnchor(nextEl);
+        return;
+      }
+    }
+    close();
+  };
+
+  const w = size === "sm" ? 36 : 56;
+  const h = size === "sm" ? 52 : 80;
+  const placeholderFontSize = size === "sm" ? 16 : 22;
+
+  return (
+    <>
+      <div className={`flex ${gapClass}`}>
+        {cards.map((c, i) => {
+          if (!c) {
+            const highlightActive = highlight && !disabled;
+            return (
+              <button
+                key={i}
+                ref={(el) => {
+                  buttonRefs.current[i] = el;
+                }}
+                disabled={disabled}
+                onClick={(e) => openSlot(i, e.currentTarget)}
+                aria-label={`${ariaLabelPrefix} ${i + 1}`}
+                className={`rounded-md flex items-center justify-center transition-all ${
+                  disabled
+                    ? "opacity-30 cursor-not-allowed"
+                    : "cursor-pointer hover:bg-white/5"
+                } ${highlightActive ? "animate-pulse" : ""}`}
+                style={{
+                  width: w,
+                  height: h,
+                  background: highlightActive
+                    ? "oklch(0.696 0.205 155 / 0.12)"
+                    : "oklch(0.18 0 0 / 0.6)",
+                  border: highlightActive
+                    ? "2px dashed oklch(0.696 0.205 155 / 0.7)"
+                    : "2px dashed oklch(1 0 0 / 0.2)",
+                  color: highlightActive
+                    ? "oklch(0.795 0.184 155)"
+                    : "oklch(0.5 0 0)",
+                  fontSize: placeholderFontSize,
+                  boxShadow: highlightActive
+                    ? "0 0 0 2px oklch(0.696 0.205 155 / 0.18), 0 6px 14px rgba(0,0,0,0.4)"
+                    : undefined,
+                }}
+              >
+                +
+              </button>
+            );
+          }
+          const rank = c.slice(0, -1);
+          const suit = c.slice(-1);
+          return (
+            <div key={i} className="relative group">
+              <button
+                ref={(el) => {
+                  buttonRefs.current[i] = el;
+                }}
+                onClick={(e) => openSlot(i, e.currentTarget)}
+                className="cursor-pointer transition-transform hover:-translate-y-0.5"
+                aria-label={`${ariaLabelPrefix} ${i + 1}`}
+              >
+                <PlayingCard rank={rank} suit={suit} size={size} />
+              </button>
+              {onClear && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClear(c);
+                  }}
+                  className="absolute -top-1.5 -right-1.5 size-4 rounded-full bg-zinc-900 border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label="Clear card"
+                >
+                  <X size={9} className="text-zinc-200" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {anchor && (
+        <CardPicker
+          anchor={anchor}
+          used={used}
+          onPick={handlePick}
+          onClose={close}
+        />
+      )}
+    </>
   );
 }
