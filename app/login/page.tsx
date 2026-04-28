@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { login } from "@/app/actions/auth";
+import { OAuthButtons } from "@/components/auth/OAuthButtons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,8 +26,16 @@ export default function LoginPage() {
           <CardTitle>Sign in</CardTitle>
           <CardDescription>Enter your credentials to continue</CardDescription>
         </CardHeader>
-        <form action={action}>
-          <CardContent className="flex flex-col gap-4">
+        <CardContent className="flex flex-col gap-4">
+          <OAuthButtons label="Continue with" />
+          <div className="relative flex items-center">
+            <div className="flex-1 border-t border-border" />
+            <span className="px-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+              or
+            </span>
+            <div className="flex-1 border-t border-border" />
+          </div>
+          <form action={action} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -52,19 +61,22 @@ export default function LoginPage() {
             {state.error && (
               <p className="text-sm text-destructive">{state.error}</p>
             )}
-          </CardContent>
-          <CardFooter className="flex flex-col gap-3">
             <Button type="submit" className="w-full" disabled={pending}>
               {pending ? "Signing in…" : "Sign in"}
             </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              No account?{" "}
-              <Link href="/signup" className="text-foreground underline-offset-4 hover:underline">
-                Sign up
-              </Link>
-            </p>
-          </CardFooter>
-        </form>
+          </form>
+        </CardContent>
+        <CardFooter>
+          <p className="w-full text-center text-sm text-muted-foreground">
+            No account?{" "}
+            <Link
+              href="/signup"
+              className="text-foreground underline-offset-4 hover:underline"
+            >
+              Sign up
+            </Link>
+          </p>
+        </CardFooter>
       </Card>
     </div>
   );

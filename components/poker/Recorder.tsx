@@ -1,7 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
+import { saveHandAction } from "@/lib/hands/actions";
 import {
   Check,
   ChevronRight,
@@ -26,17 +34,32 @@ import {
 import { CardRow, CardSlot } from "./CardPicker";
 import {
   committedBySeat,
+  committedBySeatFinal,
+  computeSidePots,
   deriveStreet,
   formatAction,
   initialStateFromDefaults,
   reducer,
   readSetupDefaults,
   totalPot,
+  totalPotFinal,
   writeSetupDefaults,
 } from "./engine";
-import type { Action, ActionType, Player, RecorderState } from "./engine";
-import { isMultiway, type SavedHand } from "./hand";
-import { determineWinner, type HandScore } from "./hand-eval";
+import type { ActionType, Player, RecorderState } from "./engine";
+import {
+  derivePotType,
+  isMultiway,
+  recordedToHand,
+  type SavedHand,
+} from "./hand";
+import { precomputeEquityByStep } from "./equity";
+import {
+  awardPots,
+  determineWinner,
+  seatWinnings,
+  type HandScore,
+  type PotAward,
+} from "./hand-eval";
 
 // Convert a cycle index (BTN=0 etc.) to a visual seat slot (0=bottom, then
 // clockwise). Hero is always at visual slot 0.
@@ -234,7 +257,11 @@ function ActionBar({
           </Button>
         ) : (
           <Button variant="outline" size="lg" onClick={call}>
-            Call ${toCall.toLocaleString()}
+            {toCall > liveStack ? (
+              <>Call ${liveStack.toLocaleString()} (all-in)</>
+            ) : (
+              <>Call ${toCall.toLocaleString()}</>
+            )}
           </Button>
         )}
         <span className="w-px h-7 bg-white/10 mx-1" />
@@ -727,6 +754,9 @@ export default function Recorder() {
   const [state, dispatch] = useReducer(reducer, undefined, () =>
     initialStateFromDefaults(),
   );
+  // Tracks the in-flight save so the button can disable itself while the
+  // server action runs.
+  const [savePending, startSave] = useTransition();
   const derived = useMemo(() => deriveStreet(state), [state]);
 
   // Used cards (so the picker greys out duplicates)
@@ -830,24 +860,15 @@ export default function Recorder() {
     return null;
   })();
 
-  const saveHand = (winnerSeats: number[] | null) => {
-    const hands: SavedHand[] = JSON.parse(localStorage.getItem("smh:hands") || "[]");
-    const finalPot = totalPot(state);
-    const heroPaid = state.actions
-      .filter(
-        (a: Action) =>
-          a.seat === heroPos &&
-          (a.action === "call" || a.action === "bet" || a.action === "raise"),
-      )
-      .reduce((sum, a) => sum + (a.amount ?? 0), 0);
-    // Hero is in the winner set: take their share of the pot. Otherwise they
-    // lose what they put in. Split pots divide the pot evenly across winners.
-    const heroWon = winnerSeats?.includes(heroPos) ?? false;
-    const heroShare = heroWon
-      ? Math.round(finalPot / Math.max(1, winnerSeats!.length))
-      : 0;
-    const result = heroWon ? heroShare - heroPaid : -heroPaid;
-    const id = Math.random().toString(36).slice(2, 8);
+  const saveHand = (awards: PotAward[][] | null) => {
+    // committedBySeatFinal applies the per-street uncalled-bet refund, so
+    // heroPaid here is the chips hero actually parted with — not the raw
+    // sum of bet/raise amounts (which double-counts re-raises and ignores
+    // refunds). seatWinnings sums per-pot allocations for hero, handling
+    // side pots and split-pot ties.
+    const heroPaid = committedBySeatFinal(state)[heroPos] ?? 0;
+    const heroWon = awards ? seatWinnings(awards, heroPos) : 0;
+    const result = heroWon - heroPaid;
     const board = state.board.filter((c): c is string => Boolean(c));
     const padded: string[] = [...board];
     while (padded.length < 5) padded.push("—");
@@ -862,8 +883,7 @@ export default function Recorder() {
       year: "2-digit",
     });
 
-    const newHand: SavedHand = {
-      id,
+    const newHand: Omit<SavedHand, "id"> = {
       name: state.handName.trim() || "Untitled hand",
       date: displayDate,
       stakes: `${state.sb}/${state.bb}`,
@@ -874,7 +894,7 @@ export default function Recorder() {
         actions: state.actions,
       }),
       board: padded,
-      type: "SRP",
+      type: derivePotType(state.actions),
       tags: [],
       result,
       fav: false,
@@ -899,9 +919,36 @@ export default function Recorder() {
             : undefined,
       },
     };
-    hands.unshift(newHand);
-    localStorage.setItem("smh:hands", JSON.stringify(hands));
-    router.push("/dashboard");
+
+    // Precompute per-step equity now (cheap, ~10ms × step count) so the
+    // replayer never recomputes. recordedToHand needs an `id` to typecheck;
+    // a placeholder is fine — we only read `steps` and `players` back from it.
+    try {
+      const replay = recordedToHand({ ...newHand, id: "tmp" } as SavedHand);
+      if (replay && newHand._full) {
+        const equityByStep = precomputeEquityByStep(replay);
+        if (Object.keys(equityByStep).length > 0) {
+          newHand._full = { ...newHand._full, equityByStep };
+        }
+      }
+    } catch (e) {
+      // Equity precompute failures shouldn't block the save — the replayer
+      // will fall back to live computation.
+      console.warn("Equity precompute failed; replayer will compute live.", e);
+    }
+
+    startSave(async () => {
+      try {
+        await saveHandAction(newHand);
+      } catch (e) {
+        console.error("Failed to save hand", e);
+        window.alert(
+          "Couldn't save the hand — check your connection and try again.",
+        );
+        return;
+      }
+      router.push("/dashboard");
+    });
   };
 
   const phaseLabel =
@@ -956,7 +1003,8 @@ export default function Recorder() {
                 size="sm"
                 onClick={() => saveHand(null)}
                 disabled={
-                  state.phase !== "showdown" && state.phase !== "done"
+                  savePending ||
+                  (state.phase !== "showdown" && state.phase !== "done")
                 }
                 title={
                   state.phase !== "showdown" && state.phase !== "done"
@@ -966,7 +1014,7 @@ export default function Recorder() {
                 style={{ background: EMERALD, color: BG, fontWeight: 600 }}
                 className="hover:!bg-[oklch(0.745_0.198_155)] disabled:opacity-50"
               >
-                Save hand
+                {savePending ? "Saving…" : "Save hand"}
               </Button>
             </>
           }
@@ -1188,60 +1236,62 @@ export default function Recorder() {
                   </div>
                 ) : (
                   !isFolded &&
-                  !muckedSet.has(cycleIdx) && (
-                    <div
-                      className="absolute left-1/2 -translate-x-1/2 -top-14 flex gap-1"
-                      style={{ opacity: isFolded ? 0.3 : 1 }}
-                    >
-                      {[0, 1].map((j) => {
-                        const c = cards?.[j];
-                        // Villain hole cards can only be entered at showdown.
-                        // Pre-showdown the slots render as locked card backs.
-                        const villainEditable = state.phase === "showdown";
-                        return c ? (
-                          <CardSlot
-                            key={j}
-                            card={c}
-                            size="sm"
+                  !muckedSet.has(cycleIdx) &&
+                  (() => {
+                    // Villain hole cards can only be entered at showdown.
+                    // Pre-showdown the slots render as locked card backs.
+                    const villainEditable =
+                      state.phase === "showdown" || state.phase === "done";
+                    if (villainEditable) {
+                      return (
+                        <div
+                          className="absolute left-1/2 -translate-x-1/2 -top-14"
+                          style={{ opacity: isFolded ? 0.3 : 1 }}
+                        >
+                          <CardRow
+                            cards={[cards?.[0] ?? null, cards?.[1] ?? null]}
                             used={usedCards}
-                            disabled={!villainEditable}
-                            onPick={(card) =>
+                            autoAdvanceCount={2}
+                            size="sm"
+                            gapClass="gap-1"
+                            ariaLabelPrefix={`${posNames[cycleIdx]} card`}
+                            // Glow until both cards are revealed so the user
+                            // sees what's required to finish the showdown.
+                            highlight={!cards?.[0] || !cards?.[1]}
+                            onPick={(idx, c) =>
                               dispatch({
                                 type: "setOppCard",
                                 seat: cycleIdx,
-                                idx: j as 0 | 1,
-                                card,
+                                idx: idx as 0 | 1,
+                                card: c,
                               })
                             }
-                            onClear={
-                              villainEditable
-                                ? () =>
-                                    dispatch({ type: "clearCard", card: c })
-                                : undefined
+                            onClear={(c) =>
+                              dispatch({ type: "clearCard", card: c })
                             }
                           />
-                        ) : (
+                        </div>
+                      );
+                    }
+                    return (
+                      <div
+                        className="absolute left-1/2 -translate-x-1/2 -top-14 flex gap-1"
+                        style={{ opacity: isFolded ? 0.3 : 1 }}
+                      >
+                        {[0, 1].map((j) => (
                           <CardSlot
                             key={j}
-                            card={"__face_down__"}
+                            card="__face_down__"
                             faceDown
                             size="sm"
-                            disabled={!villainEditable}
+                            disabled
                             used={usedCards}
-                            onPick={(card) =>
-                              dispatch({
-                                type: "setOppCard",
-                                seat: cycleIdx,
-                                idx: j as 0 | 1,
-                                card,
-                              })
-                            }
-                            label={`Reveal ${posNames[cycleIdx]}'s card ${j + 1}`}
+                            onPick={() => {}}
                           />
-                        );
-                      })}
-                    </div>
-                  )
+                        ))}
+                      </div>
+                    );
+                  })()
                 )}
               </div>
             );
@@ -1347,12 +1397,21 @@ export default function Recorder() {
           let winners: number[] = [];
           let scores: Record<number, HandScore> = {};
           let evalError: string | null = null;
+          let awards: PotAward[][] = [];
 
           const board5 = state.board.filter((c): c is string => Boolean(c));
           const heroCards = state.players[heroPos].cards;
           const heroCardsOk = !!(heroCards?.[0] && heroCards?.[1]);
+          const pots = computeSidePots(state);
+          const finalPot = totalPotFinal(state);
 
           if (heroAlone) {
+            // Everyone else folded or mucked — hero wins every pot they're
+            // part of. (In practice with everyone folded, hero is in every
+            // pot's eligibleSeats.)
+            awards = pots.map((p) => [
+              { amount: p.amount, winners: [heroPos] },
+            ]);
             winners = [heroPos];
           } else if (villainsAwaiting.length === 0) {
             if (board5.length < 5) {
@@ -1373,9 +1432,17 @@ export default function Recorder() {
                   cards: [p.cards![0]!, p.cards![1]!],
                 }));
               try {
-                const out = determineWinner(contestants, board5);
-                winners = out.winners;
-                scores = out.scores;
+                awards = awardPots(pots, contestants, board5);
+                // Aggregate distinct winners across pots for the summary
+                // header. Per-pot winners may differ in side-pot scenarios.
+                const winnerSet = new Set<number>();
+                for (const potAwards of awards)
+                  for (const a of potAwards)
+                    for (const w of a.winners) winnerSet.add(w);
+                winners = [...winnerSet];
+                // Reuse determineWinner just to populate per-seat hand
+                // descriptions (for the "shows X · top pair" annotation).
+                scores = determineWinner(contestants, board5).scores;
               } catch (e) {
                 evalError = (e as Error).message;
               }
@@ -1385,12 +1452,7 @@ export default function Recorder() {
           const decided =
             heroAlone || villainsAwaiting.length === 0;
           const canSave = winners.length > 0;
-          const heroWonShare =
-            winners.includes(heroPos) && winners.length > 0
-              ? Math.round(
-                  (derived?.totalPot ?? totalPot(state)) / winners.length,
-                )
-              : 0;
+          const heroWonShare = seatWinnings(awards, heroPos);
 
           return (
             <div
@@ -1415,9 +1477,42 @@ export default function Recorder() {
                 </span>
                 <div className="flex-1" />
                 <span className="text-[14px] tabular-nums text-zinc-300">
-                  Pot ${derived?.totalPot ?? totalPot(state)}
+                  Pot ${finalPot}
                 </span>
               </div>
+
+              {/* Side-pot breakdown — only render when there's more than one
+                  pot so the common single-pot case stays uncluttered. */}
+              {pots.length > 1 && (
+                <div className="flex flex-col gap-1 px-3 py-2 rounded-lg border border-white/10 bg-zinc-900/40 text-[12px]">
+                  {pots.map((p, i) => {
+                    const winnersForPot =
+                      awards[i]?.[0]?.winners ?? p.eligibleSeats;
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 tabular-nums"
+                      >
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground w-16 shrink-0">
+                          {i === 0 ? "Main" : `Side ${i}`}
+                        </span>
+                        <span className="text-zinc-300">${p.amount}</span>
+                        {decided && winnersForPot.length > 0 && (
+                          <>
+                            <span className="text-zinc-600">·</span>
+                            <span className="text-[oklch(0.795_0.184_155)]">
+                              {winnersForPot
+                                .map((s) => posNames[s])
+                                .join(" & ")}
+                              {winnersForPot.length > 1 ? " split" : ""}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {!heroAlone && (
                 <div className="flex flex-col gap-1.5">
@@ -1574,13 +1669,13 @@ export default function Recorder() {
                 </Button>
                 <div className="flex-1" />
                 <Button
-                  onClick={() => saveHand(canSave ? winners : null)}
+                  onClick={() => saveHand(canSave ? awards : null)}
                   size="lg"
-                  disabled={!decided}
+                  disabled={!decided || savePending}
                   style={{ background: EMERALD, color: BG, fontWeight: 600 }}
                   className="hover:!bg-[oklch(0.745_0.198_155)] disabled:opacity-50"
                 >
-                  Save hand
+                  {savePending ? "Saving…" : "Save hand"}
                 </Button>
               </div>
             </div>

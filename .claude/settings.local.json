@@ -9,7 +9,12 @@
       "Bash(npm run *)",
       "Bash(npx --no-install tsc --noEmit)",
       "Bash(echo \"exit=$?\")",
-      "Bash(npx --no-install next lint)"
+      "Bash(npx --no-install next lint)",
+      "Bash(npx eslint *)",
+      "Bash(ls supabase *)",
+      "Bash(ls lib *)",
+      "Bash(ls lib/supabase)",
+      "Bash(node -e \"const i = require\\('lucide-react'\\); console.log\\(Object.keys\\(i\\).filter\\(k => /google|discord|chrome|github/i.test\\(k\\)\\)\\)\")"
     ]
   }
 }

@@ -1,24 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import {
+  deleteHandAction,
+  deleteHandsAction,
+  updateHandDetailsAction,
+} from "@/lib/hands/actions";
 import {
   ChevronDown,
   ChevronUp,
   Copy,
   LogOut,
+  MoreHorizontal,
+  Pencil,
   Plus,
   Search,
   Share2,
   Star,
   Tag,
+  Trash2,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Header, Shell } from "@/components/Shell";
-import { isMultiway, type SavedHand } from "./hand";
+import { isMultiway, potTypeOf, type SavedHand } from "./hand";
 
 const SAMPLE_HANDS: SavedHand[] = [
   { id: "k4n2zx", name: "River bluff vs reg",        date: "Apr 24, 25", stakes: "1/2",  loc: "Lucky Chances", positions: "BTN", multiway: false, board: ["K♠","7♥","2♣","Q♦","—"],  type: "SRP", tags: ["bluff","river"],   result: 148,    fav: false },
@@ -285,7 +294,7 @@ function PlainHeader({
 }) {
   return (
     <div
-      className={`flex items-center h-9 px-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground ${
+      className={`flex items-center h-9 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground ${
         align === "right" ? "justify-end" : ""
       }`}
     >
@@ -317,7 +326,7 @@ function SortHeader({
           dir: active && dir === "asc" ? "desc" : "asc",
         })
       }
-      className={`flex items-center gap-1 h-9 px-2 text-[11px] font-semibold uppercase tracking-[0.1em] transition-colors cursor-pointer ${
+      className={`flex items-center gap-1 h-9 text-[11px] font-semibold uppercase tracking-[0.1em] transition-colors cursor-pointer ${
         active
           ? "text-foreground"
           : "text-muted-foreground hover:text-foreground"
@@ -390,7 +399,256 @@ function EditableName({
 }
 
 const ROW_COLS =
-  "grid-cols-[28px_28px_minmax(160px,1.6fr)_92px_minmax(120px,1fr)_70px_70px_80px_180px_minmax(140px,1.4fr)_90px]";
+  "grid-cols-[28px_28px_minmax(160px,1.6fr)_88px_minmax(120px,1fr)_60px_64px_68px_80px_170px_minmax(140px,1.4fr)_90px_32px]";
+
+function EditDetailsModal({
+  hand,
+  onSave,
+  onClose,
+}: {
+  hand: SavedHand;
+  onSave: (patch: Partial<SavedHand>) => void;
+  onClose: () => void;
+}) {
+  // Seed date from the ISO _full.date if we have it; the top-level h.date is
+  // a localized display string ("Apr 24, 25") that's lossy to round-trip.
+  const initialIso =
+    hand._full?.date ?? new Date().toISOString().slice(0, 10);
+  const [name, setName] = useState(hand.name);
+  const [venue, setVenue] = useState(
+    hand.loc && hand.loc !== "—" ? hand.loc : "",
+  );
+  const [date, setDate] = useState(initialIso);
+  const [notes, setNotes] = useState(hand.notes ?? hand._full?.notes ?? "");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const commit = () => {
+    const trimmedName = name.trim() || hand.name;
+    const trimmedVenue = venue.trim();
+    const trimmedNotes = notes.trim();
+
+    // Recompute the display date string the same way the recorder does so
+    // the dashboard column stays consistent.
+    const [yy, mm, dd] = date.split("-").map(Number);
+    const displayDate = Number.isFinite(yy)
+      ? new Date(yy, (mm || 1) - 1, dd || 1).toLocaleDateString("en-US", {
+          month: "short",
+          day: "2-digit",
+          year: "2-digit",
+        })
+      : hand.date;
+
+    const patch: Partial<SavedHand> = {
+      name: trimmedName,
+      loc: trimmedVenue || "—",
+      notes: trimmedNotes || undefined,
+      date: displayDate,
+    };
+    if (hand._full) {
+      patch._full = {
+        ...hand._full,
+        notes: trimmedNotes || undefined,
+        venue: trimmedVenue || undefined,
+        date,
+      };
+    }
+    onSave(patch);
+    onClose();
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[300] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.55)" }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-[460px] rounded-xl border border-white/10 flex flex-col"
+        style={{
+          background: "oklch(0.205 0 0)",
+          boxShadow: "0 24px 60px rgba(0,0,0,0.7)",
+        }}
+      >
+        <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+          <h3 className="text-[15px] font-semibold tracking-tight">
+            Edit details
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-200 cursor-pointer"
+            aria-label="Close"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="px-5 py-4 flex flex-col gap-3.5">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Hand name
+            </span>
+            <Input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="h-9 text-sm"
+            />
+          </label>
+          <div className="flex gap-3">
+            <label className="flex flex-col gap-1.5 flex-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Venue
+              </span>
+              <Input
+                value={venue}
+                onChange={(e) => setVenue(e.target.value)}
+                placeholder="—"
+                className="h-9 text-sm"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 w-44">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Date
+              </span>
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="h-9 text-sm"
+              />
+            </label>
+          </div>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Notes
+            </span>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Articulate your read, decision points, anything you want the viewer to know."
+              className="flex w-full min-h-[120px] rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 resize-y"
+            />
+          </label>
+        </div>
+        <div className="px-5 py-3 border-t border-white/10 flex items-center justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={commit}
+            style={{
+              background: "oklch(0.696 0.205 155)",
+              color: "oklch(0.145 0.008 60)",
+              fontWeight: 600,
+            }}
+            className="hover:!bg-[oklch(0.745_0.198_155)]"
+          >
+            Save
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function RowActionsMenu({
+  onEditDetails,
+  onDelete,
+}: {
+  onEditDetails: () => void;
+  onDelete: () => void;
+}) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!anchor) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setAnchor(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAnchor(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [anchor]);
+
+  const close = () => setAnchor(null);
+  const run = (fn: () => void) => () => {
+    close();
+    fn();
+  };
+
+  let menuLeft = 0;
+  let menuTop = 0;
+  if (anchor) {
+    const rect = anchor.getBoundingClientRect();
+    const W = 180;
+    menuLeft = Math.max(8, Math.min(window.innerWidth - W - 8, rect.right - W));
+    menuTop = rect.bottom + 6;
+  }
+
+  return (
+    <>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setAnchor(anchor ? null : (e.currentTarget as HTMLElement));
+        }}
+        className="w-7 h-7 inline-flex items-center justify-center rounded text-[oklch(0.55_0.005_60)] hover:text-foreground hover:bg-[oklch(0.95_0.04_60_/_0.06)] cursor-pointer"
+        aria-label="Hand actions"
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      {anchor &&
+        createPortal(
+          <div
+            ref={ref}
+            onClick={(e) => e.stopPropagation()}
+            className="fixed z-[200] rounded-lg overflow-hidden flex flex-col py-1"
+            style={{
+              left: menuLeft,
+              top: menuTop,
+              width: 180,
+              background: "oklch(0.215 0.010 60)",
+              border: "1px solid oklch(1 0 0 / 0.12)",
+              boxShadow:
+                "0 24px 60px rgba(0,0,0,0.7), 0 6px 18px rgba(0,0,0,0.5)",
+            }}
+          >
+            <button
+              onClick={run(onEditDetails)}
+              className="flex items-center gap-2 px-3 py-2 text-[13px] text-zinc-200 hover:bg-white/5 cursor-pointer text-left"
+            >
+              <Pencil size={13} className="opacity-70" /> Edit details
+            </button>
+            <div className="my-1 border-t border-white/10" />
+            <button
+              onClick={run(onDelete)}
+              className="flex items-center gap-2 px-3 py-2 text-[13px] text-[oklch(0.78_0.16_22)] hover:bg-[oklch(0.704_0.191_22.216_/_0.12)] cursor-pointer text-left"
+            >
+              <Trash2 size={13} /> Delete
+            </button>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
 
 function HandListRow({
   hand,
@@ -401,6 +659,9 @@ function HandListRow({
   onRename,
   onAddTag,
   onRemoveTag,
+  isSample,
+  onEditDetails,
+  onDelete,
 }: {
   hand: SavedHand;
   selected: boolean;
@@ -410,6 +671,9 @@ function HandListRow({
   onRename: (name: string) => void;
   onAddTag: () => void;
   onRemoveTag: (tag: string) => void;
+  isSample: boolean;
+  onEditDetails: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div
@@ -421,12 +685,7 @@ function HandListRow({
       }`}
     >
       <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onSelect}
-          className="w-3.5 h-3.5 rounded-sm border border-[oklch(0.95_0.04_60_/_0.2)] bg-transparent accent-[oklch(0.696_0.205_155)] cursor-pointer"
-        />
+        <Checkbox checked={selected} onChange={() => onSelect()} ariaLabel="Select row" />
       </div>
       <button
         onClick={(e) => {
@@ -442,7 +701,22 @@ function HandListRow({
           className={hand.fav ? "text-[oklch(0.85_0.15_85)]" : ""}
         />
       </button>
-      <EditableName value={hand.name} onChange={onRename} />
+      <div className="flex items-center gap-1.5 min-w-0">
+        <EditableName value={hand.name} onChange={onRename} />
+        {isSample && (
+          <span
+            className="inline-flex items-center h-4 px-1 rounded text-[9px] font-semibold uppercase tracking-[0.16em] shrink-0"
+            style={{
+              background: "oklch(0.95 0.04 60 / 0.06)",
+              border: "1px solid oklch(0.95 0.04 60 / 0.14)",
+              color: "oklch(0.65 0.005 60)",
+            }}
+            title="This is a built-in demo hand. Record one to see it replaced by your own."
+          >
+            sample
+          </span>
+        )}
+      </div>
       <span className="text-[12px] text-muted-foreground tabular-nums">
         {hand.date}
       </span>
@@ -477,6 +751,9 @@ function HandListRow({
             ? "Yes"
             : "No"}
       </span>
+      <span className="text-[12px] text-zinc-300 font-mono tracking-tight">
+        {potTypeOf(hand)}
+      </span>
       <div className="flex items-center gap-0.5">
         {hand.board.map((c, i) => (
           <MiniCard key={i} card={c} />
@@ -510,7 +787,7 @@ function HandListRow({
           </>
         )}
       </div>
-      <div className="flex items-center justify-end gap-2 pr-1">
+      <div className="flex items-center justify-end gap-2">
         <span
           className={`text-[13px] font-semibold tabular-nums ${
             hand.result > 0
@@ -524,6 +801,17 @@ function HandListRow({
           {Math.abs(hand.result).toLocaleString()}
         </span>
       </div>
+      <div
+        className="flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {!isSample && (
+          <RowActionsMenu
+            onEditDetails={onEditDetails}
+            onDelete={onDelete}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -531,34 +819,28 @@ function HandListRow({
 export default function Dashboard({
   user,
   signOutAction,
+  initialHands,
+  showSamples,
 }: {
   user: string;
   signOutAction?: () => void | Promise<void>;
+  // Hands fetched on the server for the signed-in user.
+  initialHands: SavedHand[];
+  // True when the user has no hands of their own; renders SAMPLE_HANDS as a
+  // first-run demo. Hidden once they have any saved hand.
+  showSamples: boolean;
 }) {
   const router = useRouter();
 
-  // Pull saved hands from localStorage on mount; merge with samples for first-run vibes.
-  // Lazy initializer reads localStorage once on the client; SSR sees only the samples.
-  const [hands, setHands] = useState<SavedHand[]>(() => {
-    if (typeof window === "undefined") return SAMPLE_HANDS;
-    try {
-      const saved = JSON.parse(
-        localStorage.getItem("smh:hands") || "[]",
-      ) as SavedHand[];
-      return [...saved, ...SAMPLE_HANDS];
-    } catch {
-      return SAMPLE_HANDS;
-    }
-  });
-
-  // Persist updates back to localStorage (only the user's own hands — sample IDs aren't persisted).
-  const persistUserHands = (next: SavedHand[]) => {
-    const sampleIds = new Set(SAMPLE_HANDS.map((h) => h.id));
-    const userHands = next.filter((h) => !sampleIds.has(h.id));
-    localStorage.setItem("smh:hands", JSON.stringify(userHands));
-  };
+  // Local mirror of the server-fetched hands. Optimistic updates land here
+  // immediately; server actions persist + revalidate behind the scenes.
+  const [hands, setHands] = useState<SavedHand[]>(() =>
+    showSamples ? [...initialHands, ...SAMPLE_HANDS] : initialHands,
+  );
+  const [, startMutation] = useTransition();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState<SavedHand | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "date",
     dir: "desc",
@@ -574,6 +856,8 @@ export default function Dashboard({
   const [resultFilter, setResultFilter] = useState<Set<string>>(new Set());
   const [positionsFilter, setPositionsFilter] = useState<Set<string>>(new Set());
   const [multiwayFilter, setMultiwayFilter] = useState<Set<string>>(new Set());
+  // Starred is binary, so it's a plain boolean rather than a Set like the others.
+  const [starredOnly, setStarredOnly] = useState(false);
 
   // Distinct values discovered from the dataset, used to populate dropdowns.
   const filterOptions = useMemo(() => {
@@ -595,9 +879,11 @@ export default function Dashboard({
       [...s].sort().map((v) => ({ value: v, label: v }));
     return {
       potType: [
+        { value: "LP", label: "LP — limped pot" },
         { value: "SRP", label: "SRP — single raised" },
         { value: "3BP", label: "3BP — 3-bet pot" },
         { value: "4BP", label: "4BP — 4-bet pot" },
+        { value: "5BP", label: "5BP — 5-bet pot" },
       ],
       tags: toOpts(tags),
       venue: toOpts(venues),
@@ -620,7 +906,8 @@ export default function Dashboard({
 
   const filtered = useMemo(() => {
     return hands.filter((h) => {
-      if (potTypeFilter.size && !potTypeFilter.has(h.type)) return false;
+      if (starredOnly && !h.fav) return false;
+      if (potTypeFilter.size && !potTypeFilter.has(potTypeOf(h))) return false;
       if (tagFilter.size && !h.tags.some((t) => tagFilter.has(t))) return false;
       if (venueFilter.size && !venueFilter.has(h.loc)) return false;
       if (stakesFilter.size && !stakesFilter.has(h.stakes)) return false;
@@ -664,6 +951,7 @@ export default function Dashboard({
     resultFilter,
     positionsFilter,
     multiwayFilter,
+    starredOnly,
     search,
   ]);
 
@@ -693,12 +981,91 @@ export default function Dashboard({
   const toggleAll = () =>
     setSelected(allSelected ? new Set() : new Set(sorted.map((h) => h.id)));
 
-  const update = (id: string, patch: Partial<SavedHand>) =>
+  // Sample IDs aren't backed by Postgres — mutations on them stay local-only
+  // (they live in this component's state, but no server action fires).
+  const sampleIds = useMemo(
+    () => new Set(SAMPLE_HANDS.map((h) => h.id)),
+    [],
+  );
+
+  // Optimistic-update helper. Updates the local mirror immediately; for
+  // non-sample rows it also persists via a server action and reverts on
+  // failure. Patch is restricted to the set of fields the dashboard ever
+  // edits — name / venue / notes / date / tags / fav / _full.
+  type DashboardPatch = Partial<
+    Pick<
+      SavedHand,
+      "name" | "loc" | "notes" | "date" | "tags" | "fav" | "_full"
+    >
+  >;
+  const update = (id: string, patch: DashboardPatch) => {
+    let prev: SavedHand | undefined;
     setHands((hs) => {
-      const next = hs.map((h) => (h.id === id ? { ...h, ...patch } : h));
-      persistUserHands(next);
-      return next;
+      prev = hs.find((h) => h.id === id);
+      return hs.map((h) => (h.id === id ? { ...h, ...patch } : h));
     });
+    if (sampleIds.has(id)) return;
+    startMutation(async () => {
+      try {
+        await updateHandDetailsAction(id, patch);
+      } catch (e) {
+        console.error("Failed to update hand", e);
+        if (prev) {
+          const restore = prev;
+          setHands((hs) => hs.map((h) => (h.id === id ? restore : h)));
+        }
+        window.alert("Couldn't save those changes — try again.");
+      }
+    });
+  };
+
+  const deleteHand = (h: SavedHand) => {
+    if (!window.confirm(`Delete "${h.name}"? This can't be undone.`)) return;
+    setHands((hs) => hs.filter((x) => x.id !== h.id));
+    setSelected((s) => {
+      const n = new Set(s);
+      n.delete(h.id);
+      return n;
+    });
+    if (sampleIds.has(h.id)) return;
+    startMutation(async () => {
+      try {
+        await deleteHandAction(h.id);
+      } catch (e) {
+        console.error("Failed to delete hand", e);
+        window.alert("Couldn't delete that hand — refresh and try again.");
+        router.refresh();
+      }
+    });
+  };
+
+  const deleteSelected = () => {
+    const targets = [...selected];
+    if (targets.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${targets.length} hand${targets.length === 1 ? "" : "s"}? This can't be undone.`,
+      )
+    )
+      return;
+    const targetSet = new Set(targets);
+    setHands((hs) => hs.filter((h) => !targetSet.has(h.id)));
+    setSelected(new Set());
+    const persistable = targets.filter((id) => !sampleIds.has(id));
+    if (persistable.length === 0) return;
+    startMutation(async () => {
+      try {
+        await deleteHandsAction(persistable);
+      } catch (e) {
+        console.error("Failed to delete hands", e);
+        window.alert(
+          "Some hands couldn't be deleted — refresh to see the current state.",
+        );
+        router.refresh();
+      }
+    });
+  };
+
   const totalResult = hands.reduce((s, h) => s + h.result, 0);
 
   return (
@@ -757,6 +1124,25 @@ export default function Dashboard({
         {/* Filter bar */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Starred toggle — binary, so it's a single button rather than a popover. */}
+            <button
+              type="button"
+              onClick={() => setStarredOnly((v) => !v)}
+              className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[13px] font-medium border transition-colors cursor-pointer ${
+                starredOnly
+                  ? "bg-[oklch(0.85_0.15_85_/_0.12)] text-[oklch(0.85_0.15_85)] border-[oklch(0.85_0.15_85_/_0.4)]"
+                  : "bg-transparent text-[oklch(0.85_0.005_60)] border-border hover:bg-muted"
+              }`}
+              aria-pressed={starredOnly}
+              title={starredOnly ? "Showing starred only" : "Show starred only"}
+            >
+              <Star
+                size={13}
+                fill={starredOnly ? "currentColor" : "none"}
+              />
+              Starred
+            </button>
+            <span className="w-px h-6 bg-border mx-1" />
             <FilterDropdown
               label="Positions"
               options={filterOptions.positions}
@@ -827,11 +1213,10 @@ export default function Dashboard({
             className={`grid ${ROW_COLS} items-center gap-2 px-3 h-9 border-b border-border bg-[oklch(0.245_0.011_60)]`}
           >
             <div className="flex items-center justify-center">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={allSelected}
-                onChange={toggleAll}
-                className="w-3.5 h-3.5 rounded-sm border border-[oklch(0.95_0.04_60_/_0.25)] bg-transparent accent-[oklch(0.696_0.205_155)] cursor-pointer"
+                onChange={() => toggleAll()}
+                ariaLabel="Select all rows"
               />
             </div>
             <div className="flex items-center justify-center text-muted-foreground">
@@ -843,6 +1228,7 @@ export default function Dashboard({
             <SortHeader label="Stakes" sortKey="stakes" sort={sort} setSort={setSort} />
             <PlainHeader label="Position" />
             <PlainHeader label="Multiway" />
+            <PlainHeader label="Pot type" />
             <PlainHeader label="Board" />
             <PlainHeader label="Tags" />
             <SortHeader
@@ -852,6 +1238,7 @@ export default function Dashboard({
               setSort={setSort}
               align="right"
             />
+            <div />
           </div>
 
           {/* Rows */}
@@ -877,6 +1264,9 @@ export default function Dashboard({
                   update(h.id, { tags: h.tags.filter((x) => x !== t) })
                 }
                 onOpen={() => router.push(`/hand/${h.id}`)}
+                isSample={sampleIds.has(h.id)}
+                onEditDetails={() => setEditing(h)}
+                onDelete={() => deleteHand(h)}
               />
             ))
           )}
@@ -909,8 +1299,8 @@ export default function Dashboard({
             <Button variant="outline" size="sm">
               <Copy /> Duplicate
             </Button>
-            <Button variant="destructive" size="sm">
-              <X /> Delete
+            <Button variant="destructive" size="sm" onClick={deleteSelected}>
+              <Trash2 /> Delete
             </Button>
             <button
               onClick={() => setSelected(new Set())}
@@ -919,6 +1309,13 @@ export default function Dashboard({
               Clear
             </button>
           </div>
+        )}
+        {editing && (
+          <EditDetailsModal
+            hand={editing}
+            onSave={(patch) => update(editing.id, patch)}
+            onClose={() => setEditing(null)}
+          />
         )}
       </div>
     </Shell>

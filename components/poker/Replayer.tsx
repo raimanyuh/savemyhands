@@ -1,18 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import {
   Check,
   ChevronLeft,
   ChevronRight,
   Copy,
+  Globe,
+  Lock,
   Pause,
+  Percent,
   Play,
   RotateCcw,
-  Share2,
+  UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Header, Shell } from "@/components/Shell";
+import { setHandPublicAction } from "@/lib/hands/actions";
+import { computeEquity } from "./equity";
 import PlayingCard from "./PlayingCard";
 import { seatXY } from "./lib";
 import { BetBubble, DealerButtonChip, TableSurface } from "./table-pieces";
@@ -23,56 +29,6 @@ import {
   type ReplayHand,
   type ReplayStep,
 } from "./hand";
-
-const SAMPLE_HAND: ReplayHand = {
-  id: "b2m1xy",
-  stakes: { sb: 2, bb: 5 },
-  playerCount: 6,
-  players: [
-    { seat: 0, name: "Hero", stack: 1250, pos: "BTN", cards: ["A♠", "A♣"] },
-    { seat: 1, name: "Reg1", stack: 800, pos: "SB", cards: null },
-    { seat: 2, name: "Whale", stack: 2400, pos: "BB", cards: null },
-    { seat: 3, name: "Loose", stack: 600, pos: "UTG", cards: null },
-    { seat: 4, name: "Tight", stack: 1100, pos: "MP", cards: null },
-    { seat: 5, name: "Random", stack: 540, pos: "CO", cards: null },
-  ],
-  steps: [
-    { street: "preflop", label: "UTG raises to $15", pot: 22, active: 3, action: "raise 15" },
-    { street: "preflop", label: "MP folds", pot: 22, active: 4, action: "fold" },
-    { street: "preflop", label: "CO folds", pot: 22, active: 5, action: "fold" },
-    {
-      street: "preflop",
-      label: "BTN 3-bets to $45",
-      pot: 67,
-      active: 0,
-      action: "raise 45",
-      annotation:
-        "Pretty standard 3-bet sizing with AA in position. Want to build the pot and isolate UTG.",
-    },
-    { street: "preflop", label: "SB folds", pot: 67, active: 1, action: "fold" },
-    { street: "preflop", label: "BB calls $40", pot: 107, active: 2, action: "call" },
-    { street: "preflop", label: "UTG calls $30", pot: 137, active: 3, action: "call" },
-    { street: "flop", label: "Flop  K♠ 7♦ 2♣", pot: 137, board: ["K♠", "7♦", "2♣"] },
-    { street: "flop", label: "BB checks", pot: 137, active: 2, action: "check" },
-    { street: "flop", label: "UTG bets $80", pot: 217, active: 3, action: "bet 80" },
-    { street: "flop", label: "BTN raises to $220", pot: 437, active: 0, action: "raise 220" },
-    { street: "flop", label: "BB folds", pot: 437, active: 2, action: "fold" },
-    { street: "flop", label: "UTG calls $140", pot: 577, active: 3, action: "call" },
-    { street: "turn", label: "Turn  Q♥", pot: 577, board: ["K♠", "7♦", "2♣", "Q♥"] },
-    { street: "turn", label: "UTG checks", pot: 577, active: 3, action: "check" },
-    {
-      street: "turn",
-      label: "BTN bets $400",
-      pot: 977,
-      active: 0,
-      action: "bet 400",
-      annotation:
-        "Big bet on the Q to pressure UTG off TT/JJ and the random Kx hands. Don't think they call without 2p+.",
-    },
-    { street: "turn", label: "UTG folds", pot: 977, active: 3, action: "fold" },
-    { street: "showdown", label: "Hero wins $977", pot: 977, winner: 0 },
-  ],
-};
 
 function StreetPill({ street }: { street: ReplayStep["street"] }) {
   return (
@@ -85,27 +41,60 @@ function StreetPill({ street }: { street: ReplayStep["street"] }) {
 }
 
 export default function Replayer({
-  hand: handProp,
+  hand,
   shareUrl,
+  handId,
+  isOwner = false,
+  isPublic = false,
+  isAuthenticated = true,
 }: {
-  hand?: ReplayHand | null;
+  hand: ReplayHand;
   shareUrl?: string;
+  // The DB id of the hand. Required for the Share toggle.
+  handId?: string;
+  isOwner?: boolean;
+  isPublic?: boolean;
+  // Drives both the "Dashboard ←" back link and (inversely) the anon
+  // sign-up CTA. Defaults to true so the recorder/dashboard flows that
+  // already gate auth upstream don't have to thread this prop.
+  isAuthenticated?: boolean;
 }) {
-  const HAND = handProp || SAMPLE_HAND;
   // Key by hand id so transport state (step, playing) resets cleanly per hand.
-  return <ReplayerInner key={HAND.id} hand={HAND} shareUrl={shareUrl} />;
+  return (
+    <ReplayerInner
+      key={hand.id}
+      hand={hand}
+      shareUrl={shareUrl}
+      handId={handId}
+      isOwner={isOwner}
+      isPublic={isPublic}
+      isAuthenticated={isAuthenticated}
+    />
+  );
 }
 
 function ReplayerInner({
   hand: HAND,
   shareUrl,
+  handId,
+  isOwner,
+  isPublic,
+  isAuthenticated,
 }: {
   hand: ReplayHand;
   shareUrl?: string;
+  handId?: string;
+  isOwner: boolean;
+  isPublic: boolean;
+  isAuthenticated: boolean;
 }) {
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Off by default to preserve the "watch it like a real hand" feel —
+  // turning it on reveals every villain who showed at showdown plus a
+  // per-seat equity badge at the current step's board.
+  const [showEquity, setShowEquity] = useState(false);
 
   useEffect(() => {
     if (!playing) return;
@@ -156,12 +145,45 @@ function ReplayerInner({
   }, [HAND.steps.length]);
 
   const cur = HAND.steps[step];
-  let board: string[] = [];
-  for (let i = 0; i <= step; i++) {
-    if (HAND.steps[i].board) board = HAND.steps[i].board!;
-  }
+  // Memoize `board` so downstream useMemo deps don't see a fresh array
+  // reference every render (it'd retrigger the equity computation).
+  const board = useMemo(() => {
+    let b: string[] = [];
+    for (let i = 0; i <= step; i++) {
+      if (HAND.steps[i].board) b = HAND.steps[i].board!;
+    }
+    return b;
+  }, [step, HAND]);
   const pot = HAND.steps[step].pot;
   const street = HAND.steps[step].street;
+
+  // Equity is precomputed at save time and stored on the hand. For older
+  // hands that predate that field, we fall back to runout enumeration on
+  // the fly — same approach as before, just rarely hit now.
+  const liveEquity = useMemo(() => {
+    const map = new Map<number, Record<number, number>>();
+    if (!showEquity || HAND.equityByStep) return map;
+    for (let s = 0; s < HAND.steps.length; s++) {
+      let stepBoard: string[] = [];
+      for (let i = 0; i <= s; i++) {
+        if (HAND.steps[i].board) stepBoard = HAND.steps[i].board!;
+      }
+      const contestants = HAND.players
+        .filter(
+          (p) =>
+            !!(p.cards?.[0] && p.cards?.[1]) &&
+            !hasFolded(HAND.steps, s, p.seat),
+        )
+        .map((p) => ({
+          seat: p.seat,
+          cards: [p.cards![0]!, p.cards![1]!] as [string, string],
+        }));
+      map.set(s, computeEquity(contestants, stepBoard));
+    }
+    return map;
+  }, [showEquity, HAND]);
+  const equityByStep =
+    HAND.equityByStep?.[step] ?? liveEquity.get(step) ?? {};
 
   const playerCount = HAND.playerCount || HAND.players.length;
   const heroPos = HAND.heroPosition ?? 0;
@@ -185,13 +207,42 @@ function ReplayerInner({
     setTimeout(() => setCopied(false), 1500);
   };
 
+  // Share toggle (owner-only). Optimistic local state so the UI updates
+  // immediately; revert if the server action throws.
+  const [sharePending, startShare] = useTransition();
+  const [optimisticPublic, setOptimisticPublic] = useState(isPublic);
+  const togglePublic = () => {
+    if (!handId) return;
+    const next = !optimisticPublic;
+    setOptimisticPublic(next);
+    startShare(async () => {
+      try {
+        await setHandPublicAction(handId, next);
+        // On going public, copy the link so the user can paste right away.
+        if (next) {
+          try {
+            await navigator.clipboard.writeText(url);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          } catch {
+            /* clipboard blocked — toggle still succeeded */
+          }
+        }
+      } catch (e) {
+        console.error("Failed to toggle share state", e);
+        setOptimisticPublic(!next);
+        window.alert("Couldn't update sharing — try again.");
+      }
+    });
+  };
+
   return (
     <Shell
       header={
         <Header
           title=""
-          back="Dashboard"
-          backHref="/dashboard"
+          back={isAuthenticated ? "Dashboard" : undefined}
+          backHref={isAuthenticated ? "/dashboard" : undefined}
           right={
             <>
               <span className="text-xs font-mono text-muted-foreground hidden sm:inline">
@@ -209,9 +260,59 @@ function ReplayerInner({
                   </>
                 )}
               </Button>
-              <Button variant="outline" size="sm">
-                <Share2 /> Share
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowEquity((v) => !v)}
+                aria-pressed={showEquity}
+                title={
+                  showEquity
+                    ? "Hide per-player equity (re-hides villain cards)"
+                    : "Show per-player equity (reveals villain hole cards)"
+                }
+              >
+                <Percent />
+                {showEquity ? "Hide equity" : "Show equity"}
               </Button>
+              {isOwner && handId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={togglePublic}
+                  disabled={sharePending}
+                  title={
+                    optimisticPublic
+                      ? "Currently public — click to make private"
+                      : "Currently private — click to share publicly"
+                  }
+                >
+                  {optimisticPublic ? (
+                    <>
+                      <Globe /> Public
+                    </>
+                  ) : (
+                    <>
+                      <Lock /> Private
+                    </>
+                  )}
+                </Button>
+              )}
+              {!isAuthenticated && (
+                <Button
+                  asChild
+                  size="sm"
+                  style={{
+                    background: "oklch(0.696 0.205 155)",
+                    color: "oklch(0.145 0.008 60)",
+                    fontWeight: 600,
+                  }}
+                  className="hover:!bg-[oklch(0.745_0.198_155)]"
+                >
+                  <Link href="/signup">
+                    <UserPlus /> Save your own hands
+                  </Link>
+                </Button>
+              )}
             </>
           }
         />
@@ -273,14 +374,20 @@ function ReplayerInner({
             // as mucked once the replay reaches the showdown step.
             const isMucked = !isFolded && atShowdown && muckedSet.has(i);
             const isActive = cur.active === i && cur.action !== "fold" && !isFolded;
-            // Villain hole cards are revealed (face up) only at the showdown
-            // step. Before that we render card backs.
+            // Villain hole cards reveal at showdown by default. The
+            // "Show equity" toggle also reveals them mid-hand so the user
+            // can see what the equity numbers are based on.
             const villainShown =
               !isHero &&
               !isFolded &&
               !isMucked &&
-              atShowdown &&
+              (atShowdown || showEquity) &&
               !!(p.cards && p.cards[0] && p.cards[1]);
+            const showSeatEquity =
+              showEquity &&
+              !isFolded &&
+              !isMucked &&
+              equityByStep[i] !== undefined;
             return (
               <div
                 key={i}
@@ -326,6 +433,19 @@ function ReplayerInner({
                   >
                     ${Math.max(0, p.stack - (committed[i] || 0)).toLocaleString()}
                   </span>
+                  {showSeatEquity && (
+                    <span
+                      className="px-1.5 h-4 inline-flex items-center rounded text-[10px] font-semibold tabular-nums leading-none"
+                      style={{
+                        background: "oklch(0.696 0.205 155 / 0.18)",
+                        color: "oklch(0.795 0.184 155)",
+                        border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+                      }}
+                      title="Equity at this board, all-in to river"
+                    >
+                      {(equityByStep[i] * 100).toFixed(0)}%
+                    </span>
+                  )}
                   {(isFolded || isMucked) && (
                     <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[oklch(0.55_0.005_60)] leading-none">
                       {isMucked ? "Mucked" : "Folded"}

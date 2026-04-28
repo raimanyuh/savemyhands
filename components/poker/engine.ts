@@ -403,88 +403,206 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
   }
 }
 
-// Per-seat total committed across all streets (blinds + every action).
-// Used to display live stacks (initial - committed) and to detect all-in seats.
-export function committedBySeat(state: RecorderState): Record<number, number> {
-  const { playerCount, sb, bb, straddleOn, straddleAmt, actions } = state;
-  const committed: Record<number, number> = {};
-  const streets: Street[] = ["preflop", "flop", "turn", "river"];
-  for (const ph of streets) {
-    const streetBets: Record<number, number> = {};
-    let lb = 0;
-    if (ph === "preflop") {
-      if (playerCount === 2) {
-        streetBets[0] = sb;
-        streetBets[1] = bb;
-        lb = bb;
-      } else {
-        streetBets[1] = sb;
-        streetBets[2] = bb;
-        lb = bb;
-        if (straddleOn && playerCount >= 4) {
-          streetBets[3] = straddleAmt;
-          lb = straddleAmt;
-        }
+// Subset of RecorderState the chip-math helpers actually read. The recorder's
+// full state satisfies this, and so does a saved hand's `_full` payload — so
+// hand.ts can call these without constructing a synthetic RecorderState.
+// `players` is included so per-seat commits can be capped at remaining stack
+// (short-stack calls & all-ins-for-less).
+export type CommitState = Pick<
+  RecorderState,
+  | "playerCount"
+  | "sb"
+  | "bb"
+  | "straddleOn"
+  | "straddleAmt"
+  | "actions"
+  | "players"
+>;
+
+const STREETS: Street[] = ["preflop", "flop", "turn", "river"];
+
+// Per-seat chips committed on a single street (blinds + actions, no refund).
+// `prevTotal` is the cumulative commits from prior streets, used to compute
+// each seat's max contribution on this street (`stack - prevTotal`).
+//
+// Why the cap matters: when a short stack clicks "Call $1500" but only has
+// $800 behind, the action log records `{action: "call"}` without an amount.
+// Without this cap, downstream math would treat them as having committed
+// $1500 — over-counting the pot and miscomputing side pots. We also keep
+// `lb` from dropping if a player goes all-in for less than the current bet
+// (their short-stack shove doesn't lower what later seats need to match).
+function streetCommits(
+  s: CommitState,
+  street: Street,
+  prevTotal: Record<number, number>,
+): Record<number, number> {
+  const { playerCount, sb, bb, straddleOn, straddleAmt, actions, players } = s;
+  const bets: Record<number, number> = {};
+  let lb = 0;
+
+  const stackOf = (seat: number): number =>
+    players[seat]?.stack ?? Number.POSITIVE_INFINITY;
+  const cap = (seat: number, target: number): number =>
+    Math.min(target, Math.max(0, stackOf(seat) - (prevTotal[seat] || 0)));
+
+  if (street === "preflop") {
+    if (playerCount === 2) {
+      bets[0] = cap(0, sb);
+      bets[1] = cap(1, bb);
+      lb = bets[1];
+    } else {
+      bets[1] = cap(1, sb);
+      bets[2] = cap(2, bb);
+      lb = bets[2];
+      if (straddleOn && playerCount >= 4) {
+        bets[3] = cap(3, straddleAmt);
+        if (bets[3] > lb) lb = bets[3];
       }
-    }
-    const acts = actions.filter((a) => a.street === ph);
-    for (const a of acts) {
-      if (a.action === "fold" || a.action === "check") continue;
-      if (a.action === "call") {
-        streetBets[a.seat] = lb;
-        continue;
-      }
-      if (a.action === "bet" || a.action === "raise") {
-        streetBets[a.seat] = a.amount ?? 0;
-        lb = a.amount ?? 0;
-      }
-    }
-    for (const [s, v] of Object.entries(streetBets)) {
-      committed[Number(s)] = (committed[Number(s)] || 0) + (v || 0);
     }
   }
-  return committed;
+  for (const a of actions) {
+    if (a.street !== street) continue;
+    if (a.action === "fold" || a.action === "check") continue;
+    if (a.action === "call") {
+      bets[a.seat] = cap(a.seat, lb);
+      continue;
+    }
+    if (a.action === "bet" || a.action === "raise") {
+      const capped = cap(a.seat, a.amount ?? 0);
+      bets[a.seat] = capped;
+      // A real raise advances `lb`; a short-stack all-in for less than the
+      // current bet doesn't lower it for downstream callers.
+      if (capped >= lb) lb = capped;
+    }
+  }
+  return bets;
 }
 
-// Total pot across all streets. Re-derives from blinds + action log so it
-// works regardless of phase (showdown included).
-export function totalPot(state: RecorderState): number {
-  const { playerCount, sb, bb, straddleOn, straddleAmt, actions } = state;
-  const streets: Street[] = ["preflop", "flop", "turn", "river"];
-  let pot = 0;
-  for (const ph of streets) {
-    const streetBets: Record<number, number> = {};
-    let lb = 0;
-    if (ph === "preflop") {
-      if (playerCount === 2) {
-        streetBets[0] = sb;
-        streetBets[1] = bb;
-        lb = bb;
-      } else {
-        streetBets[1] = sb;
-        streetBets[2] = bb;
-        lb = bb;
-        if (straddleOn && playerCount >= 4) {
-          streetBets[3] = straddleAmt;
-          lb = straddleAmt;
-        }
-      }
-    }
-    const acts = actions.filter((a) => a.street === ph);
-    for (const a of acts) {
-      if (a.action === "fold" || a.action === "check") continue;
-      if (a.action === "call") {
-        streetBets[a.seat] = lb;
-        continue;
-      }
-      if (a.action === "bet" || a.action === "raise") {
-        streetBets[a.seat] = a.amount ?? 0;
-        lb = a.amount ?? 0;
-      }
-    }
-    pot += Object.values(streetBets).reduce((s, v) => s + (v || 0), 0);
+// Cap the highest contributor at the second-highest. Models the "uncalled
+// bet returned" rule: when a bet/raise outpaces every other contribution on
+// a street, the excess never gets matched and is returned to the bettor.
+// Mutates in place. No-op if zero or one contributor or top == second.
+function applyUncalledRefund(bets: Record<number, number>): void {
+  const entries = Object.entries(bets).filter(([, v]) => v > 0);
+  if (entries.length === 0) return;
+  entries.sort((a, b) => b[1] - a[1]);
+  const [topSeat, topAmt] = entries[0];
+  const secondAmt = entries.length > 1 ? entries[1][1] : 0;
+  if (topAmt > secondAmt) {
+    bets[Number(topSeat)] = secondAmt;
   }
-  return pot;
+}
+
+function sumStreetCommits(
+  state: CommitState,
+  withRefund: boolean,
+): Record<number, number> {
+  const total: Record<number, number> = {};
+  for (const street of STREETS) {
+    // Pass `total` as prevTotal so each street caps to remaining stack.
+    const bets = streetCommits(state, street, total);
+    if (withRefund) applyUncalledRefund(bets);
+    for (const [s, v] of Object.entries(bets)) {
+      total[Number(s)] = (total[Number(s)] || 0) + (v || 0);
+    }
+  }
+  return total;
+}
+
+// Per-seat total committed across all streets (blinds + every action).
+// "Raw" — no uncalled-bet refund. Used to display live stacks during a hand
+// and for action-bar pot-sizing math (which assumes everyone calls).
+export function committedBySeat(state: CommitState): Record<number, number> {
+  return sumStreetCommits(state, false);
+}
+
+// Per-seat total committed *after* applying the uncalled-bet refund per
+// street. Used for hero-result calculation and for the showdown / replayer
+// pot display.
+export function committedBySeatFinal(
+  state: CommitState,
+): Record<number, number> {
+  return sumStreetCommits(state, true);
+}
+
+// Total pot across all streets, raw. Re-derives from blinds + action log so
+// it works regardless of phase (showdown included).
+export function totalPot(state: CommitState): number {
+  return Object.values(committedBySeat(state)).reduce((s, v) => s + v, 0);
+}
+
+// Total pot after uncalled-bet refunds. Use this for displayed pot at
+// showdown and for hero's net result.
+export function totalPotFinal(state: CommitState): number {
+  return Object.values(committedBySeatFinal(state)).reduce((s, v) => s + v, 0);
+}
+
+// A single pot in a side-pot decomposition. Folded seats contribute their
+// chips but are excluded from `eligibleSeats` because they can't win.
+export type SidePot = {
+  amount: number;
+  eligibleSeats: number[];
+};
+
+// Decompose the (refund-adjusted) commits into main + side pots. Layered by
+// commitment level: each layer caps at the next-shortest contributor's
+// total. Result is in low-to-high order — index 0 is the main pot, eligible
+// to the most seats; later entries are side pots eligible to fewer seats.
+//
+// For single-pot scenarios (everyone matched), returns a single entry whose
+// total equals `totalPotFinal(state)`. The caller can render that as one
+// pot without special-casing.
+//
+// Layers that share an eligibility set are merged so dead money from
+// folded blinds (or anyone who folded after committing less than the
+// shortest all-in) rolls into the main pot instead of becoming its own
+// "side pot". Eligibility shrinks monotonically going up the layers, so
+// consecutive merging is sufficient — once a seat drops out it doesn't
+// reappear.
+export function computeSidePots(state: CommitState): SidePot[] {
+  const finalCommits = committedBySeatFinal(state);
+  const folded = new Set<number>();
+  for (const a of state.actions) {
+    if (a.action === "fold") folded.add(a.seat);
+  }
+
+  const contributors = Object.entries(finalCommits)
+    .map(([s, a]) => ({ seat: Number(s), amt: a }))
+    .filter((c) => c.amt > 0)
+    .sort((a, b) => a.amt - b.amt);
+
+  const layers: SidePot[] = [];
+  let prevLevel = 0;
+  for (let i = 0; i < contributors.length; i++) {
+    const level = contributors[i].amt;
+    if (level <= prevLevel) continue;
+    const layerAmt = level - prevLevel;
+    const remaining = contributors.slice(i);
+    const potAmount = layerAmt * remaining.length;
+    const eligibleSeats = remaining
+      .map((c) => c.seat)
+      .filter((s) => !folded.has(s));
+    layers.push({ amount: potAmount, eligibleSeats });
+    prevLevel = level;
+  }
+
+  const merged: SidePot[] = [];
+  for (const layer of layers) {
+    const last = merged[merged.length - 1];
+    if (last && sameSeatSet(last.eligibleSeats, layer.eligibleSeats)) {
+      last.amount += layer.amount;
+    } else {
+      merged.push({ amount: layer.amount, eligibleSeats: layer.eligibleSeats });
+    }
+  }
+  return merged;
+}
+
+function sameSeatSet(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  for (const s of b) if (!set.has(s)) return false;
+  return true;
 }
 
 export type DerivedStreet = {
@@ -516,6 +634,25 @@ export function deriveStreet(state: RecorderState): DerivedStreet | null {
 
   const streetActions = actions.filter((a) => a.street === phase);
 
+  // Cumulative commits across all streets earlier than the current one.
+  // Used to cap this street's contributions at the seat's remaining stack
+  // (so a short-stack "call" can't commit more than they have left).
+  const prevStreetTotal: Record<number, number> = {};
+  const phaseIdx = STREETS.indexOf(phase as Street);
+  for (let i = 0; i < phaseIdx; i++) {
+    const earlier = streetCommits(state, STREETS[i], prevStreetTotal);
+    for (const [k, v] of Object.entries(earlier)) {
+      prevStreetTotal[Number(k)] = (prevStreetTotal[Number(k)] || 0) + v;
+    }
+  }
+  const stackOf = (seat: number): number =>
+    state.players[seat]?.stack ?? Number.POSITIVE_INFINITY;
+  const cap = (seat: number, target: number): number =>
+    Math.min(
+      target,
+      Math.max(0, stackOf(seat) - (prevStreetTotal[seat] || 0)),
+    );
+
   const bets: Record<number, number> = {};
   let lastBet = 0;
   let lastRaiseSize = 0;
@@ -523,19 +660,21 @@ export function deriveStreet(state: RecorderState): DerivedStreet | null {
 
   if (phase === "preflop") {
     if (playerCount === 2) {
-      bets[0] = sb;
-      bets[1] = bb;
-      lastBet = bb;
+      bets[0] = cap(0, sb);
+      bets[1] = cap(1, bb);
+      lastBet = bets[1];
       lastRaiseSize = bb;
     } else {
-      bets[1] = sb;
-      bets[2] = bb;
-      lastBet = bb;
+      bets[1] = cap(1, sb);
+      bets[2] = cap(2, bb);
+      lastBet = bets[2];
       lastRaiseSize = bb;
       if (straddleOn && playerCount >= 4) {
-        bets[3] = straddleAmt;
-        lastBet = straddleAmt;
-        lastRaiseSize = straddleAmt - bb;
+        bets[3] = cap(3, straddleAmt);
+        if (bets[3] > lastBet) {
+          lastRaiseSize = bets[3] - lastBet;
+          lastBet = bets[3];
+        }
       }
     }
   }
@@ -545,17 +684,23 @@ export function deriveStreet(state: RecorderState): DerivedStreet | null {
     actedThisStreet.add(a.seat);
     if (a.action === "fold" || a.action === "check") continue;
     if (a.action === "call") {
-      bets[a.seat] = lastBet;
+      bets[a.seat] = cap(a.seat, lastBet);
       continue;
     }
     if (a.action === "bet" || a.action === "raise") {
-      const newAmt = a.amount ?? 0;
-      lastRaiseSize = newAmt - lastBet;
-      bets[a.seat] = newAmt;
-      lastBet = newAmt;
-      lastAggressor = a.seat;
-      actedThisStreet.clear();
-      actedThisStreet.add(a.seat);
+      const capped = cap(a.seat, a.amount ?? 0);
+      bets[a.seat] = capped;
+      // Only treat as a "real" raise (one that reopens action and resets
+      // who has acted) when the seat actually puts in more than the
+      // current bet. A short-stack shove for less is just a side-pot
+      // contribution; it doesn't change what later seats need to match.
+      if (capped >= lastBet) {
+        lastRaiseSize = capped - lastBet;
+        lastBet = capped;
+        lastAggressor = a.seat;
+        actedThisStreet.clear();
+        actedThisStreet.add(a.seat);
+      }
     }
   }
 
@@ -608,45 +753,11 @@ export function deriveStreet(state: RecorderState): DerivedStreet | null {
     }
   }
 
-  // Rebuild totalPot across streets for display.
-  const streets: Street[] = ["preflop", "flop", "turn", "river"];
-  let totalPotSum = 0;
-  for (const ph of streets) {
-    if (streets.indexOf(ph) > streets.indexOf(phase as Street)) break;
-    const streetBetsAll: Record<number, number> = {};
-    let lb = 0;
-    if (ph === "preflop") {
-      if (playerCount === 2) {
-        streetBetsAll[0] = sb;
-        streetBetsAll[1] = bb;
-        lb = bb;
-      } else {
-        streetBetsAll[1] = sb;
-        streetBetsAll[2] = bb;
-        lb = bb;
-        if (straddleOn && playerCount >= 4) {
-          streetBetsAll[3] = straddleAmt;
-          lb = straddleAmt;
-        }
-      }
-    }
-    const acts = actions.filter((a) => a.street === ph);
-    for (const a of acts) {
-      if (a.action === "fold" || a.action === "check") continue;
-      if (a.action === "call") {
-        streetBetsAll[a.seat] = lb;
-        continue;
-      }
-      if (a.action === "bet" || a.action === "raise") {
-        streetBetsAll[a.seat] = a.amount ?? 0;
-        lb = a.amount ?? 0;
-      }
-    }
-    totalPotSum += Object.values(streetBetsAll).reduce(
-      (s, v) => s + (v || 0),
-      0,
-    );
-  }
+  // Live (raw) pot for the action bar's pot-sizing helpers. `totalPot`
+  // walks blinds + actions through every street with the same stack-aware
+  // caps as the rest of the math, so a short-stack call doesn't inflate
+  // the displayed pot.
+  const totalPotSum = totalPot(state);
 
   const committedThisStreet =
     activeSeat !== null ? bets[activeSeat] || 0 : 0;

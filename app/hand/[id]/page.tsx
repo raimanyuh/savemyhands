@@ -1,35 +1,35 @@
-"use client";
-
-import { use, useState } from "react";
+import { headers } from "next/headers";
+import { notFound } from "next/navigation";
 import Replayer from "@/components/poker/Replayer";
-import {
-  recordedToHand,
-  type ReplayHand,
-  type SavedHand,
-} from "@/components/poker/hand";
+import { recordedToHand } from "@/components/poker/hand";
+import { getHandForViewing } from "@/lib/hands/db";
 
-function loadHand(id: string): ReplayHand | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const saved = JSON.parse(
-      localStorage.getItem("smh:hands") || "[]",
-    ) as SavedHand[];
-    const found = saved.find((h) => h.id === id);
-    if (found) return recordedToHand(found);
-  } catch {
-    /* fall through */
-  }
-  return null;
-}
-
-export default function HandPage({
+export default async function HandPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = use(params);
-  // Lazy init reads localStorage once on the client. If the hand isn't found
-  // (or we're rendering on the server), Replayer falls back to its sample.
-  const [hand] = useState<ReplayHand | null>(() => loadHand(id));
-  return <Replayer hand={hand} />;
+  const { id } = await params;
+  const result = await getHandForViewing(id);
+  if (!result) notFound();
+  const replayHand = recordedToHand(result.hand);
+  if (!replayHand) notFound();
+
+  // Build the canonical share URL from the live request so dev (localhost)
+  // and prod (vercel) both get the right host without a hardcoded constant.
+  const h = await headers();
+  const host = h.get("host") ?? "savemyhands.app";
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const shareUrl = `${proto}://${host}/hand/${id}`;
+
+  return (
+    <Replayer
+      hand={replayHand}
+      shareUrl={shareUrl}
+      handId={id}
+      isOwner={result.isOwner}
+      isPublic={!!result.hand.isPublic}
+      isAuthenticated={result.isAuthenticated}
+    />
+  );
 }

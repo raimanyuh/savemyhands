@@ -1,7 +1,33 @@
 // Saved-hand model used by Dashboard <-> Recorder <-> Replayer.
 
 import { POSITION_NAMES } from "./lib";
+import { computeSidePots, totalPotFinal } from "./engine";
 import type { Action, Player, Street } from "./engine";
+import { awardPots } from "./hand-eval";
+
+// Pot type, derived from the count of voluntary preflop raises:
+// 0 raises → LP (limped), 1 → SRP, 2 → 3BP, 3 → 4BP, 4+ → 5BP (capped).
+export type PotType = "LP" | "SRP" | "3BP" | "4BP" | "5BP";
+
+export function derivePotType(actions: Action[]): PotType {
+  let raises = 0;
+  for (const a of actions) {
+    if (a.street !== "preflop") continue;
+    if (a.action === "raise" || a.action === "bet") raises++;
+  }
+  if (raises === 0) return "LP";
+  if (raises === 1) return "SRP";
+  if (raises === 2) return "3BP";
+  if (raises === 3) return "4BP";
+  return "5BP";
+}
+
+// Display-time pot type. Prefers a fresh derivation from the action log so
+// older saves (which were hardcoded to "SRP") still classify correctly.
+export function potTypeOf(h: SavedHand): PotType {
+  if (h._full?.actions) return derivePotType(h._full.actions);
+  return h.type;
+}
 
 export type SavedHand = {
   id: string;
@@ -16,11 +42,14 @@ export type SavedHand = {
   // undefined; derive from `_full` lazily in that case.
   multiway?: boolean;
   board: string[]; // length 5, "—" for missing
-  type: "SRP" | "3BP" | "4BP";
+  type: PotType;
   tags: string[];
   result: number;
   fav: boolean;
   notes?: string;
+  // Sharing state. Hands default private (is_public = false in Postgres) and
+  // become viewable by non-owners only when the owner toggles this on.
+  isPublic?: boolean;
   _full?: {
     players: Player[];
     actions: Action[];
@@ -37,6 +66,12 @@ export type SavedHand = {
     date?: string;
     // Annotations keyed by index into `actions`, populated in the recorder.
     annotations?: Record<number, string>;
+    // Per-step equity, precomputed at save time. Keys are step indices;
+    // values are { seat: equity 0..1 }. Steps where equity isn't
+    // applicable (preflop, hero alone) are omitted. Older hands saved
+    // before this field existed simply lack it — the replayer falls back
+    // to live computation in that case.
+    equityByStep?: Record<number, Record<number, number>>;
   };
 };
 
@@ -88,6 +123,10 @@ export type ReplayHand = {
     cards: (string | null)[] | null;
   }[];
   steps: ReplayStep[];
+  // Precomputed per-step equity (from `_full.equityByStep`). When present
+  // the replayer's "Show equity" toggle is a pure lookup; otherwise it
+  // falls back to runout enumeration on the fly.
+  equityByStep?: Record<number, Record<number, number>>;
 };
 
 // Convert a recorded hand (from Recorder's _full payload) into the steps[] format Replayer renders.
@@ -181,6 +220,13 @@ export function recordedToHand(rec: SavedHand): ReplayHand | null {
           running += f.straddleAmt;
         }
       }
+      // Initial frame: blinds posted, no action yet. The first ← / → step
+      // then plays the first action.
+      steps.push({
+        street: "preflop",
+        label: f.straddleOn && f.playerCount >= 4 ? "Blinds + straddle posted" : "Blinds posted",
+        pot: running,
+      });
     }
     const annotations = f.annotations ?? {};
     const phaseActions: { a: Action; index: number }[] = [];
@@ -217,25 +263,76 @@ export function recordedToHand(rec: SavedHand): ReplayHand | null {
     }
   }
 
-  // Showdown / lone winner
+  // Showdown / winner determination. The displayed pot is the
+  // refund-adjusted total: when the last bet was uncalled, the bettor's
+  // excess never went into the pot.
   const folded = new Set<number>();
   f.actions.forEach((a) => {
     if (a.action === "fold") folded.add(a.seat);
   });
   const survivors = players.filter((p) => !folded.has(p.seat));
+  const finalPot = totalPotFinal(f);
+  const muckedSet = new Set(f.muckedSeats ?? []);
+
   if (survivors.length === 1) {
     steps.push({
       street: "showdown",
-      label: `${survivors[0].pos} wins $${running}`,
-      pot: running,
+      label: `${survivors[0].pos} wins $${finalPot}`,
+      pot: finalPot,
       winner: survivors[0].seat,
     });
   } else if (survivors.length > 1) {
-    steps.push({
-      street: "showdown",
-      label: `Showdown — pot $${running}`,
-      pot: running,
-    });
+    // Multi-survivor at showdown — try to determine winner(s) from the
+    // shown cards via per-pot eval. Falls through to a generic "Showdown"
+    // label if eval can't run (incomplete board, no shown cards, etc.).
+    const board5 = f.board.filter((c): c is string => Boolean(c));
+    const contestants = survivors
+      .filter(
+        (p) =>
+          !muckedSet.has(p.seat) && p.cards && p.cards[0] && p.cards[1],
+      )
+      .map((p) => ({
+        seat: p.seat,
+        cards: [p.cards![0]!, p.cards![1]!],
+      }));
+
+    let winners: number[] = [];
+    if (board5.length === 5 && contestants.length > 0) {
+      try {
+        const pots = computeSidePots(f);
+        const awards = awardPots(pots, contestants, board5);
+        const set = new Set<number>();
+        for (const potAwards of awards)
+          for (const a of potAwards) for (const w of a.winners) set.add(w);
+        winners = [...set];
+      } catch {
+        winners = [];
+      }
+    }
+
+    const posOf = (seat: number) =>
+      players.find((p) => p.seat === seat)?.pos ?? `S${seat + 1}`;
+
+    if (winners.length === 1) {
+      steps.push({
+        street: "showdown",
+        label: `${posOf(winners[0])} wins $${finalPot}`,
+        pot: finalPot,
+        winner: winners[0],
+      });
+    } else if (winners.length > 1) {
+      steps.push({
+        street: "showdown",
+        label: `${winners.map(posOf).join(" & ")} split $${finalPot}`,
+        pot: finalPot,
+      });
+    } else {
+      steps.push({
+        street: "showdown",
+        label: `Showdown — pot $${finalPot}`,
+        pot: finalPot,
+      });
+    }
   }
 
   return {
@@ -253,6 +350,7 @@ export function recordedToHand(rec: SavedHand): ReplayHand | null {
     steps: steps.length
       ? steps
       : [{ street: "preflop", label: "No actions recorded", pot: 0 }],
+    equityByStep: f.equityByStep,
   };
 }
 

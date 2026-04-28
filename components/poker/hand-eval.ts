@@ -229,3 +229,70 @@ export function determineWinner(
   }
   return { winners, scores };
 }
+
+// One slice of a pot's payout. Today every pot produces exactly one Award
+// (the high hand wins the whole pot). The array shape is here to keep
+// future games drop-in: hi-lo would push a second Award (lo-half), and
+// double-board would push a second Award per board. Each Award's `amount`
+// is its share of the parent pot, summing to the pot's total.
+export type PotAward = {
+  amount: number;
+  // Seats sharing this award. Length > 1 for ties; the per-seat split is
+  // computed at distribution time, not stored here.
+  winners: number[];
+};
+
+// For each pot, decide who wins. Inputs:
+//   * `pots` — from engine.computeSidePots, ordered main → side.
+//   * `contestants` — seats that showed cards (hero + any villains who
+//     didn't muck), with their hole cards.
+//   * `board` — five community cards.
+//
+// Returns one `PotAward[]` per pot. A seat eligible for a pot but who
+// didn't show is treated as conceded; if every eligible seat-with-cards has
+// folded out of the pot, the remaining eligible seat (typically the only
+// non-folder) wins by default.
+export function awardPots(
+  pots: { amount: number; eligibleSeats: number[] }[],
+  contestants: { seat: number; cards: string[] }[],
+  board: string[],
+): PotAward[][] {
+  const cardsBySeat = new Map(contestants.map((c) => [c.seat, c.cards]));
+  return pots.map((pot) => {
+    // Eligible seats *and* showed cards — these are the contenders for this
+    // pot's hand-eval.
+    const showing = pot.eligibleSeats
+      .filter((s) => cardsBySeat.has(s))
+      .map((s) => ({ seat: s, cards: cardsBySeat.get(s)! }));
+
+    // Single eligible seat (others folded out before reaching this layer):
+    // they win uncontested, no eval needed.
+    if (pot.eligibleSeats.length === 1) {
+      return [{ amount: pot.amount, winners: [pot.eligibleSeats[0]] }];
+    }
+    // No one showed — fall back to splitting among the eligible seats.
+    if (showing.length === 0) {
+      return [{ amount: pot.amount, winners: pot.eligibleSeats }];
+    }
+    if (showing.length === 1) {
+      return [{ amount: pot.amount, winners: [showing[0].seat] }];
+    }
+    const { winners } = determineWinner(showing, board);
+    return [{ amount: pot.amount, winners }];
+  });
+}
+
+// Sum up the chips a seat actually receives across all awarded pots. Splits
+// each award evenly among its winners (rounding toward chips — leftover
+// pennies go nowhere; in real chips that's an odd-chip rule we don't model).
+export function seatWinnings(awards: PotAward[][], seat: number): number {
+  let total = 0;
+  for (const potAwards of awards) {
+    for (const a of potAwards) {
+      if (a.winners.includes(seat)) {
+        total += Math.round(a.amount / a.winners.length);
+      }
+    }
+  }
+  return total;
+}
