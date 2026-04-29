@@ -34,16 +34,14 @@ import { Header, Shell } from "@/components/Shell";
 import { UsernamePicker } from "@/components/auth/UsernamePicker";
 import { isMultiway, potTypeOf, type SavedHand } from "./hand";
 import { generateSampleHands } from "./sample-hands-gen";
+import { getSampleHand } from "@/lib/sample-hand";
 
-const SAMPLE_HANDS: SavedHand[] = [
-  { id: "k4n2zx", name: "River bluff vs reg",        date: "Apr 24, 25", stakes: "1/2",  loc: "Lucky Chances", positions: "BTN", multiway: false, board: ["K♠","7♥","2♣","Q♦","—"],  type: "SRP", tags: ["bluff","river"],   result: 148,    fav: false },
-  { id: "q7p9aa", name: "QQ overplay",               date: "Apr 21, 25", stakes: "1/3",  loc: "Lucky Chances", positions: "CO", multiway: false, board: ["9♣","5♥","5♦","A♠","—"],  type: "3BP", tags: ["leak","review"],   result: -320,   fav: false },
-  { id: "b2m1xy", name: "Aces hold",                 date: "Apr 20, 25", stakes: "2/5",  loc: "Bay 101",       positions: "BTN", multiway: true,  board: ["T♠","7♦","2♣","—","—"],   type: "4BP", tags: ["premium","win"],   result: 1250,   fav: true  },
-  { id: "h6t3rs", name: "Suited connector flush",    date: "Apr 18, 25", stakes: "1/2",  loc: "Lucky Chances", positions: "BB",  multiway: true,  board: ["8♥","6♥","3♥","J♥","2♣"], type: "SRP", tags: ["draw","flush"],    result: 42,     fav: false },
-  { id: "r9w2vc", name: "JJ vs ace-high",            date: "Apr 14, 25", stakes: "2/5",  loc: "Bay 101",       positions: "MP",  multiway: false, board: ["A♣","8♦","4♠","—","—"],   type: "SRP", tags: ["fold-equity"],     result: -200,   fav: false },
-  { id: "a1c8bn", name: "Double-barrel BTN",         date: "Apr 10, 25", stakes: "1/3",  loc: "Hustler",       positions: "BTN", multiway: false, board: ["T♥","9♣","3♠","5♦","—"],  type: "3BP", tags: ["barrel","win"],    result: 615,    fav: true  },
-  { id: "c4d8mp", name: "Set over set",              date: "Apr 08, 25", stakes: "2/5",  loc: "Bay 101",       positions: "CO",  multiway: true,  board: ["Q♣","Q♦","7♠","3♣","—"],  type: "SRP", tags: ["cooler","review"], result: -540,   fav: false },
-];
+// Bundled sample row shown to first-run accounts (those with zero saved
+// hands). Sourced from the same fixture the replayer route uses for
+// `/hand/sample`, so clicking the row navigates to a fully working replay
+// rather than a broken `/hand/<dead-id>` route. One rich hand instead of
+// many thin ones — the user only needs one polished thing to click through.
+const SAMPLE_HANDS: SavedHand[] = [getSampleHand()];
 
 // Hero's position only — older saves stored "X vs Y", strip back to the hero side.
 function heroPositionOf(h: SavedHand): string {
