@@ -4,20 +4,28 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Copy,
   Globe,
   Lock,
   Pause,
+  Pencil,
   Percent,
   Play,
   RotateCcw,
   UserPlus,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Header, Shell } from "@/components/Shell";
-import { setHandPublicAction } from "@/lib/hands/actions";
+import {
+  setHandPublicAction,
+  updateHandDetailsAction,
+} from "@/lib/hands/actions";
+import type { SavedHand } from "./hand";
 import { computeEquity } from "./equity";
 import PlayingCard from "./PlayingCard";
 import { seatXY } from "./lib";
@@ -47,6 +55,7 @@ export default function Replayer({
   isOwner = false,
   isPublic = false,
   isAuthenticated = true,
+  fullPayload,
 }: {
   hand: ReplayHand;
   shareUrl?: string;
@@ -58,6 +67,10 @@ export default function Replayer({
   // sign-up CTA. Defaults to true so the recorder/dashboard flows that
   // already gate auth upstream don't have to thread this prop.
   isAuthenticated?: boolean;
+  // The original SavedHand._full payload, threaded through so owner edits to
+  // notes can patch both the top-level `notes` column and `_full.notes`
+  // (the read prefers _full.notes, so both must move together).
+  fullPayload?: SavedHand["_full"];
 }) {
   // Key by hand id so transport state (step, playing) resets cleanly per hand.
   return (
@@ -69,6 +82,7 @@ export default function Replayer({
       isOwner={isOwner}
       isPublic={isPublic}
       isAuthenticated={isAuthenticated}
+      fullPayload={fullPayload}
     />
   );
 }
@@ -80,6 +94,7 @@ function ReplayerInner({
   isOwner,
   isPublic,
   isAuthenticated,
+  fullPayload,
 }: {
   hand: ReplayHand;
   shareUrl?: string;
@@ -87,6 +102,7 @@ function ReplayerInner({
   isOwner: boolean;
   isPublic: boolean;
   isAuthenticated: boolean;
+  fullPayload?: SavedHand["_full"];
 }) {
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -95,6 +111,18 @@ function ReplayerInner({
   // turning it on reveals every villain who showed at showdown plus a
   // per-seat equity badge at the current step's board.
   const [showEquity, setShowEquity] = useState(false);
+  // Action-log popover (opened via the Log button on the floating dock).
+  const [logOpen, setLogOpen] = useState(false);
+
+  // Step indices that have an annotation, used to draw markers on the
+  // scrubber and to power "[" / "]" jump-to-annotation shortcuts.
+  const annotatedSteps = useMemo(
+    () =>
+      HAND.steps
+        .map((s, i) => (s.annotation && s.annotation.trim() ? i : -1))
+        .filter((i) => i >= 0),
+    [HAND],
+  );
 
   useEffect(() => {
     if (!playing) return;
@@ -138,11 +166,31 @@ function ReplayerInner({
       } else if (e.key === "End") {
         e.preventDefault();
         setStep(HAND.steps.length - 1);
+      } else if (e.key === "[") {
+        // Jump to the previous annotated step.
+        e.preventDefault();
+        setStep((s) => {
+          const prev = annotatedSteps.filter((i) => i < s).pop();
+          return prev ?? s;
+        });
+      } else if (e.key === "]") {
+        // Jump to the next annotated step.
+        e.preventDefault();
+        setStep((s) => {
+          const next = annotatedSteps.find((i) => i > s);
+          return next ?? s;
+        });
+      } else if (e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        setLogOpen((v) => !v);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setLogOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [HAND.steps.length]);
+  }, [HAND.steps.length, annotatedSteps]);
 
   const cur = HAND.steps[step];
   // Memoize `board` so downstream useMemo deps don't see a fresh array
@@ -236,6 +284,46 @@ function ReplayerInner({
     });
   };
 
+  // Notes editing (owner-only). The displayed value lives in local state so
+  // edits feel instant; the server roundtrip mirrors the change in both the
+  // top-level `notes` column and `_full.notes` so the next read is consistent.
+  // The outer Replayer keys on hand.id, so switching hands remounts this
+  // component and re-seeds notesValue from the new HAND.
+  const [notesValue, setNotesValue] = useState(HAND.notes ?? "");
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [, startNotesSave] = useTransition();
+  const beginEditNotes = () => {
+    setNotesDraft(notesValue);
+    setEditingNotes(true);
+  };
+  const cancelEditNotes = () => {
+    setEditingNotes(false);
+    setNotesDraft("");
+  };
+  const saveNotes = () => {
+    if (!handId) return;
+    const trimmed = notesDraft.trim();
+    const previous = notesValue;
+    setNotesValue(trimmed);
+    setEditingNotes(false);
+    startNotesSave(async () => {
+      try {
+        const patch: Parameters<typeof updateHandDetailsAction>[1] = {
+          notes: trimmed || undefined,
+        };
+        if (fullPayload) {
+          patch._full = { ...fullPayload, notes: trimmed || undefined };
+        }
+        await updateHandDetailsAction(handId, patch);
+      } catch (e) {
+        console.error("Failed to save notes", e);
+        setNotesValue(previous);
+        window.alert("Couldn't save those notes — try again.");
+      }
+    });
+  };
+
   return (
     <Shell
       header={
@@ -303,7 +391,7 @@ function ReplayerInner({
                   size="sm"
                   style={{
                     background: "oklch(0.696 0.205 155)",
-                    color: "oklch(0.145 0.008 60)",
+                    color: "oklch(0.145 0 0)",
                     fontWeight: 600,
                   }}
                   className="hover:!bg-[oklch(0.745_0.198_155)]"
@@ -530,106 +618,129 @@ function ReplayerInner({
             });
           })()}
 
+          {/* Check bubbles — same chip+pill visual as a bet bubble, but with
+              "check" text. Walks back through the steps on the current street
+              to find each seat's most recent action; renders for those whose
+              latest is `check`. Resets between streets like bet bubbles do
+              (the loop only considers the current-street window). */}
+          {(() => {
+            if (cur.street === "showdown") return null;
+            const checked = new Set<number>();
+            const seen = new Set<number>();
+            for (let i = step; i >= 0; i--) {
+              const s = HAND.steps[i];
+              if (s.street !== cur.street) break;
+              if (s.active === undefined || s.active === null) continue;
+              if (seen.has(s.active)) continue;
+              seen.add(s.active);
+              if (s.action === "check") checked.add(s.active);
+            }
+            return Array.from(checked).map((cycleIdx) => {
+              if (hasFolded(HAND.steps, step, cycleIdx)) return null;
+              const v = visualOf(cycleIdx);
+              return (
+                <BetBubble
+                  key={`check-${cycleIdx}`}
+                  seatPos={visualSeatPos[v]}
+                  isHero={v === 0}
+                  label="check"
+                />
+              );
+            });
+          })()}
+
           {/* Dealer button — BTN is cycle 0, render at its visual slot. */}
           <DealerButtonChip seatPos={visualSeatPos[visualOf(0)]} />
-        </TableSurface>
 
-        {/* Action log + transport */}
-        <div className="flex flex-col gap-3 w-full max-w-[820px]">
-          <div className="flex flex-col gap-2">
-            <div className="rounded-xl border border-white/10 bg-[oklch(0.205_0_0)] px-5 py-4 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <StreetPill street={street} />
-                <span className="text-base font-medium truncate">
-                  {cur.label}
-                </span>
-              </div>
-              <div className="text-sm text-muted-foreground tabular-nums shrink-0">
-                {step + 1} / {HAND.steps.length}
-              </div>
-            </div>
-            {cur.annotation && (
-              <div
-                className="rounded-xl border px-4 py-3 flex items-start gap-3"
-                style={{
-                  borderColor: "oklch(0.696 0.205 155 / 0.4)",
-                  background: "oklch(0.696 0.205 155 / 0.06)",
-                }}
-              >
-                <span
-                  className="px-1.5 h-5 inline-flex items-center rounded text-[10px] font-semibold uppercase tracking-[0.18em] shrink-0 mt-0.5"
+          {/* Per-seat overlays — anchored note balloon when the current step
+              carries an annotation. Rides the same coordinate system as bet
+              bubbles so it shifts with the table, never with page flow. The
+              earlier action-pill chip is gone; "what just happened" reads
+              from the chip+pill bet/check bubbles plus the dock summary. */}
+          {(() => {
+            if (cur.active === undefined || cur.active === null) return null;
+            const seatCycle = cur.active;
+            if (hasFolded(HAND.steps, step, seatCycle)) return null;
+            const v = visualOf(seatCycle);
+            const pos = visualSeatPos[v];
+            const onLeft = pos.left < 50;
+            const note = cur.annotation;
+            if (!note) return null;
+            const balloonWidth = 280;
+            return (
+              <>
+                {/* Connector — short dashed line from seat-side balloon edge
+                    to seat plate edge. Drawn as a stub on the balloon side;
+                    precise enough that the balloon reads as anchored to the
+                    seat without per-pixel math. */}
+                <div
+                  className="absolute z-20 pointer-events-none"
                   style={{
-                    background: "oklch(0.696 0.205 155 / 0.18)",
-                    color: "oklch(0.795 0.184 155)",
-                    border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+                    left: `${pos.left}%`,
+                    top: `${pos.top}%`,
+                    transform: onLeft
+                      ? "translate(-100%,-50%)"
+                      : "translate(0,-50%)",
+                    width: 56,
+                    height: 0,
+                    borderTop: "1.5px dashed oklch(0.696 0.205 155 / 0.55)",
+                  }}
+                />
+                <div
+                  className="absolute z-30"
+                  style={{
+                    left: `${pos.left}%`,
+                    top: `${pos.top}%`,
+                    transform: onLeft
+                      ? `translate(calc(-100% - 56px),-50%)`
+                      : `translate(56px,-50%)`,
+                    width: balloonWidth,
                   }}
                 >
-                  Note
-                </span>
-                <p className="text-[14px] leading-relaxed whitespace-pre-wrap text-zinc-100">
-                  {cur.annotation}
-                </p>
-              </div>
-            )}
-          </div>
+                  <div
+                    className="rounded-xl"
+                    style={{
+                      background: "oklch(0.196 0.030 155)",
+                      borderTop: "1px solid oklch(0.696 0.205 155 / 0.3)",
+                      borderRight: "1px solid oklch(0.696 0.205 155 / 0.3)",
+                      borderBottom: "1px solid oklch(0.696 0.205 155 / 0.3)",
+                      borderLeft: "3px solid oklch(0.696 0.205 155)",
+                      padding: "12px 14px",
+                      boxShadow: "0 18px 40px rgba(0,0,0,0.55)",
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span
+                        className="text-[9.5px] font-semibold uppercase tracking-[0.18em]"
+                        style={{ color: "oklch(0.795 0.184 155)" }}
+                      >
+                        Note
+                      </span>
+                    </div>
+                    <p
+                      className="text-[12.5px] leading-snug whitespace-pre-wrap"
+                      style={{ color: "oklch(0.92 0.05 155)" }}
+                    >
+                      {note}
+                    </p>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+        </TableSurface>
 
-          <div className="flex items-center gap-3 justify-center">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => setStep(0)}
-              aria-label="Restart"
-            >
-              <RotateCcw />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => setStep((s) => Math.max(0, s - 1))}
-              disabled={step === 0}
-              aria-label="Previous"
-            >
-              <ChevronLeft />
-            </Button>
-            <Button
-              onClick={() => setPlaying(!playing)}
-              size="lg"
-              className="px-5"
-            >
-              {playing ? (
-                <>
-                  <Pause /> Pause
-                </>
-              ) : (
-                <>
-                  <Play /> Play
-                </>
-              )}
-            </Button>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() =>
-                setStep((s) => Math.min(HAND.steps.length - 1, s + 1))
-              }
-              disabled={step === HAND.steps.length - 1}
-              aria-label="Next"
-            >
-              <ChevronRight />
-            </Button>
-            <input
-              type="range"
-              min={0}
-              max={HAND.steps.length - 1}
-              value={step}
-              onChange={(e) => setStep(Number(e.target.value))}
-              className="flex-1 max-w-[280px] accent-[oklch(0.696_0.205_155)]"
-            />
-          </div>
-        </div>
+        {/* The big "BTN bets $30" card and the always-rendered note row used
+            to live here. The dock at the bottom of the viewport now carries
+            the action summary + transport; the action pill near the active
+            seat and the seat-anchored note balloon (added next) replace the
+            inline cards. Removing the reserved row stops the layout from
+            shifting when scrubbing across annotated/non-annotated steps. */}
 
-        {/* Hand info — venue / date / notes from the recorder. */}
-        {(HAND.notes || HAND.venue || HAND.date) && (
+        {/* Hand info — venue / date / notes from the recorder. Owners always
+            see the panel (with an Add notes affordance) even when empty so
+            they can edit during a review session. */}
+        {(notesValue || HAND.venue || HAND.date || isOwner) && (
           <div className="rounded-xl border border-white/10 bg-[oklch(0.205_0_0)] px-5 py-4 w-full max-w-[820px] flex flex-col gap-3">
             {(HAND.venue || HAND.date) && (
               <div className="flex items-center gap-4 text-[12px] text-muted-foreground tabular-nums flex-wrap">
@@ -651,19 +762,358 @@ function ReplayerInner({
                 )}
               </div>
             )}
-            {HAND.notes && (
+            {(notesValue || isOwner) && (
               <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                  Notes
-                </span>
-                <p className="text-[14px] leading-relaxed whitespace-pre-wrap text-zinc-200">
-                  {HAND.notes}
-                </p>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                    Notes
+                  </span>
+                  {isOwner && !editingNotes && (
+                    <button
+                      onClick={beginEditNotes}
+                      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                      title={notesValue ? "Edit notes" : "Add notes"}
+                      aria-label={notesValue ? "Edit notes" : "Add notes"}
+                    >
+                      <Pencil size={12} />
+                      {notesValue ? "Edit" : "Add notes"}
+                    </button>
+                  )}
+                </div>
+                {editingNotes ? (
+                  <div className="flex flex-col gap-2">
+                    <textarea
+                      autoFocus
+                      value={notesDraft}
+                      onChange={(e) => setNotesDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          cancelEditNotes();
+                        } else if (
+                          (e.metaKey || e.ctrlKey) &&
+                          e.key === "Enter"
+                        ) {
+                          e.preventDefault();
+                          saveNotes();
+                        }
+                      }}
+                      placeholder="Articulate your read, decision points, anything you want the viewer to know."
+                      className="flex w-full min-h-[120px] rounded-lg border border-input bg-transparent px-3 py-2 text-[14px] leading-relaxed shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 resize-y"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={cancelEditNotes}
+                      >
+                        <X /> Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={saveNotes}
+                        style={{
+                          background: "oklch(0.696 0.205 155)",
+                          color: "oklch(0.145 0 0)",
+                          fontWeight: 600,
+                        }}
+                        className="hover:!bg-[oklch(0.745_0.198_155)]"
+                      >
+                        <Check /> Save
+                      </Button>
+                    </div>
+                  </div>
+                ) : notesValue ? (
+                  <p className="text-[14px] leading-relaxed whitespace-pre-wrap text-zinc-200">
+                    {notesValue}
+                  </p>
+                ) : (
+                  <p className="text-[13px] italic text-muted-foreground">
+                    No notes yet.
+                  </p>
+                )}
               </div>
             )}
           </div>
         )}
+        {/* Bottom padding so the fixed dock never overlaps the notes panel. */}
+        <div style={{ height: 96 }} aria-hidden />
       </div>
+
+      {/* Floating media-player dock. Fixed to the viewport so scrolling /
+          annotated steps don't shift it. */}
+      <div
+        className="fixed left-1/2 z-40 flex items-center gap-3.5"
+        style={{
+          bottom: 24,
+          transform: "translateX(-50%)",
+          padding: "10px 16px",
+          borderRadius: 14,
+          background: "rgba(15,15,18,0.92)",
+          border: "1px solid oklch(1 0 0 / 0.12)",
+          boxShadow: "0 20px 50px rgba(0,0,0,0.6)",
+          backdropFilter: "blur(14px)",
+          maxWidth: 820,
+          width: "calc(100% - 48px)",
+        }}
+      >
+        {/* Action summary — quiet, no card chrome. */}
+        <div className="flex items-center gap-2 min-w-0 max-w-[260px]">
+          <StreetPill street={street} />
+          <span className="text-[13px] text-zinc-200 truncate">
+            {cur.label}
+          </span>
+        </div>
+
+        {/* Transport */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              // Skip back to the first step of the current street.
+              let target = 0;
+              for (let i = step; i >= 0; i--) {
+                if (HAND.steps[i].street !== street) {
+                  target = i + 1;
+                  break;
+                }
+              }
+              setStep(target);
+            }}
+            className="w-8 h-8 inline-flex items-center justify-center rounded-md text-zinc-300 hover:text-white hover:bg-white/8 cursor-pointer"
+            aria-label="Restart street"
+            title="Skip back to start of street"
+          >
+            <RotateCcw size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            disabled={step === 0}
+            className="w-8 h-8 inline-flex items-center justify-center rounded-md text-zinc-300 hover:text-white hover:bg-white/8 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Previous step"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setPlaying(!playing)}
+            className="w-10 h-10 rounded-full inline-flex items-center justify-center cursor-pointer"
+            style={{
+              background: "oklch(0.696 0.205 155)",
+              color: "oklch(0.145 0 0)",
+              boxShadow: "0 4px 12px oklch(0.696 0.205 155 / 0.35)",
+            }}
+            aria-label={playing ? "Pause" : "Play"}
+          >
+            {playing ? <Pause size={16} /> : <Play size={16} />}
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setStep((s) => Math.min(HAND.steps.length - 1, s + 1))
+            }
+            disabled={step === HAND.steps.length - 1}
+            className="w-8 h-8 inline-flex items-center justify-center rounded-md text-zinc-300 hover:text-white hover:bg-white/8 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Next step"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+
+        {/* Inline scrubber with markers at every annotated step. */}
+        <div className="flex-1 relative h-7 flex items-center min-w-[160px]">
+          <div
+            className="absolute left-0 right-0 rounded"
+            style={{
+              top: "50%",
+              transform: "translateY(-50%)",
+              height: 3,
+              background: "oklch(1 0 0 / 0.08)",
+            }}
+          />
+          <div
+            className="absolute left-0 rounded"
+            style={{
+              top: "50%",
+              transform: "translateY(-50%)",
+              height: 3,
+              width: `${HAND.steps.length > 1 ? (step / (HAND.steps.length - 1)) * 100 : 0}%`,
+              background: "oklch(0.696 0.205 155)",
+            }}
+          />
+          {annotatedSteps.map((i) => {
+            const pct =
+              HAND.steps.length > 1 ? (i / (HAND.steps.length - 1)) * 100 : 0;
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setStep(i)}
+                title={
+                  HAND.steps[i].annotation || "Annotated step"
+                }
+                aria-label={`Jump to annotated step ${i + 1}`}
+                className="absolute cursor-pointer"
+                style={{
+                  left: `${pct}%`,
+                  top: "50%",
+                  transform: "translate(-50%,-50%)",
+                  width: 9,
+                  height: 9,
+                  borderRadius: "50%",
+                  background: "oklch(0.795 0.184 155)",
+                  boxShadow: "0 0 0 2px rgba(15,15,18,0.92)",
+                  border: "none",
+                  padding: 0,
+                }}
+              />
+            );
+          })}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: `${HAND.steps.length > 1 ? (step / (HAND.steps.length - 1)) * 100 : 0}%`,
+              top: "50%",
+              transform: "translate(-50%,-50%)",
+              width: 14,
+              height: 14,
+              borderRadius: "50%",
+              background: "#fafafa",
+              border: "2px solid oklch(0.696 0.205 155)",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.5)",
+            }}
+          />
+          <input
+            type="range"
+            min={0}
+            max={HAND.steps.length - 1}
+            value={step}
+            onChange={(e) => setStep(Number(e.target.value))}
+            className="absolute inset-0 opacity-0 cursor-pointer w-full"
+            aria-label="Replay scrubber"
+          />
+        </div>
+
+        {/* Step counter */}
+        <span className="text-[11px] text-zinc-400 tabular-nums shrink-0 text-center w-[52px]">
+          {step + 1} / {HAND.steps.length}
+        </span>
+
+        {/* Log popover trigger — the popover itself ships in the next pass. */}
+        <button
+          type="button"
+          onClick={() => setLogOpen((v) => !v)}
+          className="h-7 px-2.5 rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1 shrink-0"
+          style={
+            logOpen
+              ? {
+                  background: "oklch(0.696 0.205 155 / 0.18)",
+                  border: "1px solid oklch(0.696 0.205 155 / 0.5)",
+                  color: "oklch(0.85 0.184 155)",
+                }
+              : {
+                  background: "oklch(1 0 0 / 0.04)",
+                  border: "1px solid oklch(1 0 0 / 0.12)",
+                  color: "#e4e4e7",
+                }
+          }
+          aria-expanded={logOpen}
+          aria-label="Toggle action log"
+        >
+          Log
+          {logOpen ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
+        </button>
+      </div>
+
+      {/* Log popover — sits above the dock when open. Lists every step
+          grouped by street; annotated rows have a small emerald dot, the
+          current step is highlighted, and any row jumps the scrubber. */}
+      {logOpen && (
+        <div
+          className="fixed left-1/2 z-50"
+          style={{
+            bottom: 96,
+            transform: "translateX(-50%)",
+            width: 460,
+            maxHeight: 320,
+            background: "rgba(9,9,11,0.94)",
+            border: "1px solid oklch(1 0 0 / 0.10)",
+            borderRadius: 14,
+            padding: "10px 12px",
+            boxShadow: "0 24px 60px rgba(0,0,0,0.7)",
+            backdropFilter: "blur(14px)",
+            overflowY: "auto",
+          }}
+          role="dialog"
+          aria-label="Action log"
+        >
+          {(() => {
+            const groups: { street: ReplayStep["street"]; items: { i: number; s: ReplayStep }[] }[] = [];
+            HAND.steps.forEach((s, i) => {
+              const last = groups[groups.length - 1];
+              if (last && last.street === s.street) {
+                last.items.push({ i, s });
+              } else {
+                groups.push({ street: s.street, items: [{ i, s }] });
+              }
+            });
+            return groups.map((g) => (
+              <div key={g.street} className="flex flex-col gap-0.5 mb-1.5 last:mb-0">
+                <div
+                  className="text-[9.5px] font-bold uppercase tracking-[0.18em] px-1 pt-1 pb-1"
+                  style={{ color: "oklch(0.55 0 0)" }}
+                >
+                  {g.street}
+                </div>
+                {g.items.map(({ i, s }) => {
+                  const active = i === step;
+                  const annotated = !!(s.annotation && s.annotation.trim());
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setStep(i)}
+                      className="flex items-center gap-2 px-2 h-7 rounded-md text-left cursor-pointer"
+                      style={{
+                        background: active
+                          ? "oklch(0.696 0.205 155 / 0.18)"
+                          : "transparent",
+                        border: active
+                          ? "1px solid oklch(0.696 0.205 155 / 0.4)"
+                          : "1px solid transparent",
+                        color: active ? "oklch(0.92 0.05 155)" : "#e4e4e7",
+                      }}
+                    >
+                      <span className="flex-1 text-[12px] truncate">
+                        {s.label}
+                      </span>
+                      <span
+                        className="text-[10.5px] tabular-nums"
+                        style={{ color: "oklch(0.55 0 0)" }}
+                      >
+                        ${s.pot}
+                      </span>
+                      {annotated && (
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: "50%",
+                            background: "oklch(0.795 0.184 155)",
+                            display: "inline-block",
+                          }}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ));
+          })()}
+        </div>
+      )}
     </Shell>
   );
 }

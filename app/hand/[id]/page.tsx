@@ -30,6 +30,7 @@ export default async function HandPage({
       isOwner={result.isOwner}
       isPublic={!!result.hand.isPublic}
       isAuthenticated={result.isAuthenticated}
+      fullPayload={result.hand._full}
     />
   );
 }

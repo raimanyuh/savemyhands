@@ -34,7 +34,7 @@ export function Checkbox({
         ${
           checked
             ? "bg-[oklch(0.696_0.205_155)] border-[oklch(0.696_0.205_155)]"
-            : "bg-transparent border-[oklch(0.95_0.04_60_/_0.25)] hover:border-[oklch(0.95_0.04_60_/_0.4)]"
+            : "bg-transparent border-[oklch(1_0_0_/_0.18)] hover:border-[oklch(1_0_0_/_0.30)]"
         }
         focus-visible:outline-none focus-visible:ring-2
         focus-visible:ring-[oklch(0.696_0.205_155_/_0.4)]
@@ -45,7 +45,7 @@ export function Checkbox({
         <Check
           size={10}
           strokeWidth={3}
-          className="text-[oklch(0.145_0.008_60)]"
+          className="text-[oklch(0.145_0_0)]"
         />
       )}
     </button>

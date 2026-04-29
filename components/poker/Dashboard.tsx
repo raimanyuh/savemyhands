@@ -69,7 +69,7 @@ const suitColor = (s: string) =>
       : s === "♣"
         ? "oklch(0.7 0.17 145)"
         : s === "♠"
-          ? "oklch(0.95 0.005 60)"
+          ? "oklch(0.95 0 0)"
           : "transparent";
 
 function MiniCard({ card }: { card: string }) {
@@ -80,7 +80,7 @@ function MiniCard({ card }: { card: string }) {
           width: 22,
           height: 26,
           borderRadius: 4,
-          border: "1px dashed oklch(0.95 0.04 60 / 12%)",
+          border: "1px dashed oklch(1 0 0 / 8%)",
         }}
       />
     );
@@ -119,7 +119,7 @@ function TagChip({
   onRemove?: () => void;
 }) {
   return (
-    <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded text-[11px] font-medium border border-[oklch(0.95_0.04_60_/_0.14)] bg-[oklch(0.95_0.04_60_/_0.05)] text-[oklch(0.85_0.005_60)]">
+    <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded text-[11px] font-medium border border-[oklch(1_0_0_/_0.10)] bg-[oklch(1_0_0_/_0.04)] text-[oklch(0.85_0_0)]">
       {children}
       {onRemove && (
         <button
@@ -191,7 +191,7 @@ function FilterPopover({
         left,
         top,
         width: W,
-        background: "oklch(0.215 0.010 60)",
+        background: "oklch(0.215 0 0)",
         border: "1px solid oklch(1 0 0 / 0.12)",
         boxShadow:
           "0 24px 60px rgba(0,0,0,0.7), 0 6px 18px rgba(0,0,0,0.5)",
@@ -255,8 +255,8 @@ function FilterDropdown({
         onClick={(e) => setAnchor(e.currentTarget)}
         className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[13px] font-medium border transition-colors cursor-pointer ${
           count > 0 || active
-            ? "bg-[oklch(0.285_0.012_60)] text-foreground border-[oklch(0.95_0.04_60_/_0.2)]"
-            : "bg-transparent text-[oklch(0.85_0.005_60)] border-border hover:bg-muted"
+            ? "bg-[oklch(0.285_0_0)] text-foreground border-[oklch(1_0_0_/_0.14)]"
+            : "bg-transparent text-[oklch(0.85_0_0)] border-border hover:bg-muted"
         }`}
       >
         {label}
@@ -546,7 +546,7 @@ function EditDetailsModal({
             onClick={commit}
             style={{
               background: "oklch(0.696 0.205 155)",
-              color: "oklch(0.145 0.008 60)",
+              color: "oklch(0.145 0 0)",
               fontWeight: 600,
             }}
             className="hover:!bg-[oklch(0.745_0.198_155)]"
@@ -609,7 +609,7 @@ function RowActionsMenu({
           e.stopPropagation();
           setAnchor(anchor ? null : (e.currentTarget as HTMLElement));
         }}
-        className="w-7 h-7 inline-flex items-center justify-center rounded text-[oklch(0.55_0.005_60)] hover:text-foreground hover:bg-[oklch(0.95_0.04_60_/_0.06)] cursor-pointer"
+        className="w-7 h-7 inline-flex items-center justify-center rounded text-[oklch(0.55_0_0)] hover:text-foreground hover:bg-[oklch(1_0_0_/_0.05)] cursor-pointer"
         aria-label="Hand actions"
       >
         <MoreHorizontal size={14} />
@@ -624,7 +624,7 @@ function RowActionsMenu({
               left: menuLeft,
               top: menuTop,
               width: 180,
-              background: "oklch(0.215 0.010 60)",
+              background: "oklch(0.215 0 0)",
               border: "1px solid oklch(1 0 0 / 0.12)",
               boxShadow:
                 "0 24px 60px rgba(0,0,0,0.7), 0 6px 18px rgba(0,0,0,0.5)",
@@ -678,10 +678,10 @@ function HandListRow({
   return (
     <div
       onClick={onOpen}
-      className={`grid ${ROW_COLS} items-center gap-2 px-3 h-11 border-b border-[oklch(0.95_0.04_60_/_0.06)] cursor-pointer transition-colors ${
+      className={`grid ${ROW_COLS} items-center gap-2 px-3 h-11 border-b border-[oklch(1_0_0_/_0.05)] cursor-pointer transition-colors ${
         selected
-          ? "bg-[oklch(0.285_0.012_60_/_0.55)]"
-          : "hover:bg-[oklch(0.95_0.04_60_/_0.04)]"
+          ? "bg-[oklch(0.285_0_0_/_0.55)]"
+          : "hover:bg-[oklch(1_0_0_/_0.03)]"
       }`}
     >
       <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
@@ -692,7 +692,7 @@ function HandListRow({
           e.stopPropagation();
           onToggleFav();
         }}
-        className="flex items-center justify-center text-[oklch(0.55_0.005_60)] hover:text-[oklch(0.85_0.15_85)] cursor-pointer"
+        className="flex items-center justify-center text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0.15_85)] cursor-pointer"
         aria-label="Toggle favorite"
       >
         <Star
@@ -707,9 +707,9 @@ function HandListRow({
           <span
             className="inline-flex items-center h-4 px-1 rounded text-[9px] font-semibold uppercase tracking-[0.16em] shrink-0"
             style={{
-              background: "oklch(0.95 0.04 60 / 0.06)",
-              border: "1px solid oklch(0.95 0.04 60 / 0.14)",
-              color: "oklch(0.65 0.005 60)",
+              background: "oklch(1 0 0 / 0.04)",
+              border: "1px solid oklch(1 0 0 / 0.10)",
+              color: "oklch(0.65 0 0)",
             }}
             title="This is a built-in demo hand. Record one to see it replaced by your own."
           >
@@ -766,7 +766,7 @@ function HandListRow({
         {hand.tags.length === 0 ? (
           <button
             onClick={onAddTag}
-            className="text-[12px] text-[oklch(0.55_0.005_60)] hover:text-[oklch(0.85_0.005_60)] italic cursor-pointer"
+            className="text-[12px] text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)] italic cursor-pointer"
           >
             Assign tags
           </button>
@@ -779,7 +779,7 @@ function HandListRow({
             ))}
             <button
               onClick={onAddTag}
-              className="w-5 h-5 inline-flex items-center justify-center rounded text-[oklch(0.55_0.005_60)] hover:text-[oklch(0.85_0.005_60)] hover:bg-[oklch(0.95_0.04_60_/_0.06)] cursor-pointer"
+              className="w-5 h-5 inline-flex items-center justify-center rounded text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)] hover:bg-[oklch(1_0_0_/_0.05)] cursor-pointer"
               aria-label="Add tag"
             >
               <Plus size={11} />
@@ -1112,7 +1112,7 @@ export default function Dashboard({
             size="lg"
             style={{
               background: "oklch(0.696 0.205 155)",
-              color: "oklch(0.145 0.008 60)",
+              color: "oklch(0.145 0 0)",
               fontWeight: 600,
             }}
             className="hover:!bg-[oklch(0.745_0.198_155)]"
@@ -1131,7 +1131,7 @@ export default function Dashboard({
               className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[13px] font-medium border transition-colors cursor-pointer ${
                 starredOnly
                   ? "bg-[oklch(0.85_0.15_85_/_0.12)] text-[oklch(0.85_0.15_85)] border-[oklch(0.85_0.15_85_/_0.4)]"
-                  : "bg-transparent text-[oklch(0.85_0.005_60)] border-border hover:bg-muted"
+                  : "bg-transparent text-[oklch(0.85_0_0)] border-border hover:bg-muted"
               }`}
               aria-pressed={starredOnly}
               title={starredOnly ? "Showing starred only" : "Show starred only"}
@@ -1210,7 +1210,7 @@ export default function Dashboard({
         <div className="flex flex-col rounded-lg border border-border bg-card overflow-hidden">
           {/* Header row */}
           <div
-            className={`grid ${ROW_COLS} items-center gap-2 px-3 h-9 border-b border-border bg-[oklch(0.245_0.011_60)]`}
+            className={`grid ${ROW_COLS} items-center gap-2 px-3 h-9 border-b border-border bg-[oklch(0.245_0_0)]`}
           >
             <div className="flex items-center justify-center">
               <Checkbox
@@ -1272,7 +1272,7 @@ export default function Dashboard({
           )}
 
           {/* Footer */}
-          <div className="flex items-center justify-between px-3 h-9 border-t border-border bg-[oklch(0.245_0.011_60)] text-[12px] text-muted-foreground tabular-nums">
+          <div className="flex items-center justify-between px-3 h-9 border-t border-border bg-[oklch(0.245_0_0)] text-[12px] text-muted-foreground tabular-nums">
             <span>
               {selected.size > 0
                 ? `${selected.size} selected`

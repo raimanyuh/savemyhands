@@ -9,14 +9,20 @@ import type { SeatPos } from "./lib";
 // Default placement is snug against the plate (t=0.22). Only the hero seat
 // (BTN at the very bottom, with full-size hole cards above it) needs a bigger
 // nudge toward the pot to clear the cards.
+//
+// Pass `label` to render arbitrary text instead of `$amount` — e.g. "check"
+// for the no-chip-committed case where a player checks but we still want the
+// same chip+pill visual on the felt.
 export function BetBubble({
   seatPos,
-  amount,
+  amount = 0,
   isHero = false,
+  label,
 }: {
   seatPos: SeatPos;
-  amount: number;
+  amount?: number;
   isHero?: boolean;
+  label?: string;
 }) {
   const t = isHero ? 0.62 : 0.22;
   const left = seatPos.left + t * (50 - seatPos.left);
@@ -26,16 +32,20 @@ export function BetBubble({
       className="absolute z-20 flex items-center gap-1.5 pointer-events-none"
       style={{ left: `${left}%`, top: `${top}%`, transform: "translate(-50%,-50%)" }}
     >
-      <div
-        className="rounded-full"
-        style={{
-          width: 22,
-          height: 22,
-          background: "linear-gradient(180deg, #fafaf9 0%, #d6d3d1 100%)",
-          border: "1.5px dashed #57534e",
-          boxShadow: "0 3px 8px rgba(0,0,0,0.55), inset 0 0 0 2px #ffffff",
-        }}
-      />
+      {/* Chip token represents chips pushed in. For non-chip actions (check)
+          the caller passes a label and we drop the chip — pill only. */}
+      {label === undefined && (
+        <div
+          className="rounded-full"
+          style={{
+            width: 22,
+            height: 22,
+            background: "linear-gradient(180deg, #fafaf9 0%, #d6d3d1 100%)",
+            border: "1.5px dashed #57534e",
+            boxShadow: "0 3px 8px rgba(0,0,0,0.55), inset 0 0 0 2px #ffffff",
+          }}
+        />
+      )}
       <span
         className="px-2 h-6 inline-flex items-center rounded-md text-[12px] font-semibold tabular-nums text-white"
         style={{
@@ -44,7 +54,7 @@ export function BetBubble({
           boxShadow: "0 4px 10px rgba(0,0,0,0.55)",
         }}
       >
-        ${amount}
+        {label ?? `$${amount}`}
       </span>
     </div>
   );

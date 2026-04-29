@@ -12,12 +12,15 @@ import { useRouter } from "next/navigation";
 import { saveHandAction } from "@/lib/hands/actions";
 import {
   Check,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   MessageSquarePlus,
   Minus,
   Plus,
   RotateCcw,
   Save,
+  Settings,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -126,7 +129,57 @@ function HandNameDisplay({
 
 const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_HOVER = "oklch(0.745 0.198 155)";
-const BG = "oklch(0.145 0.008 60)";
+const BG = "oklch(0.145 0 0)";
+
+// Tiny kbd hint shown next to the action buttons. Standalone so styling stays
+// consistent across Fold / Check / Bet.
+function Kbd({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "rose" | "dark";
+}) {
+  const palette =
+    tone === "rose"
+      ? {
+          background: "oklch(0.704 0.191 22.216 / 0.15)",
+          borderColor: "oklch(0.704 0.191 22.216 / 0.3)",
+          color: "oklch(0.78 0.191 22.216)",
+        }
+      : tone === "dark"
+        ? {
+            background: "oklch(0.145 0 0 / 0.25)",
+            borderColor: "oklch(0.145 0 0 / 0.3)",
+            color: "oklch(0.145 0 0)",
+          }
+        : {
+            background: "oklch(1 0 0 / 0.06)",
+            borderColor: "oklch(1 0 0 / 0.16)",
+            color: "oklch(0.78 0 0)",
+          };
+  return (
+    <kbd
+      style={{
+        ...palette,
+        height: 18,
+        minWidth: 18,
+        padding: "0 5px",
+        borderRadius: 4,
+        borderWidth: 1,
+        borderStyle: "solid",
+        fontSize: 10,
+        fontWeight: 600,
+        fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {children}
+    </kbd>
+  );
+}
 
 function ActionBar({
   state,
@@ -147,6 +200,87 @@ function ActionBar({
   // The ActionBar is keyed by phase/seat/minRaise from the parent, so a fresh
   // mount seeds `amount` to the current minRaise without an effect.
   const [amount, setAmount] = useState(String(minRaise));
+  // Sizing drawer collapses for screen real estate; opens by default on every
+  // new acting turn (the parent re-keys, so this also resets across turns).
+  const [drawerOpen, setDrawerOpen] = useState(true);
+  const amountInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Keyboard shortcuts. Declared before the early return so hook order is
+  // stable; the handler itself bails out if there's no active seat. Skips
+  // when typing in any input/textarea.
+  useEffect(() => {
+    if (activeSeat === null) return;
+    const seatRef = activeSeat;
+    const sizeFromFrac = (frac: number) => {
+      const potAfter = tp + toCall;
+      const target = Math.round(lastBet + frac * potAfter);
+      return Math.min(seat ? seat.stack - (committed[seatRef] || 0) + (bets[seatRef] || 0) : target, Math.max(target, minRaise));
+    };
+    const stackLeft = seat ? Math.max(0, seat.stack - (committed[seatRef] || 0)) : 0;
+    const allIn = (bets[seatRef] || 0) + stackLeft;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const inField =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        !!target?.isContentEditable;
+      if (inField) return;
+      const k = e.key.toLowerCase();
+      if (k === "f") {
+        e.preventDefault();
+        dispatch({
+          type: "recordAction",
+          action: { seat: seatRef, action: "fold" },
+        });
+      } else if (k === "c") {
+        e.preventDefault();
+        dispatch({
+          type: "recordAction",
+          action: {
+            seat: seatRef,
+            action: canCheck ? "check" : "call",
+          },
+        });
+      } else if (k === "r" || k === "b") {
+        e.preventDefault();
+        setDrawerOpen(true);
+        // Defer focus until the drawer's input is rendered.
+        setTimeout(() => {
+          amountInputRef.current?.focus();
+          amountInputRef.current?.select();
+        }, 0);
+      } else if (k === "1") {
+        e.preventDefault();
+        setAmount(String(sizeFromFrac(0.5)));
+      } else if (k === "2") {
+        e.preventDefault();
+        setAmount(String(sizeFromFrac(2 / 3)));
+      } else if (k === "3") {
+        e.preventDefault();
+        setAmount(String(sizeFromFrac(1)));
+      } else if (k === "4") {
+        e.preventDefault();
+        setAmount(String(sizeFromFrac(1.25)));
+      } else if (k === "a") {
+        e.preventDefault();
+        setAmount(String(allIn));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    activeSeat,
+    canCheck,
+    dispatch,
+    seat,
+    committed,
+    bets,
+    tp,
+    toCall,
+    lastBet,
+    minRaise,
+  ]);
 
   if (!seat || activeSeat === null) return null;
 
@@ -175,7 +309,7 @@ function ActionBar({
         action: { seat: activeSeat, action: "bet", amount: amt },
       });
     } else {
-      if (amt < minRaise) return;
+      if (amt < minRaise && amt !== allInAmount) return;
       dispatch({
         type: "recordAction",
         action: { seat: activeSeat, action: "raise", amount: amt },
@@ -183,12 +317,19 @@ function ActionBar({
     }
   };
 
-  const fillPot = (frac: number) => {
+  // Resolve a sizing fraction to a clamped chip amount.
+  const sizeFor = (frac: number) => {
     const potAfter = tp + toCall;
     const target = Math.round(lastBet + frac * potAfter);
-    setAmount(String(Math.min(allInAmount, Math.max(target, minRaise))));
+    return Math.min(allInAmount, Math.max(target, minRaise));
   };
-  const allIn = () => setAmount(String(allInAmount));
+  const chips: { id: string; label: string; amount: number }[] = [
+    { id: "half", label: "½ pot", amount: sizeFor(0.5) },
+    { id: "twothird", label: "⅔ pot", amount: sizeFor(2 / 3) },
+    { id: "pot", label: "Pot", amount: sizeFor(1) },
+    { id: "overpot", label: "1.25×", amount: sizeFor(1.25) },
+    { id: "allin", label: "All-in", amount: allInAmount },
+  ];
 
   const isBetMode = lastBet === 0;
   const amt = Number(amount);
@@ -198,133 +339,291 @@ function ActionBar({
     ? amt <= 0 || amt > allInAmount
     : amt > allInAmount || (amt < minRaise && amt !== allInAmount);
 
+  // Bet button is "open the drawer" while collapsed, "commit" while open. The
+  // chevron flips to telegraph which mode it's in.
+  const onBetClick = () => {
+    if (!drawerOpen) {
+      setDrawerOpen(true);
+      return;
+    }
+    placeBet();
+  };
+
+  // Slider range: from minRaise (or street's call amount when betting from $0)
+  // up to the player's all-in.
+  const sliderMin = isBetMode ? Math.max(state.bb, 1) : Math.max(minRaise, 1);
+  const sliderMax = Math.max(sliderMin, allInAmount);
+  const sliderVal = Math.min(sliderMax, Math.max(sliderMin, Number.isFinite(amt) ? amt : sliderMin));
+
   return (
     <div
-      className="rounded-2xl border border-white/10 px-5 py-4 w-full max-w-[1100px]"
+      className="rounded-2xl border border-white/10 w-full max-w-[1100px] overflow-hidden"
       style={{
-        background: "rgba(9,9,11,0.85)",
+        background: "rgba(15,15,18,0.88)",
         backdropFilter: "blur(10px)",
-        boxShadow: "0 12px 28px rgba(0,0,0,0.5)",
+        boxShadow: "0 16px 40px rgba(0,0,0,0.5)",
       }}
     >
-      <div className="flex items-center gap-3 mb-3 flex-wrap">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-400">
-          Acting
-        </span>
-        <span
-          className="text-[12px] font-bold uppercase tracking-[0.14em] px-2 h-6 inline-flex items-center rounded-md"
-          style={{
-            background: "oklch(0.696 0.205 155 / 0.18)",
-            color: EMERALD_HOVER,
-            border: "1px solid oklch(0.696 0.205 155 / 0.4)",
-          }}
+      {drawerOpen && (
+        <div
+          className="px-[18px] py-[14px] border-b border-white/8 flex flex-col gap-2.5"
+          style={{ background: "oklch(0.165 0 0)" }}
         >
-          {posName}
-        </span>
-        <span className="text-[14px] font-medium text-zinc-100">
-          {seat.name || `Seat ${activeSeat + 1}`}
-        </span>
-        <span className="text-[12px] text-zinc-500">·</span>
-        <span className="text-[12px] tabular-nums text-zinc-400">
-          stack ${liveStack.toLocaleString()}
-        </span>
-        <span className="text-[12px] text-zinc-500">·</span>
-        <span className="text-[12px] tabular-nums text-zinc-400">
-          to call ${toCall.toLocaleString()}
-        </span>
-        <div className="flex-1" />
+          <div className="flex items-center gap-2.5">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-400">
+              Bet sizing
+            </span>
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(false)}
+              className="text-[11px] text-zinc-500 hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer"
+              aria-label="Collapse bet sizing"
+            >
+              <ChevronDown size={12} /> Collapse
+            </button>
+          </div>
+          <div className="flex gap-1.5">
+            {chips.map((c) => {
+              const active = String(c.amount) === amount;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setAmount(String(c.amount))}
+                  className="flex-1 h-[50px] rounded-lg flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors"
+                  style={
+                    active
+                      ? {
+                          background: "oklch(0.696 0.205 155 / 0.18)",
+                          border: "1px solid oklch(0.696 0.205 155 / 0.5)",
+                          color: "oklch(0.85 0.184 155)",
+                        }
+                      : {
+                          background: "oklch(1 0 0 / 0.04)",
+                          border: "1px solid oklch(1 0 0 / 0.10)",
+                          color: "#e4e4e7",
+                        }
+                  }
+                >
+                  <span className="text-[12px] font-semibold">{c.label}</span>
+                  <span
+                    className="text-[11px] tabular-nums"
+                    style={{ opacity: 0.75 }}
+                  >
+                    ${c.amount.toLocaleString()}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-3">
+            <span
+              className="text-[11px] text-zinc-500 tabular-nums"
+              style={{ minWidth: 36 }}
+            >
+              ${sliderMin.toLocaleString()}
+            </span>
+            <input
+              type="range"
+              min={sliderMin}
+              max={sliderMax}
+              value={sliderVal}
+              onChange={(e) => setAmount(e.target.value)}
+              className="flex-1 accent-[oklch(0.696_0.205_155)]"
+            />
+            <span
+              className="text-[11px] text-zinc-500 tabular-nums text-right"
+              style={{ minWidth: 56 }}
+            >
+              ${sliderMax.toLocaleString()}
+            </span>
+            <Input
+              ref={amountInputRef}
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  placeBet();
+                }
+              }}
+              className="w-24 h-8 text-sm text-center tabular-nums"
+            />
+          </div>
+        </div>
+      )}
+      <div className="px-[18px] py-3 flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[10px] font-bold uppercase tracking-[0.16em] px-1.5 h-5 inline-flex items-center rounded"
+            style={{
+              background: "oklch(0.696 0.205 155 / 0.18)",
+              color: "oklch(0.795 0.184 155)",
+              border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+            }}
+          >
+            {posName}
+          </span>
+          <span className="text-[13px] font-medium text-zinc-100">
+            {seat.name || `Seat ${activeSeat + 1}`}
+          </span>
+          <span className="text-[11px] text-zinc-500 tabular-nums">
+            ${liveStack.toLocaleString()}
+          </span>
+        </div>
+        <div className="flex-1 flex justify-center gap-2">
+          <button
+            type="button"
+            onClick={fold}
+            className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors"
+            style={{
+              width: 130,
+              height: 48,
+              background: "oklch(0.704 0.191 22.216 / 0.12)",
+              border: "1px solid oklch(0.704 0.191 22.216 / 0.4)",
+              color: "oklch(0.78 0.191 22.216)",
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            Fold <Kbd tone="rose">F</Kbd>
+          </button>
+          {canCheck ? (
+            <button
+              type="button"
+              onClick={check}
+              className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors"
+              style={{
+                width: 130,
+                height: 48,
+                background: "oklch(1 0 0 / 0.06)",
+                border: "1px solid oklch(1 0 0 / 0.15)",
+                color: "#f4f4f5",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Check <Kbd>C</Kbd>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={call}
+              className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors tabular-nums"
+              style={{
+                width: 130,
+                height: 48,
+                background: "oklch(1 0 0 / 0.06)",
+                border: "1px solid oklch(1 0 0 / 0.15)",
+                color: "#f4f4f5",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Call ${Math.min(toCall, liveStack).toLocaleString()}
+              {toCall > liveStack ? <span className="text-[10px] text-zinc-400">all-in</span> : null}
+              <Kbd>C</Kbd>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onBetClick}
+            disabled={drawerOpen && cannotBet}
+            className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors tabular-nums disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              width: 200,
+              height: 48,
+              background: EMERALD,
+              border: "none",
+              color: BG,
+              fontSize: 14,
+              fontWeight: 700,
+              boxShadow: "0 6px 18px oklch(0.696 0.205 155 / 0.3)",
+            }}
+          >
+            {drawerOpen
+              ? `${isBetMode ? "Bet" : "Raise to"} $${(Number.isFinite(amt) ? amt : 0).toLocaleString()}`
+              : isBetMode
+                ? "Bet"
+                : "Raise"}
+            {drawerOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            <Kbd tone="dark">R</Kbd>
+          </button>
+        </div>
         <Button
           variant="ghost"
-          size="xs"
+          size="sm"
           onClick={() => dispatch({ type: "undoAction" })}
           disabled={state.actions.length === 0}
+          title="Undo last action (Cmd/Ctrl-Z)"
         >
           <RotateCcw /> Undo
-        </Button>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="outline"
-          size="lg"
-          onClick={fold}
-          className="!border-[oklch(0.704_0.191_22.216_/_0.4)] !text-[oklch(0.704_0.191_22.216)] hover:!bg-[oklch(0.704_0.191_22.216_/_0.12)]"
-        >
-          Fold
-        </Button>
-        {canCheck ? (
-          <Button variant="outline" size="lg" onClick={check}>
-            Check
-          </Button>
-        ) : (
-          <Button variant="outline" size="lg" onClick={call}>
-            {toCall > liveStack ? (
-              <>Call ${liveStack.toLocaleString()} (all-in)</>
-            ) : (
-              <>Call ${toCall.toLocaleString()}</>
-            )}
-          </Button>
-        )}
-        <span className="w-px h-7 bg-white/10 mx-1" />
-        <Input
-          type="number"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          className="w-28 h-9 text-sm text-center tabular-nums"
-        />
-        <Button
-          onClick={placeBet}
-          size="lg"
-          disabled={cannotBet}
-          style={{
-            background: EMERALD,
-            color: BG,
-            fontWeight: 600,
-            minWidth: 196,
-          }}
-          className="hover:!bg-[oklch(0.745_0.198_155)] disabled:opacity-50 tabular-nums justify-center"
-        >
-          {isBetMode ? "Bet" : "Raise to"} ${Number(amount || 0).toLocaleString()}
-        </Button>
-        <span className="w-px h-7 bg-white/10 mx-1" />
-        <Button variant="ghost" size="sm" onClick={() => fillPot(0.5)}>
-          ½ pot
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => fillPot(0.75)}>
-          ¾ pot
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => fillPot(1)}>
-          Pot
-        </Button>
-        <Button variant="ghost" size="sm" onClick={allIn}>
-          All-in
         </Button>
       </div>
     </div>
   );
 }
 
-function SetupBar({
+// ─── Meta strip + Stakes & seats popover ───────────────────────────────────
+//
+// Replaces the old <SetupBar>. A single-line strip above the table with the
+// live config summary, street pill, pot, and contextual hint. Clicking the
+// "⚙ Stakes & seats" button opens a popover with every setup control.
+//
+// Note: the handoff doesn't list hero-position in the popover, but the existing
+// recorder needs somewhere to set it during setup — added as an extra row so
+// no functionality is lost.
+
+function StreetPill({ phase }: { phase: RecorderState["phase"] }) {
+  const label =
+    phase === "showdown" || phase === "done"
+      ? "showdown"
+      : phase === "setup"
+        ? "setup"
+        : phase;
+  return (
+    <span
+      className="px-2 h-5 inline-flex items-center rounded text-[9.5px] font-bold uppercase tracking-[0.18em]"
+      style={{
+        background: "oklch(0.696 0.205 155 / 0.18)",
+        color: "oklch(0.795 0.184 155)",
+        border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function SetupPopover({
   state,
   dispatch,
-  onStart,
+  onClose,
 }: {
   state: RecorderState;
   dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
-  onStart: () => void;
+  onClose: () => void;
 }) {
   const { playerCount, sb, bb, straddleOn, straddleAmt, heroPosition } = state;
   const canStraddle = playerCount >= 4;
-  const hero = state.players[heroPosition];
-  const heroOk = !!(hero?.cards?.[0] && hero?.cards?.[1]);
   const positions = POSITION_NAMES[playerCount];
+  const hero = state.players[heroPosition];
 
-  // Stack-default editor: seeded from hero's stack (first stack you'd typically
-  // adjust). "Apply to all" pushes this value to every seat.
+  // Stack input + apply-to-all flag are local UI. Reset the flag any time
+  // the input changes — the label only sticks while the field is unedited.
   const [stackInput, setStackInput] = useState(String(hero?.stack ?? 200));
-  const applyToAllStacks = () => {
+  const [appliedToAll, setAppliedToAll] = useState(false);
+  const updateStack = (v: string) => {
+    setStackInput(v);
+    setAppliedToAll(false);
+  };
+  const applyToAll = () => {
     const n = Number(stackInput);
     if (!Number.isFinite(n) || n <= 0) return;
     dispatch({ type: "setAllStacks", stack: n });
+    setAppliedToAll(true);
   };
 
   const [savedFlash, setSavedFlash] = useState(false);
@@ -343,7 +642,7 @@ function SetupBar({
     setTimeout(() => setSavedFlash(false), 1500);
   };
 
-  const resetToDefaults = () => {
+  const loadDefaults = () => {
     const d = readSetupDefaults();
     if (!d) return;
     dispatch({
@@ -358,164 +657,218 @@ function SetupBar({
     });
     dispatch({ type: "setAllStacks", stack: d.defaultStack });
     setStackInput(String(d.defaultStack));
+    setAppliedToAll(true);
   };
 
   const hasDefaults = readSetupDefaults() !== null;
 
+  // Esc closes; outside click handled by the parent overlay.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
     <div
-      className="rounded-2xl border border-white/10 px-7 py-5 w-full max-w-[1100px]"
+      className="absolute left-0 top-9 z-50 w-[440px] rounded-xl flex flex-col gap-3.5 p-4"
       style={{
-        background: "rgba(9,9,11,0.7)",
-        backdropFilter: "blur(10px)",
-        boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.4)",
+        background: "rgba(15,15,18,0.97)",
+        border: "1px solid oklch(1 0 0 / 0.12)",
+        boxShadow:
+          "0 24px 60px rgba(0,0,0,0.7), 0 6px 18px rgba(0,0,0,0.5)",
+        backdropFilter: "blur(14px)",
       }}
+      onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex flex-wrap items-end justify-center gap-x-12 gap-y-5">
-        <div className="flex flex-col gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-            Players
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() =>
-                dispatch({ type: "setPlayerCount", n: Math.max(2, playerCount - 1) })
-              }
-              disabled={playerCount <= 2}
-              aria-label="Remove player"
-            >
-              <Minus />
-            </Button>
-            <span className="w-20 text-center text-sm font-semibold text-zinc-100 tabular-nums">
-              {playerCount}-handed
-            </span>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() =>
-                dispatch({ type: "setPlayerCount", n: Math.min(9, playerCount + 1) })
-              }
-              disabled={playerCount >= 9}
-              aria-label="Add player"
-            >
-              <Plus />
-            </Button>
-          </div>
-        </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+          Stakes &amp; seats
+        </span>
+        <div className="flex-1" />
+        <button
+          onClick={onClose}
+          className="text-zinc-500 hover:text-zinc-200 cursor-pointer"
+          aria-label="Close"
+        >
+          <X size={14} />
+        </button>
+      </div>
 
-        <div className="flex flex-col gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-            Blinds
+      {/* Players */}
+      <div className="flex items-center gap-3.5">
+        <span className="w-[88px] text-[11px] font-medium text-zinc-300">
+          Players
+        </span>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() =>
+              dispatch({
+                type: "setPlayerCount",
+                n: Math.max(2, playerCount - 1),
+              })
+            }
+            disabled={playerCount <= 2}
+            aria-label="Remove player"
+          >
+            <Minus />
+          </Button>
+          <span className="w-20 text-center text-[13px] font-semibold text-zinc-100 tabular-nums">
+            {playerCount}-handed
           </span>
-          <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() =>
+              dispatch({
+                type: "setPlayerCount",
+                n: Math.min(9, playerCount + 1),
+              })
+            }
+            disabled={playerCount >= 9}
+            aria-label="Add player"
+          >
+            <Plus />
+          </Button>
+        </div>
+      </div>
+
+      {/* Blinds */}
+      <div className="flex items-center gap-3.5">
+        <span className="w-[88px] text-[11px] font-medium text-zinc-300">
+          Blinds
+        </span>
+        <div className="flex items-center gap-1.5">
+          <Input
+            type="number"
+            value={sb}
+            min={1}
+            onChange={(e) =>
+              dispatch({ type: "setBlinds", sb: Number(e.target.value), bb })
+            }
+            className="w-16 h-8 text-sm text-center"
+          />
+          <span className="text-zinc-500 text-sm font-medium">/</span>
+          <Input
+            type="number"
+            value={bb}
+            min={1}
+            onChange={(e) =>
+              dispatch({ type: "setBlinds", sb, bb: Number(e.target.value) })
+            }
+            className="w-16 h-8 text-sm text-center"
+          />
+        </div>
+      </div>
+
+      {/* Straddle */}
+      <div className="flex items-center gap-3.5">
+        <span className="w-[88px] text-[11px] font-medium text-zinc-300">
+          Straddle
+        </span>
+        <div className="flex items-center gap-2 h-8">
+          <button
+            role="switch"
+            aria-checked={straddleOn}
+            disabled={!canStraddle}
+            onClick={() =>
+              dispatch({
+                type: "setStraddle",
+                on: !straddleOn,
+                amt: straddleAmt,
+              })
+            }
+            className={[
+              "relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors outline-none cursor-pointer",
+              "disabled:opacity-40 disabled:cursor-not-allowed",
+              straddleOn
+                ? "bg-[oklch(0.696_0.205_155)]"
+                : "bg-[oklch(0.4_0_0)]",
+            ].join(" ")}
+            aria-label="Toggle straddle"
+          >
+            <span
+              className={[
+                "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow",
+                "translate-y-0.5 transition-transform",
+                straddleOn ? "translate-x-4" : "translate-x-0.5",
+              ].join(" ")}
+            />
+          </button>
+          {straddleOn && canStraddle ? (
             <Input
               type="number"
-              value={sb}
+              value={straddleAmt}
               min={1}
               onChange={(e) =>
-                dispatch({ type: "setBlinds", sb: Number(e.target.value), bb })
-              }
-              className="w-16 h-9 text-sm text-center"
-            />
-            <span className="text-zinc-500 text-sm font-medium">/</span>
-            <Input
-              type="number"
-              value={bb}
-              min={1}
-              onChange={(e) =>
-                dispatch({ type: "setBlinds", sb, bb: Number(e.target.value) })
-              }
-              className="w-16 h-9 text-sm text-center"
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-            Straddle
-          </span>
-          <div className="flex items-center gap-2 h-9">
-            <button
-              role="switch"
-              aria-checked={straddleOn}
-              disabled={!canStraddle}
-              onClick={() =>
                 dispatch({
                   type: "setStraddle",
-                  on: !straddleOn,
-                  amt: straddleAmt,
+                  on: true,
+                  amt: Number(e.target.value),
                 })
               }
-              className={[
-                "relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors outline-none cursor-pointer",
-                "disabled:opacity-40 disabled:cursor-not-allowed",
-                straddleOn ? "bg-[oklch(0.696_0.205_155)]" : "bg-[oklch(0.4_0_0)]",
-              ].join(" ")}
-            >
-              <span
-                className={[
-                  "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow",
-                  "translate-y-0.5 transition-transform",
-                  straddleOn ? "translate-x-4" : "translate-x-0.5",
-                ].join(" ")}
-              />
-            </button>
-            {straddleOn && canStraddle && (
-              <Input
-                type="number"
-                value={straddleAmt}
-                min={1}
-                onChange={(e) =>
-                  dispatch({
-                    type: "setStraddle",
-                    on: true,
-                    amt: Number(e.target.value),
-                  })
-                }
-                className="w-16 h-9 text-sm text-center"
-              />
-            )}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-            Stack
-          </span>
-          <div className="flex items-center gap-1.5">
-            <Input
-              type="number"
-              value={stackInput}
-              min={1}
-              onChange={(e) => setStackInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") applyToAllStacks();
-              }}
-              className="w-20 h-9 text-sm text-center"
+              className="w-16 h-8 text-sm text-center"
             />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={applyToAllStacks}
-              title="Set every seat's starting stack to this value"
-            >
-              Apply to all
-            </Button>
-          </div>
+          ) : !canStraddle ? (
+            <span className="text-[10.5px] italic text-zinc-500">
+              requires 4+ players
+            </span>
+          ) : null}
         </div>
+      </div>
 
-        <div className="flex flex-col gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-            Hero position
-          </span>
-          {/* Fixed-size 5x2 grid: stays the same dimensions whether N=2 or N=9
-              so the SetupBar doesn't reflow when player count changes. */}
-          <div
-            className="grid grid-cols-5 gap-1 content-start"
-            style={{ width: 266, minHeight: 60 }}
+      {/* Stack — with apply-to-all */}
+      <div className="flex items-center gap-3.5">
+        <span className="w-[88px] text-[11px] font-medium text-zinc-300">
+          Stack
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-zinc-500">$</span>
+          <Input
+            type="number"
+            value={stackInput}
+            min={1}
+            onChange={(e) => updateStack(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") applyToAll();
+            }}
+            className="w-20 h-8 text-sm text-center"
+          />
+          <button
+            onClick={applyToAll}
+            className="h-7 px-2.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors inline-flex items-center gap-1.5"
+            style={
+              appliedToAll
+                ? {
+                    background: "oklch(0.696 0.205 155 / 0.18)",
+                    border: "1px solid oklch(0.696 0.205 155 / 0.5)",
+                    color: "oklch(0.85 0.184 155)",
+                  }
+                : {
+                    background: "oklch(1 0 0 / 0.06)",
+                    border: "1px solid oklch(1 0 0 / 0.14)",
+                    color: "#e4e4e7",
+                  }
+            }
           >
+            {appliedToAll ? <Check size={12} /> : null}
+            {appliedToAll ? "Applied to all" : "Apply to all"}
+          </button>
+        </div>
+      </div>
+
+      {/* Hero position — extra row vs. handoff so the recorder doesn't lose
+          the ability to set it during setup. Only meaningful before play. */}
+      {state.phase === "setup" && (
+        <div className="flex items-start gap-3.5">
+          <span className="w-[88px] text-[11px] font-medium text-zinc-300 mt-1">
+            Hero
+          </span>
+          <div className="grid grid-cols-5 gap-1 flex-1">
             {positions.map((label, cycleIdx) => {
               const isActive = cycleIdx === heroPosition;
               return (
@@ -525,11 +878,12 @@ function SetupBar({
                   onClick={() =>
                     dispatch({ type: "setHeroPosition", position: cycleIdx })
                   }
-                  className={`h-7 px-1 rounded-md text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors cursor-pointer border ${
+                  className={[
+                    "h-7 px-1 rounded-md text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors cursor-pointer border",
                     isActive
                       ? "bg-[oklch(0.696_0.205_155_/_0.18)] text-[oklch(0.795_0.184_155)] border-[oklch(0.696_0.205_155_/_0.4)]"
-                      : "bg-transparent text-zinc-300 border-white/10 hover:bg-white/5"
-                  }`}
+                      : "bg-transparent text-zinc-300 border-white/10 hover:bg-white/5",
+                  ].join(" ")}
                 >
                   {label}
                 </button>
@@ -537,63 +891,291 @@ function SetupBar({
             })}
           </div>
         </div>
-
-        <div className="flex flex-col gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-            Begin
-          </span>
-          <Button
-            onClick={onStart}
-            disabled={!heroOk}
-            size="lg"
-            style={{ background: EMERALD, color: BG, fontWeight: 600 }}
-            className="hover:!bg-[oklch(0.745_0.198_155)] disabled:opacity-50"
-          >
-            Start hand <ChevronRight />
-          </Button>
-        </div>
-      </div>
-      {!heroOk && (
-        <div className="text-center text-[12px] text-zinc-500 mt-3">
-          Click your two hole cards to start.
-        </div>
       )}
-      <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-center gap-2 flex-wrap">
-        <span className="text-[11px] text-zinc-500">
-          Defaults — players, blinds, straddle, stack
-        </span>
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={saveAsDefault}
-          title="Save this configuration as the default for new hands"
+
+      {/* Default save/load row */}
+      <div className="mt-1 pt-3.5 border-t border-white/8 flex items-center gap-2">
+        <button
+          onClick={loadDefaults}
+          disabled={!hasDefaults}
+          className="flex-1 h-[30px] px-2.5 rounded-md text-[11.5px] font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5"
+          style={{
+            background: "oklch(1 0 0 / 0.04)",
+            border: "1px solid oklch(1 0 0 / 0.10)",
+            color: "#e4e4e7",
+          }}
         >
-          {savedFlash ? <Check /> : <Save />}
+          <RotateCcw size={11} /> Load my default
+        </button>
+        <button
+          onClick={saveAsDefault}
+          className="flex-1 h-[30px] px-2.5 rounded-md text-[11.5px] font-medium cursor-pointer inline-flex items-center justify-center gap-1.5"
+          style={{
+            background: "oklch(0.696 0.205 155 / 0.10)",
+            border: "1px solid oklch(0.696 0.205 155 / 0.35)",
+            color: "oklch(0.85 0.184 155)",
+          }}
+        >
+          {savedFlash ? <Check size={11} /> : <Save size={11} />}
           {savedFlash ? "Saved" : "Save as default"}
-        </Button>
-        {hasDefaults && (
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={resetToDefaults}
-            title="Reset this hand's setup to your saved default"
-          >
-            <RotateCcw /> Reset to default
-          </Button>
-        )}
+        </button>
       </div>
+      <p className="text-[10.5px] leading-relaxed text-zinc-500 -mt-1">
+        Defaults apply to every new hand. Edit venue &amp; date from the
+        dashboard after saving.
+      </p>
     </div>
   );
 }
+
+function MetaStrip({
+  state,
+  derived,
+  dispatch,
+  pot,
+  onStart,
+  popoverOpen,
+  setPopoverOpen,
+  logOpen,
+  setLogOpen,
+}: {
+  state: RecorderState;
+  derived: ReturnType<typeof deriveStreet>;
+  dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
+  pot: number;
+  onStart: () => void;
+  // Lifted to the parent so the table can dim when the popover opens.
+  popoverOpen: boolean;
+  setPopoverOpen: (v: boolean) => void;
+  // Lifted to the parent so the log popover can use the parent's data.
+  logOpen: boolean;
+  setLogOpen: (v: boolean) => void;
+}) {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const logWrapperRef = useRef<HTMLDivElement | null>(null);
+  // Close on outside mousedown — separate handlers so the log and stakes
+  // popovers can independently open/close.
+  useEffect(() => {
+    if (!popoverOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapperRef.current) return;
+      if (!wrapperRef.current.contains(e.target as Node)) {
+        setPopoverOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [popoverOpen, setPopoverOpen]);
+  useEffect(() => {
+    if (!logOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!logWrapperRef.current) return;
+      if (!logWrapperRef.current.contains(e.target as Node)) {
+        setLogOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [logOpen, setLogOpen]);
+  useEffect(() => {
+    if (!logOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLogOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [logOpen, setLogOpen]);
+
+  const hero = state.players[state.heroPosition];
+  const heroOk = !!(hero?.cards?.[0] && hero?.cards?.[1]);
+
+  // Action hint — quiet Geist Mono copy showing "[last action] → [active] to act".
+  const lastAction = state.actions[state.actions.length - 1];
+  const activeSeat = derived?.activeSeat;
+  const posNames = POSITION_NAMES[state.playerCount];
+  const lastText = lastAction
+    ? formatAction(lastAction, state.playerCount)
+    : null;
+  const activeText =
+    activeSeat !== undefined && activeSeat !== null
+      ? `${posNames[activeSeat]} to act`
+      : null;
+  const hint = (() => {
+    if (state.phase === "setup") {
+      return heroOk
+        ? "Click Start hand when you're ready."
+        : "Pick your two hole cards to start.";
+    }
+    if (state.phase === "showdown" || state.phase === "done") {
+      return "Reveal opponent hands and confirm the result.";
+    }
+    if (lastText && activeText) return `${lastText} → ${activeText}`;
+    if (activeText) return `${activeText}`;
+    return "";
+  })();
+
+  // Live config summary in the button.
+  const summary = (
+    <>
+      <span className="font-medium tabular-nums">
+        ${state.sb}/${state.bb}
+      </span>
+      <span className="text-zinc-600">·</span>
+      <span>{state.playerCount}-max</span>
+      {state.straddleOn && state.playerCount >= 4 && (
+        <>
+          <span className="text-zinc-600">·</span>
+          <span style={{ color: "oklch(0.795 0.184 155)" }}>
+            straddle ${state.straddleAmt}
+          </span>
+        </>
+      )}
+    </>
+  );
+
+  return (
+    <div
+      className="self-stretch flex items-center gap-2.5 text-[12px] relative"
+      style={{ minHeight: 36 }}
+    >
+      <div ref={wrapperRef} className="relative">
+        <button
+          type="button"
+          onClick={() => setPopoverOpen(!popoverOpen)}
+          className="h-[30px] px-3 rounded-md text-[11.5px] cursor-pointer inline-flex items-center gap-2 transition-colors"
+          style={
+            popoverOpen
+              ? {
+                  background: "oklch(0.696 0.205 155 / 0.12)",
+                  border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+                  color: "oklch(0.85 0.184 155)",
+                }
+              : {
+                  background: "oklch(1 0 0 / 0.04)",
+                  border: "1px solid oklch(1 0 0 / 0.10)",
+                  color: "oklch(0.85 0 0)",
+                }
+          }
+          aria-expanded={popoverOpen}
+        >
+          <Settings size={12} />
+          <span className="font-medium">Stakes &amp; seats</span>
+          {summary}
+          {popoverOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+        </button>
+        {popoverOpen && (
+          <SetupPopover
+            state={state}
+            dispatch={dispatch}
+            onClose={() => setPopoverOpen(false)}
+          />
+        )}
+      </div>
+      <span className="text-zinc-600">·</span>
+      <StreetPill phase={state.phase} />
+      <span
+        className="text-zinc-400 tabular-nums"
+        style={{ fontVariantNumeric: "tabular-nums" }}
+      >
+        pot ${pot}
+      </span>
+      <div className="flex-1" />
+      {state.phase !== "setup" && hint && (
+        <span
+          className="text-[11px] text-zinc-500 truncate max-w-[440px]"
+          style={{
+            fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
+          }}
+        >
+          {hint}
+        </span>
+      )}
+      {state.phase === "setup" && hint && (
+        <span className="text-[11px] text-zinc-500">{hint}</span>
+      )}
+      {/* Log button — only meaningful once actions exist. The log itself
+          renders from inside this wrapper as a popover anchored beneath. */}
+      {state.actions.length > 0 && (
+        <div ref={logWrapperRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setLogOpen(!logOpen)}
+            className="h-[30px] px-3 rounded-md text-[11.5px] cursor-pointer inline-flex items-center gap-1.5 transition-colors"
+            style={
+              logOpen
+                ? {
+                    background: "oklch(0.696 0.205 155 / 0.18)",
+                    border: "1px solid oklch(0.696 0.205 155 / 0.5)",
+                    color: "oklch(0.85 0.184 155)",
+                  }
+                : {
+                    background: "oklch(1 0 0 / 0.04)",
+                    border: "1px solid oklch(1 0 0 / 0.10)",
+                    color: "oklch(0.85 0 0)",
+                  }
+            }
+            aria-expanded={logOpen}
+            aria-label="Toggle action log"
+          >
+            <span className="font-medium">Log</span>
+            <span className="tabular-nums" style={{ opacity: 0.7 }}>
+              {state.actions.length}
+            </span>
+            {logOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+          </button>
+          {logOpen && (
+            <div
+              className="absolute right-0 top-9 z-50 rounded-xl"
+              style={{
+                width: 520,
+                maxHeight: 420,
+                overflowY: "auto",
+                background: "rgba(15,15,18,0.97)",
+                border: "1px solid oklch(1 0 0 / 0.12)",
+                boxShadow:
+                  "0 24px 60px rgba(0,0,0,0.7), 0 6px 18px rgba(0,0,0,0.5)",
+                backdropFilter: "blur(14px)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ActionLog
+                state={state}
+                derivedTotalPot={derived?.totalPot ?? totalPot(state)}
+                dispatch={dispatch}
+                inPopover
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {state.phase === "setup" && (
+        <Button
+          onClick={onStart}
+          disabled={!heroOk}
+          size="sm"
+          style={{ background: EMERALD, color: BG, fontWeight: 600 }}
+          className="hover:!bg-[oklch(0.745_0.198_155)] disabled:opacity-50"
+        >
+          Start hand <ChevronRight />
+        </Button>
+      )}
+    </div>
+  );
+}
+
 
 function ActionLog({
   state,
   derivedTotalPot,
   dispatch,
+  inPopover = false,
 }: {
   state: RecorderState;
   derivedTotalPot: number;
   dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
+  // When rendered inside the meta-strip Log popover, drop the outer card
+  // chrome (the popover provides background + border + scroll).
+  inPopover?: boolean;
 }) {
   // Editing state for the per-action annotation popover. `null` = nothing open.
   const [editing, setEditing] = useState<number | null>(null);
@@ -624,7 +1206,13 @@ function ActionLog({
   const cancel = () => setEditing(null);
 
   return (
-    <div className="rounded-xl border border-white/10 bg-[oklch(0.205_0_0)] px-4 py-3 w-full max-w-[1100px] max-h-[280px] overflow-auto">
+    <div
+      className={
+        inPopover
+          ? "px-4 py-3 w-full"
+          : "rounded-xl border border-white/10 bg-[oklch(0.205_0_0)] px-4 py-3 w-full max-w-[1100px] max-h-[140px] overflow-y-auto"
+      }
+    >
       <div className="flex items-center gap-2 mb-2">
         <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
           Action log
@@ -758,6 +1346,34 @@ export default function Recorder() {
   // server action runs.
   const [savePending, startSave] = useTransition();
   const derived = useMemo(() => deriveStreet(state), [state]);
+  // Stakes & seats popover open state — lifted here so the table can dim
+  // (per the handoff) while the popover is in front of it.
+  const [setupPopoverOpen, setSetupPopoverOpen] = useState(false);
+  // Action-log popover; lifted so the inline log below the table can be
+  // removed entirely (the popover replaces it).
+  const [logOpen, setLogOpen] = useState(false);
+
+  // Cmd/Ctrl-Z undo, available across phases (the per-action shortcuts live
+  // inside ActionBar). Skips when typing in any field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key.toLowerCase() !== "z") return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+      dispatch({ type: "undoAction" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dispatch]);
 
   // Used cards (so the picker greys out duplicates)
   const usedCards = useMemo(() => {
@@ -817,6 +1433,29 @@ export default function Recorder() {
     for (const a of state.actions) if (a.action === "fold") s.add(a.seat);
     return s;
   }, [state.actions]);
+  // Seats whose most recent action on the *current* street is `check`. The
+  // check bubble persists until that seat acts again or the street rolls over,
+  // matching how bet bubbles behave.
+  const checkedSeats = useMemo(() => {
+    const result = new Set<number>();
+    if (
+      state.phase === "setup" ||
+      state.phase === "showdown" ||
+      state.phase === "done"
+    ) {
+      return result;
+    }
+    const street = state.phase;
+    const seen = new Set<number>();
+    for (let i = state.actions.length - 1; i >= 0; i--) {
+      const a = state.actions[i];
+      if (a.street !== street) continue;
+      if (seen.has(a.seat)) continue;
+      seen.add(a.seat);
+      if (a.action === "check") result.add(a.seat);
+    }
+    return result;
+  }, [state.actions, state.phase]);
   const activeSeat = derived?.activeSeat;
   const muckedSet = useMemo(
     () => new Set(state.muckedSeats),
@@ -1022,48 +1661,36 @@ export default function Recorder() {
       }
     >
       <div className="flex-1 flex flex-col items-center px-6 py-6 gap-5 max-w-[1600px] w-full mx-auto">
-        {/* Title row: editable hand name + phase hint + venue + date inline. */}
-        <div className="self-stretch flex items-center gap-x-4 gap-y-2 flex-wrap">
+        {/* Title row: just the editable hand name. The phase pill, pot, and
+            action hint live in the meta strip below; venue & date moved out
+            of the recorder entirely (they're editable from /dashboard). */}
+        <div className="self-stretch">
           <HandNameDisplay
             value={state.handName}
             onCommit={(name) => dispatch({ type: "setHandName", name })}
           />
-          <span className="text-sm text-muted-foreground">
-            {state.phase === "setup"
-              ? "· set up the table, then start the hand"
-              : `· ${state.phase}`}
-          </span>
-          <div className="flex-1" />
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Venue
-            </span>
-            <Input
-              type="text"
-              placeholder="—"
-              value={state.venue}
-              onChange={(e) =>
-                dispatch({ type: "setVenue", venue: e.target.value })
-              }
-              className="h-8 w-44 text-sm"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Date
-            </span>
-            <Input
-              type="date"
-              value={state.date}
-              onChange={(e) =>
-                dispatch({ type: "setDate", date: e.target.value })
-              }
-              className="h-8 w-40 text-sm"
-            />
-          </div>
         </div>
 
-        {/* Table */}
+        {/* Meta strip — Stakes & seats popover trigger, street pill, pot,
+            action hint, and the Start hand CTA during setup. */}
+        <MetaStrip
+          state={state}
+          derived={derived}
+          dispatch={dispatch}
+          pot={pot}
+          onStart={() => dispatch({ type: "startPlay" })}
+          popoverOpen={setupPopoverOpen}
+          setPopoverOpen={setSetupPopoverOpen}
+          logOpen={logOpen}
+          setLogOpen={setLogOpen}
+        />
+
+        {/* Table — dims to 55% while the setup popover is open so focus
+            stays on the controls. */}
+        <div
+          className="self-stretch flex flex-col items-center transition-opacity"
+          style={{ opacity: setupPopoverOpen ? 0.55 : 1 }}
+        >
         <TableSurface>
           {/* Pot + board */}
           <div
@@ -1133,6 +1760,25 @@ export default function Recorder() {
                   />
                 );
               })}
+
+          {/* Check bubbles — for each seat whose most recent action on the
+              current street is `check`, render the same chip+pill visual as
+              a bet bubble but with "check" text. Resets between streets the
+              same way bet bubbles do, since the source loop is scoped to
+              actions on the current street. */}
+          {checkedSeats.size > 0 &&
+            Array.from(checkedSeats).map((cycleIdx) => {
+              if (folded.has(cycleIdx)) return null;
+              const v = visualOf(cycleIdx);
+              return (
+                <BetBubble
+                  key={`check-${cycleIdx}`}
+                  seatPos={visualSeatPos[v]}
+                  isHero={v === 0}
+                  label="check"
+                />
+              );
+            })}
 
           {/* Seats — iterate VISUAL slots; map back to cycle for player data. */}
           {visualSeatPos.map((p, visualI) => {
@@ -1297,28 +1943,19 @@ export default function Recorder() {
             );
           })}
         </TableSurface>
+        </div>
 
         {/* Below-table area: action stuff on the left, notes on the right. */}
         <div className="self-stretch flex flex-col lg:flex-row gap-5 items-stretch">
           <div className="flex-1 flex flex-col gap-4 min-w-0">
 
-        {/* Action log */}
-        {state.phase !== "setup" && state.actions.length > 0 && (
-          <ActionLog
-            state={state}
-            derivedTotalPot={derived?.totalPot ?? totalPot(state)}
-            dispatch={dispatch}
-          />
-        )}
+        {/* The inline action-log card moved into the meta strip's Log popover
+            so the bet-sizing drawer can fit above the fold. Trigger lives in
+            <MetaStrip>; popover content reuses the same <ActionLog>. */}
 
-        {/* Bottom controls */}
-        {state.phase === "setup" && (
-          <SetupBar
-            state={state}
-            dispatch={dispatch}
-            onStart={() => dispatch({ type: "startPlay" })}
-          />
-        )}
+        {/* Bottom controls — Setup config moved into the meta strip + popover
+            above the table. Only the action bar / deal CTA / showdown panel
+            render below the table now. */}
 
         {state.phase !== "setup" &&
           state.phase !== "showdown" &&
@@ -1334,38 +1971,36 @@ export default function Recorder() {
                 />
               ) : (
                 dealCTA && (
+                  // Thin ~36px strip — replaced the heavy emerald banner. The
+                  // pulse-cue lives on the board slots themselves (see CardRow
+                  // `highlight` prop), so this row only needs the inline call
+                  // to action.
                   <div
-                    className="rounded-2xl border border-[oklch(0.696_0.205_155_/_0.4)] px-5 py-4 flex items-center gap-4 flex-wrap"
+                    className="rounded-lg border border-white/10 px-4 flex items-center gap-3 w-full max-w-[1100px]"
                     style={{
-                      background: "oklch(0.696 0.205 155 / 0.08)",
-                      boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                      height: 36,
+                      background: "rgba(15,15,18,0.6)",
                     }}
                   >
-                    <Check
-                      size={16}
-                      className="text-[oklch(0.795_0.184_155)]"
-                    />
-                    <span className="text-[14px] font-medium text-zinc-100">
-                      Betting round complete.
+                    <span className="text-[12px] text-zinc-300">
+                      {dealCTA.showdown
+                        ? "Betting closed — go to showdown."
+                        : `Click the ${dealCTA.label.toLowerCase()} above to continue.`}
                     </span>
+                    <div className="flex-1" />
                     {dealCTA.showdown ? (
                       <Button
                         onClick={() => dispatch({ type: "goShowdown" })}
-                        size="lg"
+                        size="sm"
                         style={{ background: EMERALD, color: BG, fontWeight: 600 }}
                         className="hover:!bg-[oklch(0.745_0.198_155)]"
                       >
                         Go to showdown <ChevronRight />
                       </Button>
-                    ) : (
-                      <span className="text-[13px] text-zinc-400">
-                        Click the next board slot to {dealCTA.label.toLowerCase()}.
-                      </span>
-                    )}
-                    <div className="flex-1" />
+                    ) : null}
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="xs"
                       onClick={() => dispatch({ type: "undoAction" })}
                     >
                       <RotateCcw /> Undo last
