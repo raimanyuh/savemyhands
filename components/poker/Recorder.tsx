@@ -8,6 +8,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { saveHandAction } from "@/lib/hands/actions";
 import {
@@ -68,6 +69,24 @@ import {
 // clockwise). Hero is always at visual slot 0.
 function cycleToVisual(cycleIdx: number, heroPos: number, n: number): number {
   return (cycleIdx - heroPos + n) % n;
+}
+
+// The action-log index of `cycleIdx`'s most recent action on the current
+// street. Used to map a click on a bet/check bubble back to the action it
+// represents so the annotation editor knows which step to attach the note to.
+// Returns null when the seat hasn't acted on this street yet (which is also
+// when the bubble isn't rendered, so this is mostly a defensive guard).
+function lastActionIdxForSeat(
+  actions: { seat: number; street: string }[],
+  cycleIdx: number,
+  street: string,
+): number | null {
+  for (let i = actions.length - 1; i >= 0; i--) {
+    if (actions[i].seat === cycleIdx && actions[i].street === street) {
+      return i;
+    }
+  }
+  return null;
 }
 
 // Inline-editable title at the top of the recorder.
@@ -178,6 +197,113 @@ function Kbd({
     >
       {children}
     </kbd>
+  );
+}
+
+// Annotation editor modal. Opened by clicking a bet/check bubble on the
+// felt; saves the typed note to `state.annotations[index]` via the reducer.
+// Mirrors the same shadcn-flavored modal pattern used by the Dashboard's
+// EditDetailsModal so the visual feel stays consistent.
+function AnnotationModal({
+  initial,
+  actionLabel,
+  onSave,
+  onClose,
+}: {
+  initial: string;
+  // The formatted action ("BTN raises to $24") shown in the modal header so
+  // the user knows which step they're annotating.
+  actionLabel: string;
+  onSave: (text: string) => void;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const commit = () => {
+    onSave(draft);
+    onClose();
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[400] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.55)" }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-[460px] rounded-xl border border-white/10 flex flex-col"
+        style={{
+          background: "oklch(0.205 0 0)",
+          boxShadow: "0 24px 60px rgba(0,0,0,0.7)",
+        }}
+      >
+        <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between gap-3">
+          <div className="flex items-baseline gap-2 min-w-0">
+            <h3 className="text-[15px] font-semibold tracking-tight shrink-0">
+              Note
+            </h3>
+            <span className="text-[12px] text-muted-foreground truncate">
+              {actionLabel}
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-200 cursor-pointer shrink-0"
+            aria-label="Close"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="px-5 py-4 flex flex-col gap-2">
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                onClose();
+              } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                commit();
+              }
+            }}
+            placeholder="What were you thinking on this action?"
+            className="w-full min-h-[100px] rounded-md border border-input bg-background px-2.5 py-2 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 resize-y"
+          />
+          <span className="text-[11px] text-muted-foreground">
+            ⌘↵ save · esc cancel · save empty to remove
+          </span>
+        </div>
+        <div className="px-5 py-3 border-t border-white/10 flex items-center justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={commit}
+            style={{
+              background: "oklch(0.696 0.205 155)",
+              color: "oklch(0.145 0 0)",
+              fontWeight: 600,
+            }}
+            className="hover:!bg-[oklch(0.745_0.198_155)]"
+          >
+            <Check /> Save
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -454,8 +580,8 @@ function ActionBar({
           </div>
         </div>
       )}
-      <div className="px-[18px] py-3 flex items-center gap-2.5">
-        <div className="flex items-center gap-2">
+      <div className="px-3 sm:px-[18px] py-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2.5">
+        <div className="flex items-center gap-2 shrink-0">
           <span
             className="text-[10px] font-bold uppercase tracking-[0.16em] px-1.5 h-5 inline-flex items-center rounded"
             style={{
@@ -466,21 +592,19 @@ function ActionBar({
           >
             {posName}
           </span>
-          <span className="text-[13px] font-medium text-zinc-100">
+          <span className="text-[13px] font-medium text-zinc-100 truncate">
             {seat.name || `Seat ${activeSeat + 1}`}
           </span>
           <span className="text-[11px] text-zinc-500 tabular-nums">
             ${liveStack.toLocaleString()}
           </span>
         </div>
-        <div className="flex-1 flex justify-center gap-2">
+        <div className="flex-1 flex justify-center gap-2 min-w-0">
           <button
             type="button"
             onClick={fold}
-            className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors"
+            className="flex-1 sm:flex-none w-auto sm:w-[130px] h-12 rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors"
             style={{
-              width: 130,
-              height: 48,
               background: "oklch(0.704 0.191 22.216 / 0.12)",
               border: "1px solid oklch(0.704 0.191 22.216 / 0.4)",
               color: "oklch(0.78 0.191 22.216)",
@@ -488,16 +612,14 @@ function ActionBar({
               fontWeight: 600,
             }}
           >
-            Fold <Kbd tone="rose">F</Kbd>
+            Fold <span className="hidden sm:inline-flex"><Kbd tone="rose">F</Kbd></span>
           </button>
           {canCheck ? (
             <button
               type="button"
               onClick={check}
-              className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors"
+              className="flex-1 sm:flex-none w-auto sm:w-[130px] h-12 rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors"
               style={{
-                width: 130,
-                height: 48,
                 background: "oklch(1 0 0 / 0.06)",
                 border: "1px solid oklch(1 0 0 / 0.15)",
                 color: "#f4f4f5",
@@ -505,16 +627,14 @@ function ActionBar({
                 fontWeight: 500,
               }}
             >
-              Check <Kbd>C</Kbd>
+              Check <span className="hidden sm:inline-flex"><Kbd>C</Kbd></span>
             </button>
           ) : (
             <button
               type="button"
               onClick={call}
-              className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors tabular-nums"
+              className="flex-1 sm:flex-none w-auto sm:w-[130px] h-12 rounded-lg cursor-pointer inline-flex items-center justify-center gap-1.5 transition-colors tabular-nums"
               style={{
-                width: 130,
-                height: 48,
                 background: "oklch(1 0 0 / 0.06)",
                 border: "1px solid oklch(1 0 0 / 0.15)",
                 color: "#f4f4f5",
@@ -522,19 +642,19 @@ function ActionBar({
                 fontWeight: 500,
               }}
             >
-              Call ${Math.min(toCall, liveStack).toLocaleString()}
+              <span className="truncate">
+                Call ${Math.min(toCall, liveStack).toLocaleString()}
+              </span>
               {toCall > liveStack ? <span className="text-[10px] text-zinc-400">all-in</span> : null}
-              <Kbd>C</Kbd>
+              <span className="hidden sm:inline-flex"><Kbd>C</Kbd></span>
             </button>
           )}
           <button
             type="button"
             onClick={onBetClick}
             disabled={drawerOpen && cannotBet}
-            className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors tabular-nums disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 sm:flex-none w-auto sm:w-[200px] h-12 rounded-lg cursor-pointer inline-flex items-center justify-center gap-1.5 transition-colors tabular-nums disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
-              width: 200,
-              height: 48,
               background: EMERALD,
               border: "none",
               color: BG,
@@ -543,13 +663,15 @@ function ActionBar({
               boxShadow: "0 6px 18px oklch(0.696 0.205 155 / 0.3)",
             }}
           >
-            {drawerOpen
-              ? `${isBetMode ? "Bet" : "Raise to"} $${(Number.isFinite(amt) ? amt : 0).toLocaleString()}`
-              : isBetMode
-                ? "Bet"
-                : "Raise"}
+            <span className="truncate">
+              {drawerOpen
+                ? `${isBetMode ? "Bet" : "Raise to"} $${(Number.isFinite(amt) ? amt : 0).toLocaleString()}`
+                : isBetMode
+                  ? "Bet"
+                  : "Raise"}
+            </span>
             {drawerOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-            <Kbd tone="dark">R</Kbd>
+            <span className="hidden sm:inline-flex"><Kbd tone="dark">R</Kbd></span>
           </button>
         </div>
         <Button
@@ -558,6 +680,7 @@ function ActionBar({
           onClick={() => dispatch({ type: "undoAction" })}
           disabled={state.actions.length === 0}
           title="Undo last action (Cmd/Ctrl-Z)"
+          className="self-end sm:self-auto"
         >
           <RotateCcw /> Undo
         </Button>
@@ -673,7 +796,7 @@ function SetupPopover({
 
   return (
     <div
-      className="absolute left-0 top-9 z-50 w-[440px] rounded-xl flex flex-col gap-3.5 p-4"
+      className="absolute left-0 top-9 z-50 w-[440px] max-w-[calc(100vw-24px)] rounded-xl flex flex-col gap-3.5 p-4"
       style={{
         background: "rgba(15,15,18,0.97)",
         border: "1px solid oklch(1 0 0 / 0.12)",
@@ -1035,7 +1158,7 @@ function MetaStrip({
 
   return (
     <div
-      className="self-stretch flex items-center gap-2.5 text-[12px] relative"
+      className="self-stretch flex items-center gap-2.5 text-[12px] relative flex-wrap"
       style={{ minHeight: 36 }}
     >
       <div ref={wrapperRef} className="relative">
@@ -1060,7 +1183,9 @@ function MetaStrip({
         >
           <Settings size={12} />
           <span className="font-medium">Stakes &amp; seats</span>
-          {summary}
+          {/* Inline summary shows live config; hidden under sm to keep the
+              meta strip on a single row on phones. */}
+          <span className="hidden sm:inline-flex items-center">{summary}</span>
           {popoverOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
         </button>
         {popoverOpen && (
@@ -1071,7 +1196,7 @@ function MetaStrip({
           />
         )}
       </div>
-      <span className="text-zinc-600">·</span>
+      <span className="text-zinc-600 hidden sm:inline">·</span>
       <StreetPill phase={state.phase} />
       <span
         className="text-zinc-400 tabular-nums"
@@ -1080,9 +1205,12 @@ function MetaStrip({
         pot ${pot}
       </span>
       <div className="flex-1" />
+      {/* Action / setup hint — hidden under sm because the meta strip is
+          already at capacity. The user still sees the next-actor highlight
+          on the table. */}
       {state.phase !== "setup" && hint && (
         <span
-          className="text-[11px] text-zinc-500 truncate max-w-[440px]"
+          className="hidden sm:inline text-[11px] text-zinc-500 truncate max-w-[440px]"
           style={{
             fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
           }}
@@ -1091,7 +1219,9 @@ function MetaStrip({
         </span>
       )}
       {state.phase === "setup" && hint && (
-        <span className="text-[11px] text-zinc-500">{hint}</span>
+        <span className="hidden sm:inline text-[11px] text-zinc-500">
+          {hint}
+        </span>
       )}
       {/* Log button — only meaningful once actions exist. The log itself
           renders from inside this wrapper as a popover anchored beneath. */}
@@ -1125,9 +1255,8 @@ function MetaStrip({
           </button>
           {logOpen && (
             <div
-              className="absolute right-0 top-9 z-50 rounded-xl"
+              className="absolute right-0 top-9 z-50 rounded-xl w-[520px] max-w-[calc(100vw-24px)]"
               style={{
-                width: 520,
                 maxHeight: 420,
                 overflowY: "auto",
                 background: "rgba(15,15,18,0.97)",
@@ -1352,6 +1481,10 @@ export default function Recorder() {
   // Action-log popover; lifted so the inline log below the table can be
   // removed entirely (the popover replaces it).
   const [logOpen, setLogOpen] = useState(false);
+  // Annotation editor modal — `null` = closed, otherwise the index in
+  // state.actions whose annotation is being edited. Opens when the user
+  // clicks a bet/check bubble on the felt.
+  const [annotateIdx, setAnnotateIdx] = useState<number | null>(null);
 
   // Cmd/Ctrl-Z undo, available across phases (the per-action shortcuts live
   // inside ActionBar). Skips when typing in any field.
@@ -1632,10 +1765,17 @@ export default function Recorder() {
           onBack={handleBack}
           right={
             <>
-              <span className="text-xs font-mono text-muted-foreground">
+              <span className="hidden sm:inline text-xs font-mono text-muted-foreground">
                 {phaseLabel}
               </span>
-              <Button variant="outline" size="sm" onClick={handleCancel}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCancel}
+                disabled={!isDirty()}
+                title={!isDirty() ? "Nothing to cancel yet" : undefined}
+                className="disabled:opacity-50"
+              >
                 Cancel
               </Button>
               <Button
@@ -1660,7 +1800,22 @@ export default function Recorder() {
         />
       }
     >
-      <div className="flex-1 flex flex-col items-center px-6 py-6 gap-5 max-w-[1600px] w-full mx-auto">
+      <div className="flex-1 flex flex-col items-center px-3 sm:px-6 py-4 sm:py-6 gap-4 sm:gap-5 max-w-[1600px] w-full mx-auto">
+        {/* Tablet+ recommendation. Renders only under sm (640px) where the
+            recorder is functional but visually cramped — the table seat
+            plates start overlapping below ~480px even with shrinking, and
+            the meta-strip popovers consume most of the viewport. */}
+        <div
+          className="sm:hidden self-stretch rounded-md border px-3 py-2 text-[11.5px] leading-snug"
+          style={{
+            borderColor: "oklch(0.696 0.205 155 / 0.30)",
+            background: "oklch(0.696 0.205 155 / 0.06)",
+            color: "oklch(0.85 0.05 155)",
+          }}
+        >
+          Recording works on phone but is cramped — for the smoothest entry
+          experience, use a tablet or larger screen.
+        </div>
         {/* Title row: just the editable hand name. The phase pill, pot, and
             action hint live in the meta strip below; venue & date moved out
             of the recorder entirely (they're editable from /dashboard). */}
@@ -1733,7 +1888,11 @@ export default function Recorder() {
 
           <DealerButtonChip seatPos={visualSeatPos[btnVisual]} />
 
-          {/* Bet bubbles — positions are cycle-indexed; render at visual slot. */}
+          {/* Bet bubbles — positions are cycle-indexed; render at visual slot.
+              Setup-phase bubbles (blinds/straddle) aren't backed by an action
+              yet, so they're inert. Play-phase bubbles get an onClick that
+              opens the annotation editor for the seat's most recent action on
+              the current street. */}
           {state.phase === "setup"
             ? Object.entries(setupBets || {}).map(([s, amt]) => {
                 const cycleIdx = Number(s);
@@ -1751,12 +1910,27 @@ export default function Recorder() {
                 const cycleIdx = Number(s);
                 if (!amt || folded.has(cycleIdx)) return null;
                 const v = visualOf(cycleIdx);
+                const street =
+                  state.phase === "showdown" || state.phase === "done"
+                    ? "river"
+                    : state.phase;
+                const idx = lastActionIdxForSeat(
+                  state.actions,
+                  cycleIdx,
+                  street,
+                );
                 return (
                   <BetBubble
                     key={cycleIdx}
                     seatPos={visualSeatPos[v]}
                     amount={amt}
                     isHero={v === 0}
+                    onClick={
+                      idx !== null ? () => setAnnotateIdx(idx) : undefined
+                    }
+                    hasAnnotation={
+                      idx !== null && !!state.annotations[idx]?.trim()
+                    }
                   />
                 );
               })}
@@ -1770,12 +1944,27 @@ export default function Recorder() {
             Array.from(checkedSeats).map((cycleIdx) => {
               if (folded.has(cycleIdx)) return null;
               const v = visualOf(cycleIdx);
+              const street =
+                state.phase === "showdown" || state.phase === "done"
+                  ? "river"
+                  : state.phase;
+              const idx = lastActionIdxForSeat(
+                state.actions,
+                cycleIdx,
+                street,
+              );
               return (
                 <BetBubble
                   key={`check-${cycleIdx}`}
                   seatPos={visualSeatPos[v]}
                   isHero={v === 0}
                   label="check"
+                  onClick={
+                    idx !== null ? () => setAnnotateIdx(idx) : undefined
+                  }
+                  hasAnnotation={
+                    idx !== null && !!state.annotations[idx]?.trim()
+                  }
                 />
               );
             })}
@@ -1804,13 +1993,12 @@ export default function Recorder() {
                 }}
               >
                 <div
-                  className={`flex flex-col items-center gap-1.5 rounded-xl px-4 py-2.5 text-center border transition-all ${
+                  className={`flex flex-col items-center gap-1 sm:gap-1.5 rounded-xl px-2 sm:px-4 py-1.5 sm:py-2.5 text-center border transition-all min-w-[72px] sm:min-w-[100px] ${
                     isActive
                       ? "border-[oklch(0.696_0.205_155_/_0.6)]"
                       : "border-white/10"
                   }`}
                   style={{
-                    minWidth: 100,
                     opacity: dimmed ? 0.32 : 1,
                     filter: dimmed ? "grayscale(0.6)" : "none",
                     background: isActive
@@ -2334,6 +2522,16 @@ export default function Recorder() {
           </div>
         </div>
       </div>
+      {annotateIdx !== null && state.actions[annotateIdx] && (
+        <AnnotationModal
+          initial={state.annotations[annotateIdx] ?? ""}
+          actionLabel={formatAction(state.actions[annotateIdx], state.playerCount)}
+          onSave={(text) =>
+            dispatch({ type: "setAnnotation", index: annotateIdx, text })
+          }
+          onClose={() => setAnnotateIdx(null)}
+        />
+      )}
     </Shell>
   );
 }

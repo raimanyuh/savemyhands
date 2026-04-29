@@ -55,6 +55,7 @@ export default function Replayer({
   isOwner = false,
   isPublic = false,
   isAuthenticated = true,
+  ownerUsername,
   fullPayload,
 }: {
   hand: ReplayHand;
@@ -67,6 +68,9 @@ export default function Replayer({
   // sign-up CTA. Defaults to true so the recorder/dashboard flows that
   // already gate auth upstream don't have to thread this prop.
   isAuthenticated?: boolean;
+  // The owner's @username for "by @username" attribution. Null when the
+  // owner hasn't set one yet; in that case we just don't render attribution.
+  ownerUsername?: string | null;
   // The original SavedHand._full payload, threaded through so owner edits to
   // notes can patch both the top-level `notes` column and `_full.notes`
   // (the read prefers _full.notes, so both must move together).
@@ -82,6 +86,7 @@ export default function Replayer({
       isOwner={isOwner}
       isPublic={isPublic}
       isAuthenticated={isAuthenticated}
+      ownerUsername={ownerUsername ?? null}
       fullPayload={fullPayload}
     />
   );
@@ -94,6 +99,7 @@ function ReplayerInner({
   isOwner,
   isPublic,
   isAuthenticated,
+  ownerUsername,
   fullPayload,
 }: {
   hand: ReplayHand;
@@ -102,6 +108,7 @@ function ReplayerInner({
   isOwner: boolean;
   isPublic: boolean;
   isAuthenticated: boolean;
+  ownerUsername: string | null;
   fullPayload?: SavedHand["_full"];
 }) {
   const [step, setStep] = useState(0);
@@ -333,18 +340,33 @@ function ReplayerInner({
           backHref={isAuthenticated ? "/dashboard" : undefined}
           right={
             <>
+              {!isOwner && ownerUsername && (
+                <span className="text-xs text-muted-foreground">
+                  by{" "}
+                  <span className="text-foreground font-medium">
+                    @{ownerUsername}
+                  </span>
+                </span>
+              )}
               <span className="text-xs font-mono text-muted-foreground hidden sm:inline">
                 {url.split("/hand/")[0]}/hand/
                 <span className="text-foreground">{HAND.id}</span>
               </span>
-              <Button variant="outline" size="sm" onClick={copy}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={copy}
+                title={copied ? "Copied" : "Copy link"}
+              >
                 {copied ? (
                   <>
-                    <Check /> Copied
+                    <Check />{" "}
+                    <span className="hidden sm:inline">Copied</span>
                   </>
                 ) : (
                   <>
-                    <Copy /> Copy link
+                    <Copy />{" "}
+                    <span className="hidden sm:inline">Copy link</span>
                   </>
                 )}
               </Button>
@@ -360,7 +382,9 @@ function ReplayerInner({
                 }
               >
                 <Percent />
-                {showEquity ? "Hide equity" : "Show equity"}
+                <span className="hidden sm:inline">
+                  {showEquity ? "Hide equity" : "Show equity"}
+                </span>
               </Button>
               {isOwner && handId && (
                 <Button
@@ -376,11 +400,13 @@ function ReplayerInner({
                 >
                   {optimisticPublic ? (
                     <>
-                      <Globe /> Public
+                      <Globe />{" "}
+                      <span className="hidden sm:inline">Public</span>
                     </>
                   ) : (
                     <>
-                      <Lock /> Private
+                      <Lock />{" "}
+                      <span className="hidden sm:inline">Private</span>
                     </>
                   )}
                 </Button>
@@ -397,7 +423,11 @@ function ReplayerInner({
                   className="hover:!bg-[oklch(0.745_0.198_155)]"
                 >
                   <Link href="/signup">
-                    <UserPlus /> Save your own hands
+                    <UserPlus />{" "}
+                    <span className="hidden sm:inline">
+                      Save your own hands
+                    </span>
+                    <span className="sm:hidden">Sign up</span>
                   </Link>
                 </Button>
               )}
@@ -406,7 +436,7 @@ function ReplayerInner({
         />
       }
     >
-      <div className="flex-1 flex flex-col items-center px-6 py-8 gap-6 max-w-[1600px] w-full mx-auto">
+      <div className="flex-1 flex flex-col items-center px-3 sm:px-6 py-4 sm:py-8 gap-4 sm:gap-6 max-w-[1600px] w-full mx-auto">
         <div className="flex items-center gap-3 self-start">
           <h2 className="text-xl font-semibold tracking-tight">
             ${HAND.stakes.sb}/${HAND.stakes.bb} NLHE
@@ -487,13 +517,12 @@ function ReplayerInner({
                 }}
               >
                 <div
-                  className={`flex flex-col items-center gap-1.5 rounded-xl px-4 py-2.5 text-center border transition-all ${
+                  className={`flex flex-col items-center gap-1 sm:gap-1.5 rounded-xl px-2 sm:px-4 py-1.5 sm:py-2.5 text-center border transition-all min-w-[72px] sm:min-w-[100px] ${
                     isActive
                       ? "border-[oklch(0.696_0.205_155_/_0.6)]"
                       : "border-white/10"
                   }`}
                   style={{
-                    minWidth: 100,
                     opacity: isFolded || isMucked ? 0.32 : 1,
                     filter:
                       isFolded || isMucked ? "grayscale(0.6)" : "none",
@@ -652,33 +681,49 @@ function ReplayerInner({
           {/* Dealer button — BTN is cycle 0, render at its visual slot. */}
           <DealerButtonChip seatPos={visualSeatPos[visualOf(0)]} />
 
-          {/* Per-seat overlays — anchored note balloon when the current step
-              carries an annotation. Rides the same coordinate system as bet
-              bubbles so it shifts with the table, never with page flow. The
-              earlier action-pill chip is gone; "what just happened" reads
-              from the chip+pill bet/check bubbles plus the dock summary. */}
+          {/* Annotation balloon — restores the original nameplate-anchored
+              design with a short dashed connector, but with the side rule
+              inverted so seats near the table edges no longer push the
+              balloon off-screen. The balloon always sits on the side of the
+              seat that faces *into* the table interior:
+                * left-side seat (pos.left < 40)   → balloon to the right of seat
+                * right-side seat (pos.left > 60)  → balloon to the left of seat
+                * center seats (hero, top-center)  → balloon to the right
+                  (the dealer button sits on the BTN's left, so right is the
+                  side that doesn't fight it)
+              The balloon's width adapts to the available space so it never
+              extends past the table on either side. */}
           {(() => {
             if (cur.active === undefined || cur.active === null) return null;
             const seatCycle = cur.active;
             if (hasFolded(HAND.steps, step, seatCycle)) return null;
-            const v = visualOf(seatCycle);
-            const pos = visualSeatPos[v];
-            const onLeft = pos.left < 50;
             const note = cur.annotation;
             if (!note) return null;
-            const balloonWidth = 280;
+            const v = visualOf(seatCycle);
+            const seatPos = visualSeatPos[v];
+            // Direction the balloon (and connector) extend from the seat.
+            // Right-side seats are the only ones that flip; everyone else
+            // gets the right-side default.
+            const balloonGoesLeft = seatPos.left > 60;
+            // Width caps: balloon must fit between the seat plate edge
+            // (pos.left ± 56px connector) and the opposite side of the table
+            // (with an 8px margin). 280px is the desktop sweet spot; the calc
+            // shrinks it on narrow viewports and for seats nearer the center.
+            const widthCalc = balloonGoesLeft
+              ? `min(280px, calc(${seatPos.left}% - 64px))`
+              : `min(280px, calc(${100 - seatPos.left}% - 64px))`;
             return (
               <>
-                {/* Connector — short dashed line from seat-side balloon edge
-                    to seat plate edge. Drawn as a stub on the balloon side;
-                    precise enough that the balloon reads as anchored to the
-                    seat without per-pixel math. */}
+                {/* Short dashed connector from the seat plate to the
+                    balloon's seat-side edge. 56px long; the balloon's
+                    transform leaves a matching 56px gap so the line lands
+                    cleanly against the balloon. */}
                 <div
                   className="absolute z-20 pointer-events-none"
                   style={{
-                    left: `${pos.left}%`,
-                    top: `${pos.top}%`,
-                    transform: onLeft
+                    left: `${seatPos.left}%`,
+                    top: `${seatPos.top}%`,
+                    transform: balloonGoesLeft
                       ? "translate(-100%,-50%)"
                       : "translate(0,-50%)",
                     width: 56,
@@ -689,12 +734,12 @@ function ReplayerInner({
                 <div
                   className="absolute z-30"
                   style={{
-                    left: `${pos.left}%`,
-                    top: `${pos.top}%`,
-                    transform: onLeft
+                    left: `${seatPos.left}%`,
+                    top: `${seatPos.top}%`,
+                    transform: balloonGoesLeft
                       ? `translate(calc(-100% - 56px),-50%)`
                       : `translate(56px,-50%)`,
-                    width: balloonWidth,
+                    width: widthCalc,
                   }}
                 >
                   <div
@@ -705,18 +750,16 @@ function ReplayerInner({
                       borderRight: "1px solid oklch(0.696 0.205 155 / 0.3)",
                       borderBottom: "1px solid oklch(0.696 0.205 155 / 0.3)",
                       borderLeft: "3px solid oklch(0.696 0.205 155)",
-                      padding: "12px 14px",
+                      padding: "10px 12px",
                       boxShadow: "0 18px 40px rgba(0,0,0,0.55)",
                     }}
                   >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span
-                        className="text-[9.5px] font-semibold uppercase tracking-[0.18em]"
-                        style={{ color: "oklch(0.795 0.184 155)" }}
-                      >
-                        Note
-                      </span>
-                    </div>
+                    <span
+                      className="block text-[9.5px] font-semibold uppercase tracking-[0.18em] mb-1"
+                      style={{ color: "oklch(0.795 0.184 155)" }}
+                    >
+                      Note
+                    </span>
                     <p
                       className="text-[12.5px] leading-snug whitespace-pre-wrap"
                       style={{ color: "oklch(0.92 0.05 155)" }}
@@ -841,24 +884,30 @@ function ReplayerInner({
       </div>
 
       {/* Floating media-player dock. Fixed to the viewport so scrolling /
-          annotated steps don't shift it. */}
+          annotated steps don't shift it. The action summary is hidden under
+          sm because the dock can't fit it alongside the transport/scrubber on
+          a phone — viewers can hit Log to see every step's label. */}
       <div
-        className="fixed left-1/2 z-40 flex items-center gap-3.5"
+        className="fixed left-1/2 z-40 flex items-center gap-2 sm:gap-3.5"
         style={{
-          bottom: 24,
+          bottom: 16,
           transform: "translateX(-50%)",
-          padding: "10px 16px",
+          padding: "8px 12px",
           borderRadius: 14,
           background: "rgba(15,15,18,0.92)",
           border: "1px solid oklch(1 0 0 / 0.12)",
           boxShadow: "0 20px 50px rgba(0,0,0,0.6)",
           backdropFilter: "blur(14px)",
           maxWidth: 820,
-          width: "calc(100% - 48px)",
+          width: "calc(100% - 16px)",
         }}
       >
-        {/* Action summary — quiet, no card chrome. */}
-        <div className="flex items-center gap-2 min-w-0 max-w-[260px]">
+        {/* Action summary — hidden under sm to make room for the transport.
+            Width is locked (w-[260px], not max-w) so the transport buttons
+            stay put as the label text changes between steps; otherwise a
+            short "BB checks" → long "Whale raises to $1,200" transition
+            would shift every downstream control. The inner span truncates. */}
+        <div className="hidden sm:flex items-center gap-2 min-w-0 w-[260px] shrink-0">
           <StreetPill street={street} />
           <span className="text-[13px] text-zinc-200 truncate">
             {cur.label}
@@ -922,7 +971,7 @@ function ReplayerInner({
         </div>
 
         {/* Inline scrubber with markers at every annotated step. */}
-        <div className="flex-1 relative h-7 flex items-center min-w-[160px]">
+        <div className="flex-1 relative h-7 flex items-center min-w-[80px] sm:min-w-[160px]">
           <div
             className="absolute left-0 right-0 rounded"
             style={{
@@ -996,8 +1045,8 @@ function ReplayerInner({
         </div>
 
         {/* Step counter */}
-        <span className="text-[11px] text-zinc-400 tabular-nums shrink-0 text-center w-[52px]">
-          {step + 1} / {HAND.steps.length}
+        <span className="text-[11px] text-zinc-400 tabular-nums shrink-0 text-center w-auto px-1 sm:w-[52px] sm:px-0">
+          {step + 1}/{HAND.steps.length}
         </span>
 
         {/* Log popover trigger — the popover itself ships in the next pass. */}

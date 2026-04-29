@@ -71,7 +71,7 @@ export function OAuthButtons({ label = "Continue with" }: { label?: string }) {
       <Button
         type="button"
         variant="outline"
-        className="w-full"
+        className="w-full h-11"
         disabled={pending !== null}
         onClick={() => signIn("google")}
       >
@@ -80,7 +80,7 @@ export function OAuthButtons({ label = "Continue with" }: { label?: string }) {
       <Button
         type="button"
         variant="outline"
-        className="w-full"
+        className="w-full h-11"
         disabled={pending !== null}
         onClick={() => signIn("discord")}
       >

@@ -13,25 +13,50 @@ import type { SeatPos } from "./lib";
 // Pass `label` to render arbitrary text instead of `$amount` — e.g. "check"
 // for the no-chip-committed case where a player checks but we still want the
 // same chip+pill visual on the felt.
+//
+// Pass `onClick` to make the bubble interactive — used by the recorder so
+// clicking a bubble opens the annotation editor for that action. When
+// omitted, the bubble is pointer-events-none (read-only on the replayer).
+//
+// `hasAnnotation` styles the bubble's pill with an emerald tint so the user
+// can see at a glance which actions on the felt already carry a note.
 export function BetBubble({
   seatPos,
   amount = 0,
   isHero = false,
   label,
+  onClick,
+  hasAnnotation = false,
 }: {
   seatPos: SeatPos;
   amount?: number;
   isHero?: boolean;
   label?: string;
+  onClick?: () => void;
+  hasAnnotation?: boolean;
 }) {
   const t = isHero ? 0.62 : 0.22;
   const left = seatPos.left + t * (50 - seatPos.left);
   const top = seatPos.top + t * (50 - seatPos.top);
-  return (
-    <div
-      className="absolute z-20 flex items-center gap-1.5 pointer-events-none"
-      style={{ left: `${left}%`, top: `${top}%`, transform: "translate(-50%,-50%)" }}
-    >
+  const interactive = onClick !== undefined;
+
+  // Pill colors — neutral by default, emerald-tinted when an annotation
+  // already exists so it stands out from inert bubbles.
+  const pillStyle: React.CSSProperties = hasAnnotation
+    ? {
+        background: "oklch(0.30 0.10 155 / 0.95)",
+        border: "1px solid oklch(0.696 0.205 155 / 0.6)",
+        boxShadow:
+          "0 4px 10px rgba(0,0,0,0.55), 0 0 0 1px oklch(0.696 0.205 155 / 0.25)",
+      }
+    : {
+        background: "rgba(9,9,11,0.85)",
+        border: "1px solid rgba(255,255,255,0.12)",
+        boxShadow: "0 4px 10px rgba(0,0,0,0.55)",
+      };
+
+  const inner = (
+    <>
       {/* Chip token represents chips pushed in. For non-chip actions (check)
           the caller passes a label and we drop the chip — pill only. */}
       {label === undefined && (
@@ -48,16 +73,58 @@ export function BetBubble({
       )}
       <span
         className="px-2 h-6 inline-flex items-center rounded-md text-[12px] font-semibold tabular-nums text-white"
-        style={{
-          background: "rgba(9,9,11,0.85)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          boxShadow: "0 4px 10px rgba(0,0,0,0.55)",
-        }}
+        style={pillStyle}
       >
         {label ?? `$${amount}`}
       </span>
+    </>
+  );
+
+  if (interactive) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick?.();
+        }}
+        className="absolute z-20 flex items-center gap-1.5 cursor-pointer hover:opacity-90 transition-opacity outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.696_0.205_155_/_0.5)] rounded-md"
+        style={{
+          left: `${left}%`,
+          top: `${top}%`,
+          transform: "translate(-50%,-50%)",
+          background: "transparent",
+          padding: 0,
+          border: "none",
+        }}
+        title={hasAnnotation ? "Edit note on this action" : "Add a note to this action"}
+        aria-label={hasAnnotation ? "Edit annotation" : "Add annotation"}
+      >
+        {inner}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className="absolute z-20 flex items-center gap-1.5 pointer-events-none"
+      style={{ left: `${left}%`, top: `${top}%`, transform: "translate(-50%,-50%)" }}
+    >
+      {inner}
     </div>
   );
+}
+
+// Computes the bubble's pixel-coordinate position (as percentages of the
+// table) for a given seat. Mirrors the placement math inside `BetBubble` so
+// callers (e.g. the replayer's note balloon) can anchor an annotation
+// connector to the bubble itself rather than the seat plate.
+export function bubblePos(seatPos: SeatPos, isHero: boolean): SeatPos {
+  const t = isHero ? 0.62 : 0.22;
+  return {
+    left: seatPos.left + t * (50 - seatPos.left),
+    top: seatPos.top + t * (50 - seatPos.top),
+  };
 }
 
 // Dealer "D" chip — sits at a small angular offset from the BTN seat so bets don't cover it.

@@ -23,7 +23,7 @@ const FAQ_ITEMS: Item[] = [
   },
   {
     q: "Does it work on my phone?",
-    a: "The recorder is desktop-first today (it assumes a wide screen). The replayer works fine on mobile. Mobile recording is on the roadmap.",
+    a: "Yes. The replayer is fully mobile-friendly so anyone can watch a shared hand from their phone. The recorder works on phones too, though entry is smoother on a tablet or laptop where the visual table has more room to breathe.",
   },
   {
     q: "Can I import hands from PokerNow or PokerStars?",
@@ -99,6 +99,7 @@ function FaqRow({
         }}
       >
         <p
+          className="smh-faq-answer"
           style={{
             margin: 0,
             paddingBottom: 24,
@@ -122,6 +123,7 @@ export function Faq() {
   return (
     <section
       id="faq"
+      className="smh-faq"
       style={{
         padding: "120px 32px 80px",
         maxWidth: 1080,

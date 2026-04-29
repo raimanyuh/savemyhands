@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   deleteHandAction,
@@ -10,6 +11,8 @@ import {
 } from "@/lib/hands/actions";
 import {
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Copy,
   LogOut,
@@ -17,6 +20,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Settings as SettingsIcon,
   Share2,
   Star,
   Tag,
@@ -27,7 +31,9 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Header, Shell } from "@/components/Shell";
+import { UsernamePicker } from "@/components/auth/UsernamePicker";
 import { isMultiway, potTypeOf, type SavedHand } from "./hand";
+import { generateSampleHands } from "./sample-hands-gen";
 
 const SAMPLE_HANDS: SavedHand[] = [
   { id: "k4n2zx", name: "River bluff vs reg",        date: "Apr 24, 25", stakes: "1/2",  loc: "Lucky Chances", positions: "BTN", multiway: false, board: ["K♠","7♥","2♣","Q♦","—"],  type: "SRP", tags: ["bluff","river"],   result: 148,    fav: false },
@@ -675,103 +681,253 @@ function HandListRow({
   onEditDetails: () => void;
   onDelete: () => void;
 }) {
+  // Color class for the result amount, used in both desktop row + mobile card.
+  const resultColor =
+    hand.result > 0
+      ? "text-[oklch(0.795_0.184_155)]"
+      : hand.result < 0
+        ? "text-[oklch(0.704_0.191_22.216)]"
+        : "text-muted-foreground";
+  const resultText = `${
+    hand.result > 0 ? "+" : hand.result < 0 ? "−" : ""
+  }$${Math.abs(hand.result).toLocaleString()}`;
+
   return (
     <div
       onClick={onOpen}
-      className={`grid ${ROW_COLS} items-center gap-2 px-3 h-11 border-b border-[oklch(1_0_0_/_0.05)] cursor-pointer transition-colors ${
+      className={`border-b border-[oklch(1_0_0_/_0.05)] cursor-pointer transition-colors ${
         selected
           ? "bg-[oklch(0.285_0_0_/_0.55)]"
           : "hover:bg-[oklch(1_0_0_/_0.03)]"
       }`}
     >
-      <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-        <Checkbox checked={selected} onChange={() => onSelect()} ariaLabel="Select row" />
-      </div>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleFav();
-        }}
-        className="flex items-center justify-center text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0.15_85)] cursor-pointer"
-        aria-label="Toggle favorite"
-      >
-        <Star
-          size={14}
-          fill={hand.fav ? "currentColor" : "none"}
-          className={hand.fav ? "text-[oklch(0.85_0.15_85)]" : ""}
-        />
-      </button>
-      <div className="flex items-center gap-1.5 min-w-0">
-        <EditableName value={hand.name} onChange={onRename} />
-        {isSample && (
-          <span
-            className="inline-flex items-center h-4 px-1 rounded text-[9px] font-semibold uppercase tracking-[0.16em] shrink-0"
-            style={{
-              background: "oklch(1 0 0 / 0.04)",
-              border: "1px solid oklch(1 0 0 / 0.10)",
-              color: "oklch(0.65 0 0)",
-            }}
-            title="This is a built-in demo hand. Record one to see it replaced by your own."
-          >
-            sample
-          </span>
-        )}
-      </div>
-      <span className="text-[12px] text-muted-foreground tabular-nums">
-        {hand.date}
-      </span>
-      <span
-        className={`text-[12px] truncate ${
-          hand.loc && hand.loc !== "—"
-            ? "text-zinc-300"
-            : "text-muted-foreground italic"
-        }`}
-        title={hand.loc}
-      >
-        {hand.loc && hand.loc !== "—" ? hand.loc : "—"}
-      </span>
-      <span className="text-[12px] text-zinc-300 tabular-nums">
-        ${hand.stakes}
-      </span>
-      <span className="text-[12px] text-zinc-300 font-mono tracking-tight">
-        {heroPositionOf(hand)}
-      </span>
-      <span
-        className={`text-[12px] tabular-nums ${
-          multiwayOf(hand) === null
-            ? "text-muted-foreground italic"
-            : multiwayOf(hand)
-              ? "text-[oklch(0.795_0.184_155)]"
-              : "text-zinc-400"
-        }`}
-      >
-        {multiwayOf(hand) === null
-          ? "—"
-          : multiwayOf(hand)
-            ? "Yes"
-            : "No"}
-      </span>
-      <span className="text-[12px] text-zinc-300 font-mono tracking-tight">
-        {potTypeOf(hand)}
-      </span>
-      <div className="flex items-center gap-0.5">
-        {hand.board.map((c, i) => (
-          <MiniCard key={i} card={c} />
-        ))}
-      </div>
+      {/* Desktop: 13-column grid. Hidden under md (768px). */}
       <div
-        className="flex items-center gap-1 flex-wrap min-w-0"
-        onClick={(e) => e.stopPropagation()}
+        className={`hidden md:grid ${ROW_COLS} items-center gap-2 px-3 h-11`}
       >
-        {hand.tags.length === 0 ? (
-          <button
-            onClick={onAddTag}
-            className="text-[12px] text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)] italic cursor-pointer"
+        <div
+          className="flex items-center justify-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Checkbox
+            checked={selected}
+            onChange={() => onSelect()}
+            ariaLabel="Select row"
+          />
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFav();
+          }}
+          className="flex items-center justify-center text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0.15_85)] cursor-pointer"
+          aria-label="Toggle favorite"
+        >
+          <Star
+            size={14}
+            fill={hand.fav ? "currentColor" : "none"}
+            className={hand.fav ? "text-[oklch(0.85_0.15_85)]" : ""}
+          />
+        </button>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <EditableName value={hand.name} onChange={onRename} />
+          {isSample && (
+            <span
+              className="inline-flex items-center h-4 px-1 rounded text-[9px] font-semibold uppercase tracking-[0.16em] shrink-0"
+              style={{
+                background: "oklch(1 0 0 / 0.04)",
+                border: "1px solid oklch(1 0 0 / 0.10)",
+                color: "oklch(0.65 0 0)",
+              }}
+              title="This is a built-in demo hand. Record one to see it replaced by your own."
+            >
+              sample
+            </span>
+          )}
+        </div>
+        <span className="text-[12px] text-muted-foreground tabular-nums">
+          {hand.date}
+        </span>
+        <span
+          className={`text-[12px] truncate ${
+            hand.loc && hand.loc !== "—"
+              ? "text-zinc-300"
+              : "text-muted-foreground italic"
+          }`}
+          title={hand.loc}
+        >
+          {hand.loc && hand.loc !== "—" ? hand.loc : "—"}
+        </span>
+        <span className="text-[12px] text-zinc-300 tabular-nums">
+          ${hand.stakes}
+        </span>
+        <span className="text-[12px] text-zinc-300 font-mono tracking-tight">
+          {heroPositionOf(hand)}
+        </span>
+        <span
+          className={`text-[12px] tabular-nums ${
+            multiwayOf(hand) === null
+              ? "text-muted-foreground italic"
+              : multiwayOf(hand)
+                ? "text-[oklch(0.795_0.184_155)]"
+                : "text-zinc-400"
+          }`}
+        >
+          {multiwayOf(hand) === null ? "—" : multiwayOf(hand) ? "Yes" : "No"}
+        </span>
+        <span className="text-[12px] text-zinc-300 font-mono tracking-tight">
+          {potTypeOf(hand)}
+        </span>
+        <div className="flex items-center gap-0.5">
+          {hand.board.map((c, i) => (
+            <MiniCard key={i} card={c} />
+          ))}
+        </div>
+        <div
+          className="flex items-center gap-1 flex-wrap min-w-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {hand.tags.length === 0 ? (
+            <button
+              onClick={onAddTag}
+              className="text-[12px] text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)] italic cursor-pointer"
+            >
+              Assign tags
+            </button>
+          ) : (
+            <>
+              {hand.tags.map((t) => (
+                <TagChip key={t} onRemove={() => onRemoveTag(t)}>
+                  {t}
+                </TagChip>
+              ))}
+              <button
+                onClick={onAddTag}
+                className="w-5 h-5 inline-flex items-center justify-center rounded text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)] hover:bg-[oklch(1_0_0_/_0.05)] cursor-pointer"
+                aria-label="Add tag"
+              >
+                <Plus size={11} />
+              </button>
+            </>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <span
+            className={`text-[13px] font-semibold tabular-nums ${resultColor}`}
           >
-            Assign tags
+            {resultText}
+          </span>
+        </div>
+        <div
+          className="flex items-center justify-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {!isSample && (
+            <RowActionsMenu onEditDetails={onEditDetails} onDelete={onDelete} />
+          )}
+        </div>
+      </div>
+
+      {/* Mobile: card layout. The 13-column grid is unreadable below ~768px,
+          so each hand renders as a stacked card with the same data slimmed
+          down. The whole card is the click target; inner controls
+          stopPropagation. Visible only under md. */}
+      <div className="md:hidden flex flex-col gap-2 px-4 py-3">
+        <div className="flex items-start gap-2.5">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFav();
+            }}
+            className="flex items-center justify-center mt-0.5 text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0.15_85)] cursor-pointer shrink-0"
+            aria-label="Toggle favorite"
+          >
+            <Star
+              size={16}
+              fill={hand.fav ? "currentColor" : "none"}
+              className={hand.fav ? "text-[oklch(0.85_0.15_85)]" : ""}
+            />
           </button>
-        ) : (
-          <>
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <EditableName value={hand.name} onChange={onRename} />
+            {isSample && (
+              <span
+                className="inline-flex items-center h-4 px-1 rounded text-[9px] font-semibold uppercase tracking-[0.16em] shrink-0"
+                style={{
+                  background: "oklch(1 0 0 / 0.04)",
+                  border: "1px solid oklch(1 0 0 / 0.10)",
+                  color: "oklch(0.65 0 0)",
+                }}
+              >
+                sample
+              </span>
+            )}
+          </div>
+          <div
+            className={`text-[14px] font-semibold tabular-nums shrink-0 ${resultColor}`}
+          >
+            {resultText}
+          </div>
+          <div
+            className="flex items-center gap-1.5 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Checkbox
+              checked={selected}
+              onChange={() => onSelect()}
+              ariaLabel="Select row"
+            />
+            {!isSample && (
+              <RowActionsMenu
+                onEditDetails={onEditDetails}
+                onDelete={onDelete}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Meta row: date · venue · stakes · position · pot type · multiway */}
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground flex-wrap">
+          <span className="tabular-nums">{hand.date}</span>
+          {hand.loc && hand.loc !== "—" && (
+            <>
+              <span className="opacity-50">·</span>
+              <span className="text-zinc-300 truncate max-w-[140px]" title={hand.loc}>
+                {hand.loc}
+              </span>
+            </>
+          )}
+          <span className="opacity-50">·</span>
+          <span className="tabular-nums text-zinc-300">${hand.stakes}</span>
+          {heroPositionOf(hand) !== "—" && (
+            <>
+              <span className="opacity-50">·</span>
+              <span className="font-mono text-zinc-300">{heroPositionOf(hand)}</span>
+            </>
+          )}
+          <span className="opacity-50">·</span>
+          <span className="font-mono text-zinc-300">{potTypeOf(hand)}</span>
+          {multiwayOf(hand) === true && (
+            <>
+              <span className="opacity-50">·</span>
+              <span className="text-[oklch(0.795_0.184_155)]">multiway</span>
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center gap-0.5">
+          {hand.board.map((c, i) => (
+            <MiniCard key={i} card={c} />
+          ))}
+        </div>
+
+        {/* Tags below — only render if there are any (hides "Assign tags"
+            placeholder on mobile to keep the card uncluttered). */}
+        {hand.tags.length > 0 && (
+          <div
+            className="flex items-center gap-1 flex-wrap"
+            onClick={(e) => e.stopPropagation()}
+          >
             {hand.tags.map((t) => (
               <TagChip key={t} onRemove={() => onRemoveTag(t)}>
                 {t}
@@ -784,32 +940,7 @@ function HandListRow({
             >
               <Plus size={11} />
             </button>
-          </>
-        )}
-      </div>
-      <div className="flex items-center justify-end gap-2">
-        <span
-          className={`text-[13px] font-semibold tabular-nums ${
-            hand.result > 0
-              ? "text-[oklch(0.795_0.184_155)]"
-              : hand.result < 0
-                ? "text-[oklch(0.704_0.191_22.216)]"
-                : "text-muted-foreground"
-          }`}
-        >
-          {hand.result > 0 ? "+" : hand.result < 0 ? "−" : ""}$
-          {Math.abs(hand.result).toLocaleString()}
-        </span>
-      </div>
-      <div
-        className="flex items-center justify-center"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {!isSample && (
-          <RowActionsMenu
-            onEditDetails={onEditDetails}
-            onDelete={onDelete}
-          />
+          </div>
         )}
       </div>
     </div>
@@ -817,30 +948,55 @@ function HandListRow({
 }
 
 export default function Dashboard({
-  user,
+  initialUsername,
   signOutAction,
   initialHands,
   showSamples,
+  demoCount = 0,
 }: {
-  user: string;
+  // The signed-in user's @username, or null if they haven't picked one yet.
+  // Replaces the old `user: string` (email) prop — emails are private; the
+  // username is the public identity surfaced on shared hand pages.
+  initialUsername: string | null;
   signOutAction?: () => void | Promise<void>;
   // Hands fetched on the server for the signed-in user.
   initialHands: SavedHand[];
   // True when the user has no hands of their own; renders SAMPLE_HANDS as a
   // first-run demo. Hidden once they have any saved hand.
   showSamples: boolean;
+  // When > 0 (driven by `?demo=N` on the page), inject N synthetic rows so
+  // we can preview the dashboard with a populated library. Demo rows are
+  // marked as samples (non-mutable, non-clickable through to replayer).
+  demoCount?: number;
 }) {
   const router = useRouter();
 
   // Local mirror of the server-fetched hands. Optimistic updates land here
   // immediately; server actions persist + revalidate behind the scenes.
-  const [hands, setHands] = useState<SavedHand[]>(() =>
-    showSamples ? [...initialHands, ...SAMPLE_HANDS] : initialHands,
-  );
+  // Demo mode (?demo=N) appends N generated rows so we can preview the
+  // dashboard with a populated library; demo rows behave like samples.
+  const [hands, setHands] = useState<SavedHand[]>(() => {
+    const demo = demoCount > 0 ? generateSampleHands(demoCount) : [];
+    if (showSamples) return [...initialHands, ...SAMPLE_HANDS, ...demo];
+    return [...initialHands, ...demo];
+  });
   const [, startMutation] = useTransition();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<SavedHand | null>(null);
+  // Pagination — render at most PAGE_SIZE rows at a time so dashboards with
+  // hundreds of hands stay snappy on slower hardware. Filtering / sorting /
+  // searching still operate on the full list (cheap in JS); only the DOM
+  // render is paginated. We don't auto-reset to page 1 on filter changes —
+  // `safePage` clamps below — so users keep their place when toggling
+  // filters; if a filter shrinks the result set below the current page,
+  // they're snapped back to a valid page on next render.
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 50;
+  // Local mirror of the username so the header reflects the picker's save
+  // immediately, before the next navigation revalidates.
+  const [username, setUsername] = useState<string | null>(initialUsername);
+  const [usernameOpen, setUsernameOpen] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "date",
     dir: "desc",
@@ -969,6 +1125,15 @@ export default function Dashboard({
     return arr;
   }, [filtered, sort]);
 
+  // Paginate the sorted set. `safePage` clamps so a stale `currentPage`
+  // (e.g., the user was on page 5, then filtered to 2 pages of results)
+  // collapses to the last valid page rather than rendering an empty list.
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+  const paginatedHands = useMemo(
+    () => sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [sorted, safePage],
+  );
 
   const toggleSel = (id: string) =>
     setSelected((s) => {
@@ -977,16 +1142,32 @@ export default function Dashboard({
       else n.add(id);
       return n;
     });
-  const allSelected = selected.size === sorted.length && sorted.length > 0;
+  // "Select all" semantics scoped to the current page — selecting/deselecting
+  // touches only the visible rows. Bulk delete then operates on `selected`,
+  // which can span pages if the user navigates and selects more.
+  const allSelected =
+    paginatedHands.length > 0 &&
+    paginatedHands.every((h) => selected.has(h.id));
   const toggleAll = () =>
-    setSelected(allSelected ? new Set() : new Set(sorted.map((h) => h.id)));
+    setSelected((s) => {
+      const n = new Set(s);
+      if (allSelected) {
+        // Deselect just the visible page so cross-page selections survive.
+        for (const h of paginatedHands) n.delete(h.id);
+      } else {
+        for (const h of paginatedHands) n.add(h.id);
+      }
+      return n;
+    });
 
   // Sample IDs aren't backed by Postgres — mutations on them stay local-only
   // (they live in this component's state, but no server action fires).
-  const sampleIds = useMemo(
-    () => new Set(SAMPLE_HANDS.map((h) => h.id)),
-    [],
-  );
+  // Demo rows (id starting with "demo-") are treated identically.
+  const sampleIds = useMemo(() => {
+    const ids = new Set<string>(SAMPLE_HANDS.map((h) => h.id));
+    for (const h of hands) if (h.id.startsWith("demo-")) ids.add(h.id);
+    return ids;
+  }, [hands]);
 
   // Optimistic-update helper. Updates the local mirror immediately; for
   // non-sample rows it also persists via a server action and reverts on
@@ -1075,11 +1256,39 @@ export default function Dashboard({
           title="Hands"
           right={
             <>
-              <span className="text-sm text-muted-foreground">{user}</span>
+              {username ? (
+                <button
+                  onClick={() => setUsernameOpen(true)}
+                  className="text-sm text-muted-foreground hover:text-zinc-200 transition-colors cursor-pointer"
+                  title="Change username"
+                >
+                  @{username}
+                </button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setUsernameOpen(true)}
+                >
+                  Set username
+                </Button>
+              )}
+              <Button asChild variant="outline" size="sm">
+                <Link href="/settings" title="Account settings">
+                  <SettingsIcon />{" "}
+                  <span className="hidden sm:inline">Settings</span>
+                </Link>
+              </Button>
               {signOutAction && (
                 <form action={signOutAction}>
-                  <Button type="submit" variant="outline" size="sm">
-                    <LogOut /> Sign out
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    size="sm"
+                    title="Sign out"
+                  >
+                    <LogOut />{" "}
+                    <span className="hidden sm:inline">Sign out</span>
                   </Button>
                 </form>
               )}
@@ -1088,7 +1297,7 @@ export default function Dashboard({
         />
       }
     >
-      <div className="flex-1 flex flex-col w-full max-w-[1600px] mx-auto px-6 py-6 gap-4">
+      <div className="flex-1 flex flex-col w-full max-w-[1600px] mx-auto px-4 sm:px-6 py-4 sm:py-6 gap-4">
         {/* Top bar */}
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div className="flex flex-col gap-1">
@@ -1120,6 +1329,40 @@ export default function Dashboard({
             <Plus /> Record hand
           </Button>
         </div>
+
+        {/* Soft username prompt — only renders for accounts that haven't picked
+            a username yet. Disappears the moment they do; no manual dismiss
+            because the banner is self-clearing once the action is taken. */}
+        {!username && (
+          <div
+            className="flex items-center justify-between gap-3 rounded-lg border px-4 py-3"
+            style={{
+              borderColor: "oklch(0.696 0.205 155 / 0.35)",
+              background: "oklch(0.696 0.205 155 / 0.06)",
+            }}
+          >
+            <div className="text-sm">
+              <span className="font-medium">Pick a username</span>
+              <span className="text-muted-foreground">
+                {" "}
+                — others will see this in place of your email when you share
+                hands.
+              </span>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setUsernameOpen(true)}
+              style={{
+                background: "oklch(0.696 0.205 155)",
+                color: "oklch(0.145 0 0)",
+                fontWeight: 600,
+              }}
+              className="hover:!bg-[oklch(0.745_0.198_155)] shrink-0"
+            >
+              Set username
+            </Button>
+          </div>
+        )}
 
         {/* Filter bar */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -1193,7 +1436,7 @@ export default function Dashboard({
               onChange={setVenueFilter}
             />
           </div>
-          <div className="relative">
+          <div className="relative w-full sm:w-auto">
             <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
               <Search size={13} />
             </div>
@@ -1201,16 +1444,16 @@ export default function Dashboard({
               placeholder="Search…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 h-8 text-[13px] w-56"
+              className="pl-8 h-9 sm:h-8 text-[13px] w-full sm:w-56"
             />
           </div>
         </div>
 
         {/* Table */}
         <div className="flex flex-col rounded-lg border border-border bg-card overflow-hidden">
-          {/* Header row */}
+          {/* Header row — hidden on mobile because rows render as cards. */}
           <div
-            className={`grid ${ROW_COLS} items-center gap-2 px-3 h-9 border-b border-border bg-[oklch(0.245_0_0)]`}
+            className={`hidden md:grid ${ROW_COLS} items-center gap-2 px-3 h-9 border-b border-border bg-[oklch(0.245_0_0)]`}
           >
             <div className="flex items-center justify-center">
               <Checkbox
@@ -1247,7 +1490,7 @@ export default function Dashboard({
               No hands match.
             </div>
           ) : (
-            sorted.map((h) => (
+            paginatedHands.map((h) => (
               <HandListRow
                 key={h.id}
                 hand={h}
@@ -1271,32 +1514,73 @@ export default function Dashboard({
             ))
           )}
 
-          {/* Footer */}
-          <div className="flex items-center justify-between px-3 h-9 border-t border-border bg-[oklch(0.245_0_0)] text-[12px] text-muted-foreground tabular-nums">
-            <span>
-              {selected.size > 0
-                ? `${selected.size} selected`
-                : `${sorted.length} hands`}
-            </span>
-            <span>
-              Showing 1–{sorted.length} of {hands.length}
-            </span>
-          </div>
+          {/* Footer — pagination + count summary. Hidden when there's no
+              data; otherwise shows what's visible vs. total. The Prev/Next
+              cluster collapses to just the count when everything fits on a
+              single page. */}
+          {sorted.length > 0 && (
+            <div className="flex items-center justify-between gap-3 px-3 py-2 sm:h-10 border-t border-border bg-[oklch(0.245_0_0)] text-[12px] text-muted-foreground tabular-nums flex-wrap">
+              <span>
+                {selected.size > 0
+                  ? `${selected.size} selected`
+                  : sorted.length === hands.length
+                    ? `${sorted.length} ${sorted.length === 1 ? "hand" : "hands"}`
+                    : `${sorted.length} of ${hands.length} ${hands.length === 1 ? "hand" : "hands"}`}
+              </span>
+              {totalPages > 1 ? (
+                <div className="flex items-center gap-2">
+                  <span>
+                    Showing {(safePage - 1) * PAGE_SIZE + 1}–
+                    {Math.min(safePage * PAGE_SIZE, sorted.length)}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={safePage <= 1}
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft />
+                  </Button>
+                  <span>
+                    Page {safePage} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setCurrentPage((p) => Math.min(totalPages, p + 1))
+                    }
+                    disabled={safePage >= totalPages}
+                    aria-label="Next page"
+                  >
+                    <ChevronRight />
+                  </Button>
+                </div>
+              ) : (
+                <span>
+                  Showing 1–{sorted.length}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {selected.size > 0 && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-card shadow-2xl">
+          <div className="fixed bottom-4 sm:bottom-6 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-50 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-border bg-card shadow-2xl">
             <span className="text-[13px] font-medium px-2">
               {selected.size} selected
             </span>
-            <span className="w-px h-5 bg-border" />
-            <Button variant="outline" size="sm">
+            <span className="w-px h-5 bg-border hidden sm:block" />
+            {/* Tag / Share / Duplicate are stubs (per v1.1 backlog) and only
+                clutter the bar on mobile — hide under sm. */}
+            <Button variant="outline" size="sm" className="hidden sm:inline-flex">
               <Tag /> Tag
             </Button>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" className="hidden sm:inline-flex">
               <Share2 /> Share
             </Button>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" className="hidden sm:inline-flex">
               <Copy /> Duplicate
             </Button>
             <Button variant="destructive" size="sm" onClick={deleteSelected}>
@@ -1315,6 +1599,13 @@ export default function Dashboard({
             hand={editing}
             onSave={(patch) => update(editing.id, patch)}
             onClose={() => setEditing(null)}
+          />
+        )}
+        {usernameOpen && (
+          <UsernamePicker
+            initial={username}
+            onSaved={(u) => setUsername(u)}
+            onClose={() => setUsernameOpen(false)}
           />
         )}
       </div>
