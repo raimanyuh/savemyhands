@@ -334,11 +334,18 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
       if (old === next) return state;
       // Swap player records so the hero's name/stack/cards follow them to
       // their new cycle position. The "displaced" player gets the previous
-      // hero slot (usually a default empty seat in setup).
+      // hero slot (usually a default empty seat in setup). Each player's
+      // `seat` field must track its array index — the engine treats array
+      // index as cycle index everywhere, and downstream code (survivors
+      // filter at showdown, the `updatePlayer` reducer's `p.seat === ev.seat`
+      // match) reads `p.seat` directly. Without this fixup, after a swap
+      // `players[i].seat !== i` and the showdown panel mis-classifies hero
+      // as a villain (with hero's old cycle position as the label).
       const players = state.players.slice();
-      const tmp = players[old];
-      players[old] = players[next];
-      players[next] = tmp;
+      const oldRecord = players[old];
+      const nextRecord = players[next];
+      players[old] = { ...nextRecord, seat: old };
+      players[next] = { ...oldRecord, seat: next };
       return { ...state, heroPosition: next, players };
     }
     case "setHeroCard": {
