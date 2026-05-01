@@ -6,12 +6,12 @@ import { useRouter } from "next/navigation";
 import {
   deleteHandAction,
   deleteHandsAction,
+  setHandsPublicAction,
   updateHandDetailsAction,
 } from "@/lib/hands/actions";
 import {
   ChevronDown,
   ChevronUp,
-  Copy,
   LogOut,
   MoreHorizontal,
   Pencil,
@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Header, Shell } from "@/components/Shell";
 import { isMultiway, potTypeOf, type SavedHand } from "./hand";
 
@@ -57,6 +58,28 @@ function multiwayOf(h: SavedHand): boolean | null {
     });
   }
   return null;
+}
+
+// Game variant for a saved hand. Older saves predate `_full.gameType`
+// and are always Hold'em.
+function gameTypeOf(h: SavedHand): "NLHE" | "PLO4" | "PLO5" {
+  return h._full?.gameType ?? "NLHE";
+}
+const GAME_LABEL: Record<"NLHE" | "PLO4" | "PLO5", string> = {
+  NLHE: "NLHE",
+  PLO4: "PLO4",
+  PLO5: "PLO5",
+};
+function holeCountOf(h: SavedHand): 2 | 4 | 5 {
+  const g = gameTypeOf(h);
+  if (g === "PLO5") return 5;
+  if (g === "PLO4") return 4;
+  return 2;
+}
+
+// Double-board flag.
+function doubleBoardOf(h: SavedHand): boolean {
+  return !!h._full?.doubleBoardOn;
 }
 
 // Four-color deck on the dashboard's dark background:
@@ -290,12 +313,16 @@ function PlainHeader({
   align = "left",
 }: {
   label: string;
-  align?: "left" | "right";
+  align?: "left" | "center" | "right";
 }) {
   return (
     <div
       className={`flex items-center h-9 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground ${
-        align === "right" ? "justify-end" : ""
+        align === "right"
+          ? "justify-end"
+          : align === "center"
+            ? "justify-center"
+            : ""
       }`}
     >
       {label}
@@ -399,7 +426,7 @@ function EditableName({
 }
 
 const ROW_COLS =
-  "grid-cols-[28px_28px_minmax(160px,1.6fr)_88px_minmax(120px,1fr)_60px_64px_68px_80px_170px_minmax(140px,1.4fr)_90px_32px]";
+  "grid-cols-[28px_28px_minmax(120px,1.4fr)_88px_110px_60px_64px_56px_122px_68px_36px_80px_170px_minmax(110px,0.8fr)_90px_32px]";
 
 function EditDetailsModal({
   hand,
@@ -560,6 +587,118 @@ function EditDetailsModal({
   );
 }
 
+// Tag popover used by both the bulk-action bar and individual rows. The
+// existing-tag chips are quick-add shortcuts pulled from the user's whole
+// library; the input adds a brand-new tag on Enter. `placement` controls
+// whether the popover floats above the anchor (bulk bar at the bottom of
+// the viewport) or below it (a row in the table).
+function TagPopover({
+  anchor,
+  existingTags,
+  onAdd,
+  onClose,
+  placement = "above",
+}: {
+  anchor: HTMLElement;
+  existingTags: string[];
+  onAdd: (tag: string) => void;
+  onClose: () => void;
+  placement?: "above" | "below";
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [draft, setDraft] = useState("");
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        // Click on the anchor itself toggles in the parent — let that
+        // handler run instead of double-firing close here.
+        if (anchor.contains(e.target as Node)) return;
+        onClose();
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose, anchor]);
+
+  const rect = anchor.getBoundingClientRect();
+  const W = 240;
+  // Place above (bottom-pinned) or below (top-pinned) the anchor.
+  const above = placement === "above";
+  const positionStyle = above
+    ? { bottom: window.innerHeight - rect.top + 6 }
+    : { top: rect.bottom + 6 };
+  let left = above
+    ? rect.left + rect.width / 2 - W / 2
+    : rect.left;
+  left = Math.max(8, Math.min(window.innerWidth - W - 8, left));
+
+  const submit = () => {
+    const t = draft.trim();
+    if (!t) return;
+    onAdd(t);
+    setDraft("");
+  };
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-[200] rounded-lg overflow-hidden flex flex-col"
+      style={{
+        left,
+        ...positionStyle,
+        width: W,
+        background: "oklch(0.215 0 0)",
+        border: "1px solid oklch(1 0 0 / 0.12)",
+        boxShadow:
+          "0 24px 60px rgba(0,0,0,0.7), 0 6px 18px rgba(0,0,0,0.5)",
+      }}
+    >
+      <div className="px-3 pt-3 pb-2">
+        <Input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          placeholder="Add tag…"
+          className="h-8 text-[13px]"
+        />
+      </div>
+      {existingTags.length > 0 && (
+        <div className="px-3 pb-3 flex flex-col gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Quick add
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {existingTags.map((t) => (
+              <button
+                key={t}
+                onClick={() => onAdd(t)}
+                className="px-2 h-6 rounded-md text-[11px] bg-white/5 hover:bg-white/10 text-zinc-200 cursor-pointer"
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
 function RowActionsMenu({
   onEditDetails,
   onDelete,
@@ -652,6 +791,7 @@ function RowActionsMenu({
 
 function HandListRow({
   hand,
+  allTags,
   selected,
   onSelect,
   onToggleFav,
@@ -664,21 +804,29 @@ function HandListRow({
   onDelete,
 }: {
   hand: SavedHand;
+  // Every distinct tag in the user's library — feeds the row tag popover's
+  // quick-add chips so the user can re-apply existing tags in one click.
+  allTags: string[];
   selected: boolean;
   onSelect: () => void;
   onToggleFav: () => void;
   onOpen: () => void;
   onRename: (name: string) => void;
-  onAddTag: () => void;
+  onAddTag: (tag: string) => void;
   onRemoveTag: (tag: string) => void;
   isSample: boolean;
   onEditDetails: () => void;
   onDelete: () => void;
 }) {
+  const [tagAnchor, setTagAnchor] = useState<HTMLElement | null>(null);
+  const openTagPopover = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setTagAnchor(tagAnchor ? null : (e.currentTarget as HTMLElement));
+  };
   return (
     <div
       onClick={onOpen}
-      className={`grid ${ROW_COLS} items-center gap-2 px-3 h-11 border-b border-[oklch(1_0_0_/_0.05)] cursor-pointer transition-colors ${
+      className={`grid ${ROW_COLS} items-center gap-2 px-3 min-h-11 py-1.5 border-b border-[oklch(1_0_0_/_0.05)] cursor-pointer transition-colors ${
         selected
           ? "bg-[oklch(0.285_0_0_/_0.55)]"
           : "hover:bg-[oklch(1_0_0_/_0.03)]"
@@ -737,6 +885,30 @@ function HandListRow({
         {heroPositionOf(hand)}
       </span>
       <span
+        className={`text-[12px] font-mono tracking-tight ${
+          gameTypeOf(hand) === "NLHE"
+            ? "text-zinc-300"
+            : "text-[oklch(0.795_0.184_155)]"
+        }`}
+      >
+        {GAME_LABEL[gameTypeOf(hand)]}
+      </span>
+      <div className="flex items-center gap-0.5">
+        {(() => {
+          const heroPos = hand._full?.heroPosition ?? 0;
+          const heroCards = hand._full?.players[heroPos]?.cards;
+          const count = holeCountOf(hand);
+          // Older saves predate `_full.players`, and a few sample hands
+          // don't carry hole cards either — render dashed placeholders
+          // so the column doesn't shift when a row is missing them. The
+          // 122px column fits 5 mini-cards (5×22 + 4×2) on a single
+          // row, so PLO 4 / 5 stay flat alongside NLHE.
+          return Array.from({ length: count }, (_, i) => (
+            <MiniCard key={i} card={heroCards?.[i] ?? "—"} />
+          ));
+        })()}
+      </div>
+      <span
         className={`text-[12px] tabular-nums ${
           multiwayOf(hand) === null
             ? "text-muted-foreground italic"
@@ -751,13 +923,36 @@ function HandListRow({
             ? "Yes"
             : "No"}
       </span>
+      <div
+        className="flex justify-center"
+        title={doubleBoardOf(hand) ? "Double board" : "Single board"}
+      >
+        <span
+          className={`text-[12px] tabular-nums ${
+            doubleBoardOf(hand)
+              ? "text-[oklch(0.795_0.184_155)]"
+              : "text-zinc-600"
+          }`}
+        >
+          {doubleBoardOf(hand) ? "Yes" : "—"}
+        </span>
+      </div>
       <span className="text-[12px] text-zinc-300 font-mono tracking-tight">
         {potTypeOf(hand)}
       </span>
-      <div className="flex items-center gap-0.5">
-        {hand.board.map((c, i) => (
-          <MiniCard key={i} card={c} />
-        ))}
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-0.5">
+          {hand.board.map((c, i) => (
+            <MiniCard key={i} card={c} />
+          ))}
+        </div>
+        {hand._full?.doubleBoardOn && hand._full?.board2 && (
+          <div className="flex items-center gap-0.5">
+            {hand._full.board2.map((c, i) => (
+              <MiniCard key={i} card={c ?? "—"} />
+            ))}
+          </div>
+        )}
       </div>
       <div
         className="flex items-center gap-1 flex-wrap min-w-0"
@@ -765,7 +960,8 @@ function HandListRow({
       >
         {hand.tags.length === 0 ? (
           <button
-            onClick={onAddTag}
+            onClick={openTagPopover}
+            aria-expanded={tagAnchor !== null}
             className="text-[12px] text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)] italic cursor-pointer"
           >
             Assign tags
@@ -778,13 +974,25 @@ function HandListRow({
               </TagChip>
             ))}
             <button
-              onClick={onAddTag}
+              onClick={openTagPopover}
+              aria-expanded={tagAnchor !== null}
               className="w-5 h-5 inline-flex items-center justify-center rounded text-[oklch(0.55_0_0)] hover:text-[oklch(0.85_0_0)] hover:bg-[oklch(1_0_0_/_0.05)] cursor-pointer"
               aria-label="Add tag"
             >
               <Plus size={11} />
             </button>
           </>
+        )}
+        {tagAnchor && (
+          <TagPopover
+            anchor={tagAnchor}
+            existingTags={allTags}
+            placement="below"
+            onAdd={(t) => {
+              if (!hand.tags.includes(t)) onAddTag(t);
+            }}
+            onClose={() => setTagAnchor(null)}
+          />
         )}
       </div>
       <div className="flex items-center justify-end gap-2">
@@ -831,6 +1039,7 @@ export default function Dashboard({
   showSamples: boolean;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
 
   // Local mirror of the server-fetched hands. Optimistic updates land here
   // immediately; server actions persist + revalidate behind the scenes.
@@ -841,6 +1050,7 @@ export default function Dashboard({
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<SavedHand | null>(null);
+  const [tagAnchor, setTagAnchor] = useState<HTMLElement | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "date",
     dir: "desc",
@@ -856,6 +1066,10 @@ export default function Dashboard({
   const [resultFilter, setResultFilter] = useState<Set<string>>(new Set());
   const [positionsFilter, setPositionsFilter] = useState<Set<string>>(new Set());
   const [multiwayFilter, setMultiwayFilter] = useState<Set<string>>(new Set());
+  const [gameTypeFilter, setGameTypeFilter] = useState<Set<string>>(new Set());
+  const [doubleBoardFilter, setDoubleBoardFilter] = useState<Set<string>>(
+    new Set(),
+  );
   // Starred is binary, so it's a plain boolean rather than a Set like the others.
   const [starredOnly, setStarredOnly] = useState(false);
 
@@ -879,6 +1093,7 @@ export default function Dashboard({
       [...s].sort().map((v) => ({ value: v, label: v }));
     return {
       potType: [
+        { value: "BP", label: "BP — bomb pot" },
         { value: "LP", label: "LP — limped pot" },
         { value: "SRP", label: "SRP — single raised" },
         { value: "3BP", label: "3BP — 3-bet pot" },
@@ -900,6 +1115,15 @@ export default function Dashboard({
       multiway: [
         { value: "yes", label: "Multiway" },
         { value: "no", label: "Heads-up" },
+      ],
+      gameType: [
+        { value: "NLHE", label: "Hold'em" },
+        { value: "PLO4", label: "PLO 4-card" },
+        { value: "PLO5", label: "PLO 5-card" },
+      ],
+      doubleBoard: [
+        { value: "single", label: "Single board" },
+        { value: "double", label: "Double board" },
       ],
     };
   }, [hands]);
@@ -931,6 +1155,13 @@ export default function Dashboard({
         const tag = m ? "yes" : "no";
         if (!multiwayFilter.has(tag)) return false;
       }
+      if (gameTypeFilter.size && !gameTypeFilter.has(gameTypeOf(h))) {
+        return false;
+      }
+      if (doubleBoardFilter.size) {
+        const v = doubleBoardOf(h) ? "double" : "single";
+        if (!doubleBoardFilter.has(v)) return false;
+      }
       if (
         search &&
         !`${h.name} ${h.loc} ${h.positions} ${h.tags.join(" ")} ${h.notes ?? ""}`
@@ -951,9 +1182,18 @@ export default function Dashboard({
     resultFilter,
     positionsFilter,
     multiwayFilter,
+    gameTypeFilter,
+    doubleBoardFilter,
     starredOnly,
     search,
   ]);
+
+  // Every distinct tag in the user's library, sorted. Feeds the row + bulk
+  // tag popovers' quick-add chips.
+  const allTags = useMemo(
+    () => [...new Set(hands.flatMap((h) => h.tags))].sort(),
+    [hands],
+  );
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -1019,8 +1259,14 @@ export default function Dashboard({
     });
   };
 
-  const deleteHand = (h: SavedHand) => {
-    if (!window.confirm(`Delete "${h.name}"? This can't be undone.`)) return;
+  const deleteHand = async (h: SavedHand) => {
+    const ok = await confirm({
+      title: `Delete "${h.name}"?`,
+      message: "This can't be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     setHands((hs) => hs.filter((x) => x.id !== h.id));
     setSelected((s) => {
       const n = new Set(s);
@@ -1039,15 +1285,16 @@ export default function Dashboard({
     });
   };
 
-  const deleteSelected = () => {
+  const deleteSelected = async () => {
     const targets = [...selected];
     if (targets.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${targets.length} hand${targets.length === 1 ? "" : "s"}? This can't be undone.`,
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: `Delete ${targets.length} hand${targets.length === 1 ? "" : "s"}?`,
+      message: "This can't be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     const targetSet = new Set(targets);
     setHands((hs) => hs.filter((h) => !targetSet.has(h.id)));
     setSelected(new Set());
@@ -1063,6 +1310,106 @@ export default function Dashboard({
         );
         router.refresh();
       }
+    });
+  };
+
+  // Bulk share: prompt → mark all selected hands public → copy newline-
+  // separated "Name — URL" lines to clipboard. Sample hands are excluded
+  // (their ids don't exist on the server, so the link would 404). Each
+  // selected hand that's already public is left as-is.
+  const shareSelected = async () => {
+    const targets = [...selected];
+    if (targets.length === 0) return;
+    const targetSet = new Set(targets);
+    const targetHands = hands.filter((h) => targetSet.has(h.id));
+    const persistable = targetHands.filter((h) => !sampleIds.has(h.id));
+    if (persistable.length === 0) {
+      window.alert("Sample hands can't be shared. Save your own first.");
+      return;
+    }
+    const ok = await confirm({
+      title: `Share ${persistable.length} hand${persistable.length === 1 ? "" : "s"}?`,
+      message: (
+        <>
+          Anyone with the link will be able to view{" "}
+          {persistable.length === 1 ? "this hand" : "these hands"}. The links
+          will be copied to your clipboard.
+        </>
+      ),
+      confirmLabel: "Make public & copy links",
+    });
+    if (!ok) return;
+
+    const origin =
+      typeof window !== "undefined" ? window.location.origin : "";
+    const lines = persistable.map((h) => `${h.name} — ${origin}/hand/${h.id}`);
+    const text = lines.join("\n");
+
+    // Best-effort clipboard. The promise can reject when the page isn't
+    // focused or when permissions are denied — fall back to a manual prompt
+    // in that case so the user still gets the links.
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      console.error("Clipboard write failed", e);
+      window.prompt("Copy these links manually:", text);
+    }
+
+    // Optimistically flip is_public locally so the lock icons match.
+    setHands((hs) =>
+      hs.map((h) => (targetSet.has(h.id) ? { ...h, isPublic: true } : h)),
+    );
+
+    const ids = persistable.map((h) => h.id);
+    startMutation(async () => {
+      try {
+        await setHandsPublicAction(ids, true);
+      } catch (e) {
+        console.error("Failed to mark hands public", e);
+        window.alert(
+          "The links were copied, but we couldn't update sharing for some hands. Refresh to see the current state.",
+        );
+        router.refresh();
+      }
+    });
+  };
+
+  // Bulk-add a tag to every selected hand (deduped per hand). Used by the
+  // tag popover. Each row's new tag list is computed from its current tag
+  // set so we can patch it without a server-side merge.
+  const bulkAddTag = (rawTag: string) => {
+    const tag = rawTag.trim();
+    if (!tag) return;
+    const targets = [...selected];
+    if (targets.length === 0) return;
+    const targetSet = new Set(targets);
+    // Compute the new tag list per hand once, before any state churn, so
+    // the optimistic update and the server patch agree on the same value.
+    const patches = new Map<string, string[]>();
+    for (const h of hands) {
+      if (!targetSet.has(h.id)) continue;
+      if (h.tags.includes(tag)) continue;
+      patches.set(h.id, [...h.tags, tag]);
+    }
+    if (patches.size === 0) return;
+    setHands((hs) =>
+      hs.map((h) => {
+        const next = patches.get(h.id);
+        return next ? { ...h, tags: next } : h;
+      }),
+    );
+    startMutation(async () => {
+      await Promise.all(
+        [...patches.entries()]
+          .filter(([id]) => !sampleIds.has(id))
+          .map(async ([id, tags]) => {
+            try {
+              await updateHandDetailsAction(id, { tags });
+            } catch (e) {
+              console.error("Failed to update tags for", id, e);
+            }
+          }),
+      );
     });
   };
 
@@ -1162,10 +1509,22 @@ export default function Dashboard({
               onChange={setPlayersFilter}
             />
             <FilterDropdown
+              label="Game"
+              options={filterOptions.gameType}
+              selected={gameTypeFilter}
+              onChange={setGameTypeFilter}
+            />
+            <FilterDropdown
               label="Multiway"
               options={filterOptions.multiway}
               selected={multiwayFilter}
               onChange={setMultiwayFilter}
+            />
+            <FilterDropdown
+              label="DB"
+              options={filterOptions.doubleBoard}
+              selected={doubleBoardFilter}
+              onChange={setDoubleBoardFilter}
             />
             <FilterDropdown
               label="Result"
@@ -1227,7 +1586,10 @@ export default function Dashboard({
             <SortHeader label="Venue" sortKey="loc" sort={sort} setSort={setSort} />
             <SortHeader label="Stakes" sortKey="stakes" sort={sort} setSort={setSort} />
             <PlainHeader label="Position" />
+            <PlainHeader label="Game" />
+            <PlainHeader label="Hand" />
             <PlainHeader label="Multiway" />
+            <PlainHeader label="DB" align="center" />
             <PlainHeader label="Pot type" />
             <PlainHeader label="Board" />
             <PlainHeader label="Tags" />
@@ -1251,15 +1613,14 @@ export default function Dashboard({
               <HandListRow
                 key={h.id}
                 hand={h}
+                allTags={allTags}
                 selected={selected.has(h.id)}
                 onSelect={() => toggleSel(h.id)}
                 onToggleFav={() => update(h.id, { fav: !h.fav })}
                 onRename={(name) => update(h.id, { name })}
-                onAddTag={() => {
-                  const t = window.prompt("Add tag");
-                  if (t && t.trim())
-                    update(h.id, { tags: [...h.tags, t.trim()] });
-                }}
+                onAddTag={(t) =>
+                  update(h.id, { tags: [...h.tags, t] })
+                }
                 onRemoveTag={(t) =>
                   update(h.id, { tags: h.tags.filter((x) => x !== t) })
                 }
@@ -1290,14 +1651,20 @@ export default function Dashboard({
               {selected.size} selected
             </span>
             <span className="w-px h-5 bg-border" />
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) =>
+                setTagAnchor(
+                  tagAnchor ? null : (e.currentTarget as HTMLElement),
+                )
+              }
+              aria-expanded={tagAnchor !== null}
+            >
               <Tag /> Tag
             </Button>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={shareSelected}>
               <Share2 /> Share
-            </Button>
-            <Button variant="outline" size="sm">
-              <Copy /> Duplicate
             </Button>
             <Button variant="destructive" size="sm" onClick={deleteSelected}>
               <Trash2 /> Delete
@@ -1309,6 +1676,14 @@ export default function Dashboard({
               Clear
             </button>
           </div>
+        )}
+        {tagAnchor && selected.size > 0 && (
+          <TagPopover
+            anchor={tagAnchor}
+            existingTags={allTags}
+            onAdd={(t) => bulkAddTag(t)}
+            onClose={() => setTagAnchor(null)}
+          />
         )}
         {editing && (
           <EditDetailsModal

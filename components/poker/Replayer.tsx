@@ -28,6 +28,7 @@ import {
 import type { SavedHand } from "./hand";
 import { computeEquity } from "./equity";
 import PlayingCard from "./PlayingCard";
+import HandFan from "./HandFan";
 import { seatXY } from "./lib";
 import { BetBubble, DealerButtonChip, TableSurface } from "./table-pieces";
 import {
@@ -202,12 +203,24 @@ function ReplayerInner({
     }
     return b;
   }, [step, HAND]);
+  // Same memo for the second board on double-board hands. Stays empty
+  // for single-board hands so the second row never renders.
+  const board2 = useMemo(() => {
+    if (!HAND.doubleBoardOn) return [] as string[];
+    let b: string[] = [];
+    for (let i = 0; i <= step; i++) {
+      if (HAND.steps[i].board2) b = HAND.steps[i].board2!;
+    }
+    return b;
+  }, [step, HAND]);
   const pot = HAND.steps[step].pot;
   const street = HAND.steps[step].street;
 
   // Equity is precomputed at save time and stored on the hand. For older
   // hands that predate that field, we fall back to runout enumeration on
   // the fly — same approach as before, just rarely hit now.
+  // For double-board hands we run the same pass twice (once per board)
+  // so the showdown overlay can render two badges per seat.
   const liveEquity = useMemo(() => {
     const map = new Map<number, Record<number, number>>();
     if (!showEquity || HAND.equityByStep) return map;
@@ -230,10 +243,41 @@ function ReplayerInner({
     }
     return map;
   }, [showEquity, HAND]);
+  const liveEquity2 = useMemo(() => {
+    const map = new Map<number, Record<number, number>>();
+    if (!showEquity || !HAND.doubleBoardOn || HAND.equityByStep2) return map;
+    for (let s = 0; s < HAND.steps.length; s++) {
+      let stepBoard: string[] = [];
+      for (let i = 0; i <= s; i++) {
+        if (HAND.steps[i].board2) stepBoard = HAND.steps[i].board2!;
+      }
+      const contestants = HAND.players
+        .filter(
+          (p) =>
+            !!(p.cards?.[0] && p.cards?.[1]) &&
+            !hasFolded(HAND.steps, s, p.seat),
+        )
+        .map((p) => ({
+          seat: p.seat,
+          cards: [p.cards![0]!, p.cards![1]!] as [string, string],
+        }));
+      map.set(s, computeEquity(contestants, stepBoard));
+    }
+    return map;
+  }, [showEquity, HAND]);
   const equityByStep =
     HAND.equityByStep?.[step] ?? liveEquity.get(step) ?? {};
+  const equityByStep2 = HAND.doubleBoardOn
+    ? HAND.equityByStep2?.[step] ?? liveEquity2.get(step) ?? {}
+    : null;
 
   const playerCount = HAND.playerCount || HAND.players.length;
+  // Hole-card count for the rendered hand (2 NLHE / 4 PLO4 / 5 PLO5).
+  // Drives both the hero-card fan and the villain face-down card-back
+  // count. Falls back to 2 for older saves without `gameType`.
+  const holeCount =
+    HAND.gameType === "PLO5" ? 5 : HAND.gameType === "PLO4" ? 4 : 2;
+  const useHandFan = holeCount > 2;
   const heroPos = HAND.heroPosition ?? 0;
   // Visual seat positions, indexed by visual slot (0 = bottom-center / hero).
   const visualSeatPos = Array.from({ length: playerCount }, (_, i) =>
@@ -406,20 +450,35 @@ function ReplayerInner({
         />
       }
     >
-      <div className="flex-1 flex flex-col items-center px-6 py-8 gap-6 max-w-[1600px] w-full mx-auto">
+      <div className="flex-1 flex flex-col items-center px-6 py-5 gap-4 max-w-[1600px] w-full mx-auto">
         <div className="flex items-center gap-3 self-start">
           <h2 className="text-xl font-semibold tracking-tight">
-            ${HAND.stakes.sb}/${HAND.stakes.bb} NLHE
+            {HAND.bombPotOn
+              ? `Bomb pot $${HAND.bombPotAmt} NLHE`
+              : `$${HAND.stakes.sb}/$${HAND.stakes.bb} NLHE`}
           </h2>
           <span className="text-sm text-muted-foreground">
             · {playerCount}-handed
           </span>
         </div>
 
-        {/* Table */}
+        {/* Table — capped by viewport height so the floating dock at the
+            bottom never overlaps the felt. The dock takes ~80px and the
+            chrome above (header + back link + paddings) is ~200px. */}
+        <div
+          className="w-full flex flex-col items-center"
+          style={{ maxWidth: "calc((100vh - 280px) * 2)" }}
+        >
         <TableSurface>
-          {/* Pot + board */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 pointer-events-none">
+          {/* Pot + board(s). Stack a second row when this is a double-
+              board hand and shift the whole stack up so hero cards still
+              get clearance, mirroring the recorder. */}
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10 pointer-events-none"
+            style={{
+              transform: `translateY(${HAND.doubleBoardOn ? -56 : -34}px)`,
+            }}
+          >
             <span
               className="px-3 h-8 inline-flex items-center rounded-lg text-[18px] font-semibold tabular-nums text-white"
               style={{
@@ -443,6 +502,22 @@ function ReplayerInner({
                 );
               })}
             </div>
+            {HAND.doubleBoardOn && (
+              <div className="flex gap-1.5">
+                {[0, 1, 2, 3, 4].map((i) => {
+                  const c = board2[i];
+                  if (!c)
+                    return <div key={i} style={{ width: 56, height: 80 }} />;
+                  return (
+                    <PlayingCard
+                      key={i}
+                      rank={c.slice(0, -1)}
+                      suit={c.slice(-1)}
+                    />
+                  );
+                })}
+              </div>
+            )}
             <span className="text-white/15 font-medium tracking-[0.28em] uppercase text-[10px]">
               savemyhands
             </span>
@@ -522,17 +597,46 @@ function ReplayerInner({
                     ${Math.max(0, p.stack - (committed[i] || 0)).toLocaleString()}
                   </span>
                   {showSeatEquity && (
-                    <span
-                      className="px-1.5 h-4 inline-flex items-center rounded text-[10px] font-semibold tabular-nums leading-none"
-                      style={{
-                        background: "oklch(0.696 0.205 155 / 0.18)",
-                        color: "oklch(0.795 0.184 155)",
-                        border: "1px solid oklch(0.696 0.205 155 / 0.4)",
-                      }}
-                      title="Equity at this board, all-in to river"
-                    >
-                      {(equityByStep[i] * 100).toFixed(0)}%
-                    </span>
+                    equityByStep2 && equityByStep2[i] !== undefined ? (
+                      // Double-board: stack two badges so the user can
+                      // see equity per board separately.
+                      <span className="flex gap-1">
+                        <span
+                          className="px-1.5 h-4 inline-flex items-center rounded text-[10px] font-semibold tabular-nums leading-none"
+                          style={{
+                            background: "oklch(0.696 0.205 155 / 0.18)",
+                            color: "oklch(0.795 0.184 155)",
+                            border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+                          }}
+                          title="Equity on board 1, all-in to river"
+                        >
+                          {(equityByStep[i] * 100).toFixed(0)}%
+                        </span>
+                        <span
+                          className="px-1.5 h-4 inline-flex items-center rounded text-[10px] font-semibold tabular-nums leading-none"
+                          style={{
+                            background: "oklch(0.696 0.205 155 / 0.18)",
+                            color: "oklch(0.795 0.184 155)",
+                            border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+                          }}
+                          title="Equity on board 2, all-in to river"
+                        >
+                          {(equityByStep2[i] * 100).toFixed(0)}%
+                        </span>
+                      </span>
+                    ) : (
+                      <span
+                        className="px-1.5 h-4 inline-flex items-center rounded text-[10px] font-semibold tabular-nums leading-none"
+                        style={{
+                          background: "oklch(0.696 0.205 155 / 0.18)",
+                          color: "oklch(0.795 0.184 155)",
+                          border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+                        }}
+                        title="Equity at this board, all-in to river"
+                      >
+                        {(equityByStep[i] * 100).toFixed(0)}%
+                      </span>
+                    )
                   )}
                   {(isFolded || isMucked) && (
                     <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[oklch(0.55_0.005_60)] leading-none">
@@ -543,48 +647,40 @@ function ReplayerInner({
                 {/* Hero hole cards — always face up. */}
                 {p.cards && isHero && (
                   <div
-                    className="absolute left-1/2 -translate-x-1/2 -top-24 flex gap-1.5"
+                    className="absolute left-1/2 -translate-x-1/2 -top-24"
                     style={{
                       opacity: isFolded ? 0.3 : 1,
                       filter: isFolded ? "grayscale(0.7)" : "none",
                     }}
                   >
-                    {p.cards.map((c, j) =>
-                      c ? (
-                        <PlayingCard
-                          key={j}
-                          rank={c.slice(0, -1)}
-                          suit={c.slice(-1)}
-                        />
-                      ) : (
-                        <PlayingCard key={j} faceDown size="sm" />
-                      ),
-                    )}
+                    <HandFan
+                      cards={p.cards}
+                      size="md"
+                      fan={useHandFan}
+                      faceDown={false}
+                    />
                   </div>
                 )}
                 {/* Villain cards revealed at showdown. */}
                 {villainShown && p.cards && (
-                  <div className="absolute left-1/2 -translate-x-1/2 -top-14 flex gap-1">
-                    {p.cards.map((c, j) =>
-                      c ? (
-                        <PlayingCard
-                          key={j}
-                          rank={c.slice(0, -1)}
-                          suit={c.slice(-1)}
-                          size="sm"
-                        />
-                      ) : (
-                        <PlayingCard key={j} faceDown size="sm" />
-                      ),
-                    )}
+                  <div className="absolute left-1/2 -translate-x-1/2 -top-14">
+                    <HandFan
+                      cards={p.cards}
+                      size="sm"
+                      fan={useHandFan}
+                      faceDown={false}
+                    />
                   </div>
                 )}
                 {/* Card backs — non-hero, not folded, not mucked, not yet revealed. */}
                 {!isHero && !isFolded && !isMucked && !villainShown && (
-                  <div className="absolute left-1/2 -translate-x-1/2 -top-14 flex gap-1">
-                    {[0, 1].map((j) => (
-                      <PlayingCard key={j} faceDown size="sm" />
-                    ))}
+                  <div className="absolute left-1/2 -translate-x-1/2 -top-14">
+                    <HandFan
+                      cards={Array.from({ length: holeCount }, () => null)}
+                      size="sm"
+                      fan={useHandFan}
+                      faceDown
+                    />
                   </div>
                 )}
               </div>
@@ -729,6 +825,7 @@ function ReplayerInner({
             );
           })()}
         </TableSurface>
+        </div>
 
         {/* The big "BTN bets $30" card and the always-rendered note row used
             to live here. The dock at the bottom of the viewport now carries

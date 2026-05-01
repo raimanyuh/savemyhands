@@ -7,6 +7,23 @@ export type Phase = "setup" | Street | "showdown" | "done";
 
 export type ActionType = "fold" | "check" | "call" | "bet" | "raise";
 
+// Supported game types. NLHE is no-limit Hold'em (2 hole cards, best 5 of 7).
+// PLO4 / PLO5 are pot-limit Omaha with 4 / 5 hole cards and the
+// must-use-exactly-2-from-hand-and-3-from-board rule. Pot-limit betting
+// caps raises at the pot size; the recorder's action bar enforces the
+// cap, but the underlying action log is shape-identical to NLHE.
+export type GameType = "NLHE" | "PLO4" | "PLO5";
+
+export function holeCardCount(gameType: GameType): 2 | 4 | 5 {
+  if (gameType === "PLO5") return 5;
+  if (gameType === "PLO4") return 4;
+  return 2;
+}
+
+export function isPotLimit(gameType: GameType): boolean {
+  return gameType === "PLO4" || gameType === "PLO5";
+}
+
 export type Action = {
   street: Street;
   seat: number;
@@ -25,6 +42,10 @@ export type RecorderState = {
   phase: Phase;
   playerCount: number;
   players: Player[];
+  // Game variant. Default NLHE for backward-compat; switching to PLO4 /
+  // PLO5 resizes each player's `cards` array, swaps to Omaha's
+  // 2-from-hand + 3-from-board hand evaluator, and caps raises at pot.
+  gameType: GameType;
   // Cycle index of the hero (0=BTN, 1=SB, 2=BB, ...). The visual layer
   // always renders the hero at the bottom-center seat regardless of this value.
   heroPosition: number;
@@ -32,7 +53,20 @@ export type RecorderState = {
   bb: number;
   straddleOn: boolean;
   straddleAmt: number;
+  // Bomb pot variant — every player antes a flat amount and play starts
+  // directly on the flop (no preflop action). Blinds + straddle are
+  // ignored when this is true. Action on the flop starts left of the
+  // button via the existing postflop order. The bb still drives the
+  // postflop min-bet calculation.
+  bombPotOn: boolean;
+  bombPotAmt: number;
+  // Double board variant — every street deals two boards. The pot is
+  // split evenly between the two at showdown (with quartering when one
+  // board chops). Betting is shared (both boards see the same action
+  // log). `board2` is unused when `doubleBoardOn` is false.
+  doubleBoardOn: boolean;
   board: (string | null)[]; // [flop1, flop2, flop3, turn, river]
+  board2: (string | null)[]; // same shape as `board`; only meaningful when doubleBoardOn
   actions: Action[];
   // Surviving villains who declined to show at showdown. Treated as folded
   // for winner determination; replayer renders them dimmed without cards.
@@ -54,11 +88,14 @@ export type Event =
   | { type: "setAllStacks"; stack: number }
   | { type: "setBlinds"; sb: number; bb: number }
   | { type: "setStraddle"; on: boolean; amt?: number }
+  | { type: "setBombPot"; on: boolean; amt?: number }
+  | { type: "setDoubleBoard"; on: boolean }
+  | { type: "setGameType"; gameType: GameType }
   | { type: "setHeroPosition"; position: number }
-  | { type: "setHeroCard"; idx: 0 | 1; card: string }
-  | { type: "setOppCard"; seat: number; idx: 0 | 1; card: string }
+  | { type: "setHeroCard"; idx: number; card: string }
+  | { type: "setOppCard"; seat: number; idx: number; card: string }
   | { type: "clearCard"; card: string }
-  | { type: "setBoard"; idx: number; card: string }
+  | { type: "setBoard"; idx: number; card: string; boardIdx?: 0 | 1 }
   | { type: "setHandName"; name: string }
   | { type: "setNotes"; notes: string }
   | { type: "setVenue"; venue: string }
@@ -76,12 +113,12 @@ export type Event =
   | { type: "loadSetup"; setup: Partial<RecorderState> }
   | { type: "resetHand" };
 
-export function defaultPlayers(n: number): Player[] {
+export function defaultPlayers(n: number, holeCount = 2): Player[] {
   return Array.from({ length: n }, (_, i) => ({
     seat: i,
     name: i === 0 ? "Hero" : "",
     stack: 200,
-    cards: i === 0 ? [null, null] : null,
+    cards: i === 0 ? Array.from({ length: holeCount }, () => null) : null,
   }));
 }
 
@@ -94,17 +131,22 @@ function todayIso(): string {
   return `${y}-${m}-${day}`;
 }
 
-export function initialState(n = 6): RecorderState {
+export function initialState(n = 6, gameType: GameType = "NLHE"): RecorderState {
   return {
     phase: "setup",
     playerCount: n,
-    players: defaultPlayers(n),
+    players: defaultPlayers(n, holeCardCount(gameType)),
+    gameType,
     heroPosition: 0,
     sb: 1,
     bb: 2,
     straddleOn: false,
     straddleAmt: 4,
+    bombPotOn: false,
+    bombPotAmt: 10,
+    doubleBoardOn: false,
     board: [null, null, null, null, null],
+    board2: [null, null, null, null, null],
     actions: [],
     muckedSeats: [],
     handName: "New hand",
@@ -115,14 +157,19 @@ export function initialState(n = 6): RecorderState {
   };
 }
 
-// Persisted setup defaults (player count, blinds, straddle, starting stack).
-// Loaded into a fresh recorder so the user doesn't re-enter every time.
+// Persisted setup defaults (player count, blinds, straddle, bomb pot,
+// starting stack). Loaded into a fresh recorder so the user doesn't
+// re-enter every time.
 export type SetupDefaults = {
   playerCount: number;
   sb: number;
   bb: number;
   straddleOn: boolean;
   straddleAmt: number;
+  bombPotOn: boolean;
+  bombPotAmt: number;
+  doubleBoardOn: boolean;
+  gameType: GameType;
   defaultStack: number;
 };
 
@@ -146,6 +193,15 @@ export function readSetupDefaults(): SetupDefaults | null {
         bb: parsed.bb,
         straddleOn: !!parsed.straddleOn,
         straddleAmt: parsed.straddleAmt ?? parsed.bb * 2,
+        bombPotOn: !!parsed.bombPotOn,
+        bombPotAmt: parsed.bombPotAmt ?? 10,
+        doubleBoardOn: !!parsed.doubleBoardOn,
+        gameType:
+          parsed.gameType === "PLO4" ||
+          parsed.gameType === "PLO5" ||
+          parsed.gameType === "NLHE"
+            ? parsed.gameType
+            : "NLHE",
         defaultStack: parsed.defaultStack,
       };
     }
@@ -163,13 +219,19 @@ export function writeSetupDefaults(d: SetupDefaults) {
 export function initialStateFromDefaults(): RecorderState {
   const d = readSetupDefaults();
   if (!d) return initialState(6);
-  const base = initialState(d.playerCount);
+  // initialState seeds players[i].cards with the right hole-card count
+  // for the saved game type; the spread + stack patch below keep that.
+  const base = initialState(d.playerCount, d.gameType);
   return {
     ...base,
     sb: d.sb,
     bb: d.bb,
     straddleOn: d.straddleOn,
     straddleAmt: d.straddleAmt,
+    bombPotOn: d.bombPotOn,
+    bombPotAmt: d.bombPotAmt,
+    doubleBoardOn: d.doubleBoardOn,
+    gameType: d.gameType,
     players: base.players.map((p) => ({ ...p, stack: d.defaultStack })),
   };
 }
@@ -178,6 +240,9 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
   switch (ev.type) {
     case "setPlayerCount": {
       const n = ev.n;
+      const holeCount = holeCardCount(state.gameType);
+      const emptyHole = (): (string | null)[] =>
+        Array.from({ length: holeCount }, () => null);
       // Clamp hero position into the new range. If the hero's old cycle index
       // no longer exists (e.g., they were MP and we dropped to 4-handed),
       // collapse them to BTN and migrate their record.
@@ -189,7 +254,7 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
           seat: 0,
           name: "Hero",
           stack: 200,
-          cards: [null, null],
+          cards: emptyHole(),
         };
         players = Array.from({ length: n }, (_, i) =>
           i === 0
@@ -208,7 +273,7 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
             seat: i,
             name: i === heroPos ? "Hero" : "",
             stack: 200,
-            cards: i === heroPos ? [null, null] : null,
+            cards: i === heroPos ? emptyHole() : null,
           },
         );
       }
@@ -232,6 +297,37 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
         straddleOn: ev.on,
         straddleAmt: ev.amt ?? state.straddleAmt,
       };
+    case "setBombPot":
+      return {
+        ...state,
+        bombPotOn: ev.on,
+        bombPotAmt: ev.amt ?? state.bombPotAmt,
+      };
+    case "setGameType": {
+      // Switching games resizes every player's hole-card array. Existing
+      // cards survive when extending (NLHE → PLO4 pads with nulls);
+      // truncating (PLO5 → NLHE) drops the extra slots so the user has
+      // to re-pick. Action log + board are independent of game type and
+      // stay put — but switching mid-hand is unusual; the popover only
+      // exposes the dropdown during setup.
+      const newCount = holeCardCount(ev.gameType);
+      const players = state.players.map((p) => {
+        if (!p.cards) return p;
+        const next = p.cards.slice(0, newCount) as (string | null)[];
+        while (next.length < newCount) next.push(null);
+        return { ...p, cards: next };
+      });
+      return { ...state, gameType: ev.gameType, players };
+    }
+    case "setDoubleBoard":
+      // Toggling off blanks the second board so we don't carry stale
+      // cards into a future single-board hand started from the same
+      // setup screen.
+      return {
+        ...state,
+        doubleBoardOn: ev.on,
+        board2: ev.on ? state.board2 : [null, null, null, null, null],
+      };
     case "setHeroPosition": {
       const old = state.heroPosition;
       const next = Math.max(0, Math.min(state.playerCount - 1, ev.position));
@@ -247,9 +343,17 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
     }
     case "setHeroCard": {
       const heroIdx = state.heroPosition;
+      const need = holeCardCount(state.gameType);
       const players = state.players.map((p, i) => {
         if (i !== heroIdx) return p;
-        const cards = (p.cards ?? [null, null]).slice() as (string | null)[];
+        // Pad to the current game's hole-card count so a stale 2-slot
+        // record can still take a PLO5 5th-card pick (defensive — the
+        // `setGameType` reducer already resizes, but a missing field on
+        // a loaded payload could land here).
+        const cards = (
+          p.cards ?? Array.from({ length: need }, () => null)
+        ).slice() as (string | null)[];
+        while (cards.length < need) cards.push(null);
         cards[ev.idx] = ev.card;
         return { ...p, cards };
       });
@@ -272,9 +376,13 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
     case "setDate":
       return { ...state, date: ev.date };
     case "setOppCard": {
+      const need = holeCardCount(state.gameType);
       const players = state.players.map((p) => {
         if (p.seat !== ev.seat) return p;
-        const cards = (p.cards ?? [null, null]).slice() as (string | null)[];
+        const cards = (
+          p.cards ?? Array.from({ length: need }, () => null)
+        ).slice() as (string | null)[];
+        while (cards.length < need) cards.push(null);
         cards[ev.idx] = ev.card;
         return { ...p, cards };
       });
@@ -286,14 +394,25 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
         return { ...p, cards: p.cards.map((c) => (c === ev.card ? null : c)) };
       });
       const board = state.board.map((c) => (c === ev.card ? null : c));
-      return { ...state, players, board };
+      const board2 = state.board2.map((c) => (c === ev.card ? null : c));
+      return { ...state, players, board, board2 };
     }
     case "setBoard": {
-      const board = state.board.slice();
-      board[ev.idx] = ev.card;
-      return { ...state, board };
+      // boardIdx defaults to 0 (the primary board) so existing callers
+      // that don't know about double board keep working.
+      const which = ev.boardIdx === 1 ? "board2" : "board";
+      const next = state[which].slice();
+      next[ev.idx] = ev.card;
+      return { ...state, [which]: next };
     }
     case "startPlay":
+      // Always start at preflop. Bomb pots stay in preflop only long
+      // enough for the auto-closed `deriveStreet` (no actions needed
+      // since antes are dead) to trigger the existing "Deal flop" CTA
+      // + picker auto-open. Once the user enters the flop cards, the
+      // standard auto-advance effect bumps phase to flop and action
+      // begins on SB. Going straight to "flop" here would skip the
+      // card-entry gate and prompt for action against an empty board.
       return { ...state, phase: "preflop" };
     case "recordAction": {
       const a: Action = { ...ev.action, street: state.phase as Street };
@@ -310,9 +429,12 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
       // Walk forward from preflop and advance through any street that's still
       // closed AND whose next-street cards remain on the board — i.e. replay
       // what the auto-advance effect would land on given this action set. Stop
-      // at the first open street; that's our resolved phase.
-      const streets: Street[] = ["preflop", "flop", "turn", "river"];
-      let resolvedPhase: Phase = "preflop";
+      // at the first open street; that's our resolved phase. Bomb pots skip
+      // preflop entirely (no actions ever land there).
+      const streets: Street[] = state.bombPotOn
+        ? ["flop", "turn", "river"]
+        : ["preflop", "flop", "turn", "river"];
+      let resolvedPhase: Phase = state.bombPotOn ? "flop" : "preflop";
       for (const ph of streets) {
         const test = { ...state, actions: newActions, phase: ph };
         const d = deriveStreet(test);
@@ -336,17 +458,25 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
         break;
       }
 
-      // Clear any board cards that belong to streets we've fallen back past —
-      // otherwise the felt would still show a flop/turn that nobody has acted on.
-      const board = state.board.slice() as (string | null)[];
-      if (resolvedPhase === "preflop") {
-        for (let i = 0; i < 5; i++) board[i] = null;
-      } else if (resolvedPhase === "flop") {
-        board[3] = null;
-        board[4] = null;
-      } else if (resolvedPhase === "turn") {
-        board[4] = null;
-      }
+      // Clear any board cards that belong to streets we've fallen back
+      // past — otherwise the felt would still show a flop/turn that
+      // nobody has acted on. Mirror the cleanup across both boards in
+      // double-board mode so they stay in lockstep.
+      const clearFromIdx = (b: (string | null)[], from: number) => {
+        const next = b.slice() as (string | null)[];
+        for (let i = from; i < 5; i++) next[i] = null;
+        return next;
+      };
+      let clearStart: number | null = null;
+      if (resolvedPhase === "preflop") clearStart = 0;
+      else if (resolvedPhase === "flop") clearStart = 3;
+      else if (resolvedPhase === "turn") clearStart = 4;
+      const board =
+        clearStart !== null ? clearFromIdx(state.board, clearStart) : state.board;
+      const board2 =
+        state.doubleBoardOn && clearStart !== null
+          ? clearFromIdx(state.board2, clearStart)
+          : state.board2;
 
       // If we rewound out of showdown, there can't be any leftover muck flags
       // that might be misapplied to the new phase.
@@ -361,6 +491,7 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
         annotations,
         phase: resolvedPhase,
         board,
+        board2,
         muckedSeats,
       };
     }
@@ -374,9 +505,21 @@ export function reducer(state: RecorderState, ev: Event): RecorderState {
     case "loadSetup": {
       // Merge a saved/default setup payload into the current state. Only used
       // pre-play to seed the recorder — after `startPlay` the action log is
-      // live and shouldn't be overwritten.
+      // live and shouldn't be overwritten. If the merged setup changes
+      // gameType, resize each player's hole-card array to match — same
+      // logic as `setGameType` so the loaded defaults stay coherent.
       if (state.phase !== "setup") return state;
-      return { ...state, ...ev.setup };
+      const merged: RecorderState = { ...state, ...ev.setup };
+      if (ev.setup.gameType && ev.setup.gameType !== state.gameType) {
+        const newCount = holeCardCount(merged.gameType);
+        merged.players = merged.players.map((p) => {
+          if (!p.cards) return p;
+          const next = p.cards.slice(0, newCount) as (string | null)[];
+          while (next.length < newCount) next.push(null);
+          return { ...p, cards: next };
+        });
+      }
+      return merged;
     }
     case "resetHand":
       // Wipe the current draft and re-seed from the user's saved defaults.
@@ -417,7 +560,13 @@ export type CommitState = Pick<
   | "straddleAmt"
   | "actions"
   | "players"
->;
+> & {
+  // Optional so older saved-hand `_full` payloads (which predate the
+  // bomb-pot feature) round-trip through committedBySeat / computeSidePots
+  // without TS forcing every caller to fill these in.
+  bombPotOn?: boolean;
+  bombPotAmt?: number;
+};
 
 const STREETS: Street[] = ["preflop", "flop", "turn", "river"];
 
@@ -436,7 +585,7 @@ function streetCommits(
   street: Street,
   prevTotal: Record<number, number>,
 ): Record<number, number> {
-  const { playerCount, sb, bb, straddleOn, straddleAmt, actions, players } = s;
+  const { playerCount, sb, bb, straddleOn, straddleAmt, bombPotOn, bombPotAmt, actions, players } = s;
   const bets: Record<number, number> = {};
   let lb = 0;
 
@@ -446,7 +595,16 @@ function streetCommits(
     Math.min(target, Math.max(0, stackOf(seat) - (prevTotal[seat] || 0)));
 
   if (street === "preflop") {
-    if (playerCount === 2) {
+    if (bombPotOn) {
+      // Bomb pot: every seat antes the flat amount, no SB/BB/straddle.
+      // Antes are dead money — they go in the pot but don't form a bet
+      // to call (lb stays 0), so the flop opens with action checked to
+      // the first seat left of the button.
+      const ante = bombPotAmt ?? 0;
+      for (let i = 0; i < playerCount; i++) {
+        bets[i] = cap(i, ante);
+      }
+    } else if (playerCount === 2) {
       bets[0] = cap(0, sb);
       bets[1] = cap(1, bb);
       lb = bets[1];
@@ -626,7 +784,7 @@ export type DerivedStreet = {
 };
 
 export function deriveStreet(state: RecorderState): DerivedStreet | null {
-  const { phase, playerCount, sb, bb, straddleOn, straddleAmt, actions } = state;
+  const { phase, playerCount, sb, bb, straddleOn, straddleAmt, bombPotOn, bombPotAmt, actions } = state;
   if (phase === "setup" || phase === "showdown" || phase === "done") return null;
 
   const folded = new Set<number>();
@@ -659,7 +817,18 @@ export function deriveStreet(state: RecorderState): DerivedStreet | null {
   let lastAggressor: number | null = null;
 
   if (phase === "preflop") {
-    if (playerCount === 2) {
+    if (bombPotOn) {
+      // Bomb pot: every seat antes the flat amount; lastBet stays 0 so
+      // there's nothing to call. The recorder skips this phase entirely
+      // (`startPlay` jumps to "flop" when bombPotOn), so this branch is
+      // mostly defensive — but mirroring `streetCommits` keeps the bet
+      // bubbles + pot correct if anything ever lands here.
+      const ante = bombPotAmt ?? 0;
+      for (let i = 0; i < playerCount; i++) {
+        bets[i] = cap(i, ante);
+      }
+      lastRaiseSize = bb;
+    } else if (playerCount === 2) {
       bets[0] = cap(0, sb);
       bets[1] = cap(1, bb);
       lastBet = bets[1];
@@ -680,6 +849,10 @@ export function deriveStreet(state: RecorderState): DerivedStreet | null {
   }
 
   const actedThisStreet = new Set<number>();
+  if (bombPotOn && phase === "preflop") {
+    // Antes post automatically — nobody owes an action on preflop.
+    for (let i = 0; i < playerCount; i++) actedThisStreet.add(i);
+  }
   for (const a of streetActions) {
     actedThisStreet.add(a.seat);
     if (a.action === "fold" || a.action === "check") continue;

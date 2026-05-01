@@ -23,7 +23,8 @@
       "Bash(mkdir -p /tmp/smh-design2)",
       "Bash(tar -xzf /c/Users/Raimana/.claude/projects/C--Users-Raimana-Desktop-savemyhands/e6783bd8-ca08-4908-a07c-e3f989131915/tool-results/webfetch-1777425671056-pw24x3.bin -C /tmp/smh-design2)",
       "Bash(awk 'NR<823 || NR>1104' /c/Users/Raimana/Desktop/savemyhands/components/poker/Recorder.tsx)",
-      "Bash(mv /tmp/Recorder.tsx.new /c/Users/Raimana/Desktop/savemyhands/components/poker/Recorder.tsx)"
+      "Bash(mv /tmp/Recorder.tsx.new /c/Users/Raimana/Desktop/savemyhands/components/poker/Recorder.tsx)",
+      "WebFetch(domain:savemyhands.app)"
     ]
   }
 }

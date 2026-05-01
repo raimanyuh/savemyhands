@@ -14,6 +14,7 @@
 
 import { determineWinner } from "./hand-eval";
 import { hasFolded, type ReplayHand } from "./hand";
+import type { GameType } from "./engine";
 
 const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"];
 const SUITS = ["♠", "♥", "♦", "♣"];
@@ -38,8 +39,9 @@ function* combinations<T>(arr: T[], k: number): Generator<T[]> {
 }
 
 export function computeEquity(
-  contestants: { seat: number; cards: [string, string] }[],
+  contestants: { seat: number; cards: string[] }[],
   board: string[],
+  gameType: GameType = "NLHE",
 ): Record<number, number> {
   if (contestants.length < 2) return {};
   // Pre-flop equity (5-card runout) is a couple seconds in the worst case;
@@ -49,8 +51,7 @@ export function computeEquity(
 
   const used = new Set<string>();
   for (const c of contestants) {
-    used.add(c.cards[0]);
-    used.add(c.cards[1]);
+    for (const card of c.cards) used.add(card);
   }
   for (const b of board) used.add(b);
 
@@ -66,6 +67,7 @@ export function computeEquity(
     const out = determineWinner(
       contestants.map((c) => ({ seat: c.seat, cards: c.cards })),
       fullBoard,
+      gameType,
     );
     const share = 1 / out.winners.length;
     for (const w of out.winners) wins[w] += share;
@@ -83,27 +85,42 @@ export function computeEquity(
 // replayer can do a pure lookup instead of recomputing on each toggle.
 // Steps where equity isn't applicable (pre-flop, or fewer than 2 players
 // with shown cards) are simply omitted from the result.
-export function precomputeEquityByStep(hand: {
-  steps: ReplayHand["steps"];
-  players: ReplayHand["players"];
-}): Record<number, Record<number, number>> {
+//
+// `boardKey` defaults to "board" (the primary board). Pass "board2" on a
+// double-board hand to get the parallel equity map for the second board;
+// the caller stores both alongside the hand and the replayer renders two
+// badges per seat when both are present.
+export function precomputeEquityByStep(
+  hand: {
+    steps: ReplayHand["steps"];
+    players: ReplayHand["players"];
+  },
+  boardKey: "board" | "board2" = "board",
+  gameType: GameType = "NLHE",
+): Record<number, Record<number, number>> {
   const result: Record<number, Record<number, number>> = {};
+  // For Omaha all hole cards count; for Hold'em use the first two.
+  const holeCount = gameType === "PLO5" ? 5 : gameType === "PLO4" ? 4 : 2;
+  const allFilled = (cards: (string | null)[] | null | undefined): boolean => {
+    if (!cards || cards.length < holeCount) return false;
+    for (let i = 0; i < holeCount; i++) if (!cards[i]) return false;
+    return true;
+  };
   for (let s = 0; s < hand.steps.length; s++) {
     let stepBoard: string[] = [];
     for (let i = 0; i <= s; i++) {
-      if (hand.steps[i].board) stepBoard = hand.steps[i].board!;
+      const b = hand.steps[i][boardKey];
+      if (b) stepBoard = b;
     }
     const contestants = hand.players
       .filter(
-        (p) =>
-          !!(p.cards?.[0] && p.cards?.[1]) &&
-          !hasFolded(hand.steps, s, p.seat),
+        (p) => allFilled(p.cards) && !hasFolded(hand.steps, s, p.seat),
       )
       .map((p) => ({
         seat: p.seat,
-        cards: [p.cards![0]!, p.cards![1]!] as [string, string],
+        cards: (p.cards as string[]).slice(0, holeCount),
       }));
-    const equity = computeEquity(contestants, stepBoard);
+    const equity = computeEquity(contestants, stepBoard, gameType);
     if (Object.keys(equity).length > 0) {
       result[s] = equity;
     }

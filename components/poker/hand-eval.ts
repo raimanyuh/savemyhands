@@ -1,5 +1,9 @@
-// Best-5-of-7 Hold'em evaluator. Returns a score that's safely comparable with
-// `>` and a human-readable description (e.g. "Pair of Aces").
+// Hold'em + Omaha hand evaluators. Returns a score that's safely
+// comparable with `>` and a human-readable description (e.g. "Pair of
+// Aces"). Hold'em evaluates the best 5-of-7. Omaha enforces the
+// must-use-exactly-2-from-hand + 3-from-board rule.
+
+import type { GameType } from "./engine";
 
 const RANK_VALUE: Record<string, number> = {
   "2": 2,
@@ -202,17 +206,44 @@ export function evaluateBest(cards: string[]): HandScore {
   return best!;
 }
 
+// Omaha-style best hand: must use exactly 2 from `hole` and 3 from
+// `board`. Used by 4-card and 5-card PLO. Cost is C(holeCount,2) ×
+// C(5,3) score5 calls — 6 × 10 = 60 for PLO4, 10 × 10 = 100 for PLO5,
+// negligible compared to a single flop equity enum.
+export function evaluateBestOmaha(hole: string[], board: string[]): HandScore {
+  if (hole.length < 2)
+    throw new Error("Omaha needs at least 2 hole cards");
+  if (board.length < 3)
+    throw new Error("Omaha needs at least 3 board cards");
+  let best: HandScore | null = null;
+  for (const h of combinations(hole, 2)) {
+    for (const b of combinations(board, 3)) {
+      const s = score5([...h, ...b]);
+      if (best === null || compare(s, best) > 0) best = s;
+    }
+  }
+  return best!;
+}
+
 // Determine winner(s) among players who showed cards. `board` should have 5 cards
 // for a proper Hold'em comparison. Returns winners + each player's score.
+// `gameType` defaults to "NLHE" so existing callers behave unchanged; pass
+// "PLO4" / "PLO5" to switch to the Omaha evaluator (must use exactly 2
+// hole + 3 board).
 export function determineWinner(
   players: { seat: number; cards: string[] }[],
   board: string[],
+  gameType: GameType = "NLHE",
 ): { winners: number[]; scores: Record<number, HandScore> } {
   const scores: Record<number, HandScore> = {};
   let winners: number[] = [];
   let bestScore: HandScore | null = null;
+  const evalFor = (cards: string[]): HandScore =>
+    gameType === "PLO4" || gameType === "PLO5"
+      ? evaluateBestOmaha(cards, board)
+      : evaluateBest([...cards, ...board]);
   for (const p of players) {
-    const score = evaluateBest([...p.cards, ...board]);
+    const score = evalFor(p.cards);
     scores[p.seat] = score;
     if (bestScore === null) {
       bestScore = score;
@@ -256,6 +287,7 @@ export function awardPots(
   pots: { amount: number; eligibleSeats: number[] }[],
   contestants: { seat: number; cards: string[] }[],
   board: string[],
+  gameType: GameType = "NLHE",
 ): PotAward[][] {
   const cardsBySeat = new Map(contestants.map((c) => [c.seat, c.cards]));
   return pots.map((pot) => {
@@ -277,8 +309,57 @@ export function awardPots(
     if (showing.length === 1) {
       return [{ amount: pot.amount, winners: [showing[0].seat] }];
     }
-    const { winners } = determineWinner(showing, board);
+    const { winners } = determineWinner(showing, board, gameType);
     return [{ amount: pot.amount, winners }];
+  });
+}
+
+// Multi-board variant of `awardPots`. Each pot's amount splits evenly
+// across `boards`, and each board pushes its own `PotAward` into the
+// pot's awards array. `seatWinnings` then sums those naturally — chop
+// on one board + win on the other yields a 3/4 share without any
+// special-case logic ("quartering" is just two awards adding up).
+//
+// Odd amounts: the leftover dollar goes to the first board so the per-pot
+// total still sums to `pot.amount` (no chips evaporate).
+export function awardPotsMultiBoard(
+  pots: { amount: number; eligibleSeats: number[] }[],
+  contestants: { seat: number; cards: string[] }[],
+  boards: string[][],
+  gameType: GameType = "NLHE",
+): PotAward[][] {
+  if (boards.length === 0) return pots.map(() => []);
+  if (boards.length === 1)
+    return awardPots(pots, contestants, boards[0], gameType);
+
+  const cardsBySeat = new Map(contestants.map((c) => [c.seat, c.cards]));
+  return pots.map((pot) => {
+    const baseShare = Math.floor(pot.amount / boards.length);
+    const remainder = pot.amount - baseShare * boards.length;
+    // First `remainder` boards get an extra chip so we never lose pennies.
+    const amountFor = (idx: number) =>
+      baseShare + (idx < remainder ? 1 : 0);
+
+    // Eligibility logic mirrors awardPots; we just resolve it once and
+    // apply per board.
+    const showing = pot.eligibleSeats
+      .filter((s) => cardsBySeat.has(s))
+      .map((s) => ({ seat: s, cards: cardsBySeat.get(s)! }));
+
+    return boards.map((board, idx) => {
+      const amount = amountFor(idx);
+      if (pot.eligibleSeats.length === 1) {
+        return { amount, winners: [pot.eligibleSeats[0]] };
+      }
+      if (showing.length === 0) {
+        return { amount, winners: pot.eligibleSeats };
+      }
+      if (showing.length === 1) {
+        return { amount, winners: [showing[0].seat] };
+      }
+      const { winners } = determineWinner(showing, board, gameType);
+      return { amount, winners };
+    });
   });
 }
 

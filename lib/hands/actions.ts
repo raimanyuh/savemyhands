@@ -10,6 +10,7 @@ import {
   deleteHands,
   insertHand,
   setHandPublic,
+  setHandsPublic,
   updateHandDetails,
 } from "./db";
 import type { SavedHand } from "@/components/poker/hand";
@@ -46,6 +47,15 @@ export async function setHandPublicAction(
   await setHandPublic(id, isPublic);
   revalidatePath("/dashboard");
   revalidatePath(`/hand/${id}`);
+}
+
+export async function setHandsPublicAction(
+  ids: string[],
+  isPublic: boolean,
+): Promise<void> {
+  await setHandsPublic(ids, isPublic);
+  revalidatePath("/dashboard");
+  for (const id of ids) revalidatePath(`/hand/${id}`);
 }
 
 export async function deleteHandAction(id: string): Promise<void> {

@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Header, Shell } from "@/components/Shell";
 import { POSITION_NAMES, seatXY } from "./lib";
 import {
@@ -34,21 +35,24 @@ import {
   StackDisplay,
   TableSurface,
 } from "./table-pieces";
-import { CardRow, CardSlot } from "./CardPicker";
+import { CardRow } from "./CardPicker";
+import HandFan from "./HandFan";
 import {
   committedBySeat,
   committedBySeatFinal,
   computeSidePots,
   deriveStreet,
   formatAction,
+  holeCardCount,
   initialStateFromDefaults,
+  isPotLimit,
   reducer,
   readSetupDefaults,
   totalPot,
   totalPotFinal,
   writeSetupDefaults,
 } from "./engine";
-import type { ActionType, Player, RecorderState } from "./engine";
+import type { ActionType, GameType, Player, RecorderState } from "./engine";
 import {
   derivePotType,
   isMultiway,
@@ -58,6 +62,7 @@ import {
 import { precomputeEquityByStep } from "./equity";
 import {
   awardPots,
+  awardPotsMultiBoard,
   determineWinner,
   seatWinnings,
   type HandScore,
@@ -211,13 +216,17 @@ function ActionBar({
   useEffect(() => {
     if (activeSeat === null) return;
     const seatRef = activeSeat;
+    // PLO caps every chip value at pot-sized; NLHE allows up to all-in.
+    const potLimit = isPotLimit(state.gameType);
+    const stackLeft = seat ? Math.max(0, seat.stack - (committed[seatRef] || 0)) : 0;
+    const allIn = (bets[seatRef] || 0) + stackLeft;
+    const potCapRaiseTo = lastBet + (tp + toCall);
+    const maxAllowed = potLimit ? Math.min(allIn, potCapRaiseTo) : allIn;
     const sizeFromFrac = (frac: number) => {
       const potAfter = tp + toCall;
       const target = Math.round(lastBet + frac * potAfter);
-      return Math.min(seat ? seat.stack - (committed[seatRef] || 0) + (bets[seatRef] || 0) : target, Math.max(target, minRaise));
+      return Math.min(maxAllowed, Math.max(target, minRaise));
     };
-    const stackLeft = seat ? Math.max(0, seat.stack - (committed[seatRef] || 0)) : 0;
-    const allIn = (bets[seatRef] || 0) + stackLeft;
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
@@ -261,10 +270,13 @@ function ActionBar({
         setAmount(String(sizeFromFrac(1)));
       } else if (k === "4") {
         e.preventDefault();
-        setAmount(String(sizeFromFrac(1.25)));
+        // 1.25× pot is illegal in PLO — fall back to pot-sized so the
+        // shortcut never produces an invalid amount.
+        setAmount(String(potLimit ? sizeFromFrac(1) : sizeFromFrac(1.25)));
       } else if (k === "a") {
         e.preventDefault();
-        setAmount(String(allIn));
+        // PLO caps "all-in" at pot-sized; NLHE shoves to actual stack.
+        setAmount(String(maxAllowed));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -280,6 +292,7 @@ function ActionBar({
     toCall,
     lastBet,
     minRaise,
+    state.gameType,
   ]);
 
   if (!seat || activeSeat === null) return null;
@@ -293,6 +306,15 @@ function ActionBar({
   // total they could put in front of them this street.
   const seatStreetCommitted = bets[activeSeat] || 0;
   const allInAmount = seatStreetCommitted + liveStack;
+  // Pot-limit cap. PLO max bet/raise = lastBet + (potBeforeYourCall +
+  // amountToCall). Below pot-cap means PLO; NLHE just uses all-in.
+  // Effective max = min(allInAmount, potCap) so a short stack can still
+  // shove for less than pot.
+  const potLimit = isPotLimit(state.gameType);
+  const potCapRaiseTo = lastBet + (tp + toCall);
+  const maxAllowed = potLimit
+    ? Math.min(allInAmount, potCapRaiseTo)
+    : allInAmount;
 
   const fold = () =>
     dispatch({ type: "recordAction", action: { seat: activeSeat, action: "fold" } });
@@ -303,13 +325,17 @@ function ActionBar({
   const placeBet = () => {
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0) return;
+    // Pot-limit clamp: refuse anything above the pot ceiling. NLHE has
+    // no upper bound below stack; the slider/input UI prevents typing
+    // past it but a stale amount value could still slip through here.
+    if (amt > maxAllowed) return;
     if (lastBet === 0) {
       dispatch({
         type: "recordAction",
         action: { seat: activeSeat, action: "bet", amount: amt },
       });
     } else {
-      if (amt < minRaise && amt !== allInAmount) return;
+      if (amt < minRaise && amt !== maxAllowed) return;
       dispatch({
         type: "recordAction",
         action: { seat: activeSeat, action: "raise", amount: amt },
@@ -317,27 +343,40 @@ function ActionBar({
     }
   };
 
-  // Resolve a sizing fraction to a clamped chip amount.
+  // Resolve a sizing fraction to a clamped chip amount. The cap is
+  // game-dependent: NLHE allows up to all-in, PLO caps at pot-sized.
   const sizeFor = (frac: number) => {
     const potAfter = tp + toCall;
     const target = Math.round(lastBet + frac * potAfter);
-    return Math.min(allInAmount, Math.max(target, minRaise));
+    return Math.min(maxAllowed, Math.max(target, minRaise));
   };
-  const chips: { id: string; label: string; amount: number }[] = [
-    { id: "half", label: "½ pot", amount: sizeFor(0.5) },
-    { id: "twothird", label: "⅔ pot", amount: sizeFor(2 / 3) },
-    { id: "pot", label: "Pot", amount: sizeFor(1) },
-    { id: "overpot", label: "1.25×", amount: sizeFor(1.25) },
-    { id: "allin", label: "All-in", amount: allInAmount },
-  ];
+  // Chip set adapts to game type. PLO removes the 1.25× over-pot chip
+  // (illegal in pot-limit) and the All-in chip is capped at the pot
+  // ceiling — clicking it shoves only when the seat's stack is at or
+  // below the pot-sized raise.
+  const chips: { id: string; label: string; amount: number }[] = potLimit
+    ? [
+        { id: "half", label: "½ pot", amount: sizeFor(0.5) },
+        { id: "twothird", label: "⅔ pot", amount: sizeFor(2 / 3) },
+        { id: "pot", label: "Pot", amount: sizeFor(1) },
+        { id: "allin", label: "Max", amount: maxAllowed },
+      ]
+    : [
+        { id: "half", label: "½ pot", amount: sizeFor(0.5) },
+        { id: "twothird", label: "⅔ pot", amount: sizeFor(2 / 3) },
+        { id: "pot", label: "Pot", amount: sizeFor(1) },
+        { id: "overpot", label: "1.25×", amount: sizeFor(1.25) },
+        { id: "allin", label: "All-in", amount: allInAmount },
+      ];
 
   const isBetMode = lastBet === 0;
   const amt = Number(amount);
   // Allow short-stack all-ins below minRaise (they're valid even if they don't
-  // technically reopen action). Disallow betting more than the seat has.
+  // technically reopen action). Disallow betting more than the seat has —
+  // and in PLO, more than the pot ceiling.
   const cannotBet = isBetMode
-    ? amt <= 0 || amt > allInAmount
-    : amt > allInAmount || (amt < minRaise && amt !== allInAmount);
+    ? amt <= 0 || amt > maxAllowed
+    : amt > maxAllowed || (amt < minRaise && amt !== maxAllowed);
 
   // Bet button is "open the drawer" while collapsed, "commit" while open. The
   // chevron flips to telegraph which mode it's in.
@@ -350,9 +389,9 @@ function ActionBar({
   };
 
   // Slider range: from minRaise (or street's call amount when betting from $0)
-  // up to the player's all-in.
+  // up to whichever cap the game enforces (all-in for NLHE, pot for PLO).
   const sliderMin = isBetMode ? Math.max(state.bb, 1) : Math.max(minRaise, 1);
-  const sliderMax = Math.max(sliderMin, allInAmount);
+  const sliderMax = Math.max(sliderMin, maxAllowed);
   const sliderVal = Math.min(sliderMax, Math.max(sliderMin, Number.isFinite(amt) ? amt : sliderMin));
 
   return (
@@ -576,13 +615,64 @@ function ActionBar({
 // recorder needs somewhere to set it during setup — added as an extra row so
 // no functionality is lost.
 
-function StreetPill({ phase }: { phase: RecorderState["phase"] }) {
+// Numeric input that lets the user blank the field while typing without
+// snapping back to "0" on every keystroke. The committed value updates
+// only on blur (or Enter); empty / non-numeric values fall back to 0.
+// `key={value}` remounts when the parent updates the value externally
+// (e.g., loadDefaults) so the visible text re-syncs.
+function NumericInput({
+  value,
+  onCommit,
+  className,
+  ...rest
+}: {
+  value: number;
+  onCommit: (n: number) => void;
+} & Omit<
+  React.ComponentProps<"input">,
+  "value" | "defaultValue" | "type" | "onChange" | "onBlur"
+>) {
+  return (
+    <Input
+      key={value}
+      type="number"
+      defaultValue={value}
+      onBlur={(e) => {
+        const raw = e.currentTarget.value;
+        const n = raw === "" ? 0 : Number(raw);
+        onCommit(Number.isFinite(n) ? n : 0);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          (e.currentTarget as HTMLInputElement).blur();
+        }
+      }}
+      className={className}
+      {...rest}
+    />
+  );
+}
+
+function StreetPill({
+  phase,
+  bombPotOn = false,
+}: {
+  phase: RecorderState["phase"];
+  bombPotOn?: boolean;
+}) {
   const label =
     phase === "showdown" || phase === "done"
       ? "showdown"
       : phase === "setup"
         ? "setup"
-        : phase;
+        : // Bomb pots auto-close preflop and immediately gate on flop
+          // card entry — show "flop" so the pill matches what the user
+          // is actually doing (entering the flop), not a phase that
+          // never sees any action.
+          bombPotOn && phase === "preflop"
+          ? "flop"
+          : phase;
   return (
     <span
       className="px-2 h-5 inline-flex items-center rounded text-[9.5px] font-bold uppercase tracking-[0.18em]"
@@ -606,8 +696,8 @@ function SetupPopover({
   dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
   onClose: () => void;
 }) {
-  const { playerCount, sb, bb, straddleOn, straddleAmt, heroPosition } = state;
-  const canStraddle = playerCount >= 4;
+  const { playerCount, sb, bb, straddleOn, straddleAmt, bombPotOn, bombPotAmt, doubleBoardOn, gameType, heroPosition } = state;
+  const canStraddle = playerCount >= 4 && !bombPotOn;
   const positions = POSITION_NAMES[playerCount];
   const hero = state.players[heroPosition];
 
@@ -636,6 +726,10 @@ function SetupPopover({
       bb,
       straddleOn,
       straddleAmt,
+      bombPotOn,
+      bombPotAmt,
+      doubleBoardOn,
+      gameType,
       defaultStack: stack,
     });
     setSavedFlash(true);
@@ -653,6 +747,10 @@ function SetupPopover({
         bb: d.bb,
         straddleOn: d.straddleOn,
         straddleAmt: d.straddleAmt,
+        bombPotOn: d.bombPotOn,
+        bombPotAmt: d.bombPotAmt,
+        doubleBoardOn: d.doubleBoardOn,
+        gameType: d.gameType,
       },
     });
     dispatch({ type: "setAllStacks", stack: d.defaultStack });
@@ -673,7 +771,7 @@ function SetupPopover({
 
   return (
     <div
-      className="absolute left-0 top-9 z-50 w-[440px] rounded-xl flex flex-col gap-3.5 p-4"
+      className="absolute left-0 top-11 z-50 w-[440px] rounded-xl flex flex-col gap-3.5 p-4"
       style={{
         background: "rgba(15,15,18,0.97)",
         border: "1px solid oklch(1 0 0 / 0.12)",
@@ -695,6 +793,51 @@ function SetupPopover({
         >
           <X size={14} />
         </button>
+      </div>
+
+      {/* Game — Hold'em vs Pot-Limit Omaha. Switching mid-setup
+          resizes hero's hole-card slots; the table refreshes so the user
+          can immediately enter the right number of cards. */}
+      <div className="flex items-center gap-3.5">
+        <span className="w-[88px] text-[11px] font-medium text-zinc-300">
+          Game
+        </span>
+        <div className="flex items-center gap-1.5">
+          {(
+            [
+              { value: "NLHE" as GameType, label: "Hold'em" },
+              { value: "PLO4" as GameType, label: "PLO4" },
+              { value: "PLO5" as GameType, label: "PLO5" },
+            ]
+          ).map((opt) => {
+            const active = gameType === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() =>
+                  dispatch({ type: "setGameType", gameType: opt.value })
+                }
+                className="h-7 px-2.5 rounded-md text-[11.5px] font-medium cursor-pointer transition-colors"
+                style={
+                  active
+                    ? {
+                        background: "oklch(0.696 0.205 155 / 0.18)",
+                        border: "1px solid oklch(0.696 0.205 155 / 0.5)",
+                        color: "oklch(0.85 0.184 155)",
+                      }
+                    : {
+                        background: "oklch(1 0 0 / 0.04)",
+                        border: "1px solid oklch(1 0 0 / 0.10)",
+                        color: "#e4e4e7",
+                      }
+                }
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Players */}
@@ -737,37 +880,46 @@ function SetupPopover({
         </div>
       </div>
 
-      {/* Blinds */}
+      {/* Blinds — disabled in bomb pot mode (no blinds posted, just antes) */}
       <div className="flex items-center gap-3.5">
-        <span className="w-[88px] text-[11px] font-medium text-zinc-300">
+        <span
+          className={`w-[88px] text-[11px] font-medium ${
+            bombPotOn ? "text-zinc-500" : "text-zinc-300"
+          }`}
+        >
           Blinds
         </span>
         <div className="flex items-center gap-1.5">
-          <Input
-            type="number"
+          <NumericInput
             value={sb}
             min={1}
-            onChange={(e) =>
-              dispatch({ type: "setBlinds", sb: Number(e.target.value), bb })
-            }
-            className="w-16 h-8 text-sm text-center"
+            disabled={bombPotOn}
+            onCommit={(n) => dispatch({ type: "setBlinds", sb: n, bb })}
+            className="w-16 h-8 text-sm text-center disabled:opacity-40"
           />
           <span className="text-zinc-500 text-sm font-medium">/</span>
-          <Input
-            type="number"
+          <NumericInput
             value={bb}
             min={1}
-            onChange={(e) =>
-              dispatch({ type: "setBlinds", sb, bb: Number(e.target.value) })
-            }
-            className="w-16 h-8 text-sm text-center"
+            disabled={bombPotOn}
+            onCommit={(n) => dispatch({ type: "setBlinds", sb, bb: n })}
+            className="w-16 h-8 text-sm text-center disabled:opacity-40"
           />
+          {bombPotOn && (
+            <span className="ml-1 text-[10.5px] italic text-zinc-500">
+              no blinds in bomb pots
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Straddle */}
+      {/* Straddle — disabled in bomb pot mode */}
       <div className="flex items-center gap-3.5">
-        <span className="w-[88px] text-[11px] font-medium text-zinc-300">
+        <span
+          className={`w-[88px] text-[11px] font-medium ${
+            bombPotOn ? "text-zinc-500" : "text-zinc-300"
+          }`}
+        >
           Straddle
         </span>
         <div className="flex items-center gap-2 h-8">
@@ -800,22 +952,111 @@ function SetupPopover({
             />
           </button>
           {straddleOn && canStraddle ? (
-            <Input
-              type="number"
+            <NumericInput
               value={straddleAmt}
               min={1}
-              onChange={(e) =>
-                dispatch({
-                  type: "setStraddle",
-                  on: true,
-                  amt: Number(e.target.value),
-                })
+              onCommit={(n) =>
+                dispatch({ type: "setStraddle", on: true, amt: n })
               }
               className="w-16 h-8 text-sm text-center"
             />
+          ) : bombPotOn ? (
+            <span className="text-[10.5px] italic text-zinc-500">
+              no straddle in bomb pots
+            </span>
           ) : !canStraddle ? (
             <span className="text-[10.5px] italic text-zinc-500">
               requires 4+ players
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Bomb pot — every player antes a flat amount and play opens
+          on the flop with no preflop action. */}
+      <div className="flex items-center gap-3.5">
+        <span className="w-[88px] text-[11px] font-medium text-zinc-300">
+          Bomb pot
+        </span>
+        <div className="flex items-center gap-2 h-8">
+          <button
+            role="switch"
+            aria-checked={bombPotOn}
+            onClick={() =>
+              dispatch({
+                type: "setBombPot",
+                on: !bombPotOn,
+                amt: bombPotAmt,
+              })
+            }
+            className={[
+              "relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors outline-none cursor-pointer",
+              bombPotOn
+                ? "bg-[oklch(0.696_0.205_155)]"
+                : "bg-[oklch(0.4_0_0)]",
+            ].join(" ")}
+            aria-label="Toggle bomb pot"
+          >
+            <span
+              className={[
+                "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow",
+                "translate-y-0.5 transition-transform",
+                bombPotOn ? "translate-x-4" : "translate-x-0.5",
+              ].join(" ")}
+            />
+          </button>
+          {bombPotOn ? (
+            <>
+              <span className="text-[12px] text-zinc-500">$</span>
+              <NumericInput
+                value={bombPotAmt}
+                min={1}
+                onCommit={(n) =>
+                  dispatch({ type: "setBombPot", on: true, amt: n })
+                }
+                className="w-16 h-8 text-sm text-center"
+                aria-label="Ante per player"
+              />
+              <span className="text-[10.5px] italic text-zinc-500">
+                ante per player
+              </span>
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Double board — deals two boards every street; pot splits
+          evenly between them at showdown (with quartering on chops). */}
+      <div className="flex items-center gap-3.5">
+        <span className="w-[88px] text-[11px] font-medium text-zinc-300">
+          Double board
+        </span>
+        <div className="flex items-center gap-2 h-8">
+          <button
+            role="switch"
+            aria-checked={doubleBoardOn}
+            onClick={() =>
+              dispatch({ type: "setDoubleBoard", on: !doubleBoardOn })
+            }
+            className={[
+              "relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors outline-none cursor-pointer",
+              doubleBoardOn
+                ? "bg-[oklch(0.696_0.205_155)]"
+                : "bg-[oklch(0.4_0_0)]",
+            ].join(" ")}
+            aria-label="Toggle double board"
+          >
+            <span
+              className={[
+                "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow",
+                "translate-y-0.5 transition-transform",
+                doubleBoardOn ? "translate-x-4" : "translate-x-0.5",
+              ].join(" ")}
+            />
+          </button>
+          {doubleBoardOn ? (
+            <span className="text-[10.5px] italic text-zinc-500">
+              two boards · split pot
             </span>
           ) : null}
         </div>
@@ -1014,20 +1255,55 @@ function MetaStrip({
     return "";
   })();
 
+  // Game-type chip prefixes the summary for non-NLHE so the variant is
+  // always visible. NLHE keeps the original layout (no extra chip).
+  const gameLabel =
+    state.gameType === "PLO5"
+      ? "PLO5"
+      : state.gameType === "PLO4"
+        ? "PLO4"
+        : null;
+
   // Live config summary in the button.
   const summary = (
     <>
-      <span className="font-medium tabular-nums">
-        ${state.sb}/${state.bb}
-      </span>
-      <span className="text-zinc-600">·</span>
-      <span>{state.playerCount}-max</span>
-      {state.straddleOn && state.playerCount >= 4 && (
+      {gameLabel && (
         <>
-          <span className="text-zinc-600">·</span>
-          <span style={{ color: "oklch(0.795 0.184 155)" }}>
-            straddle ${state.straddleAmt}
+          <span
+            className="font-medium"
+            style={{ color: "oklch(0.795 0.184 155)" }}
+          >
+            {gameLabel}
           </span>
+          <span className="text-zinc-600">·</span>
+        </>
+      )}
+      {state.bombPotOn ? (
+        <>
+          <span
+            className="font-medium"
+            style={{ color: "oklch(0.795 0.184 155)" }}
+          >
+            Bomb pot ${state.bombPotAmt}
+          </span>
+          <span className="text-zinc-600">·</span>
+          <span>{state.playerCount}-max</span>
+        </>
+      ) : (
+        <>
+          <span className="font-medium tabular-nums">
+            ${state.sb}/${state.bb}
+          </span>
+          <span className="text-zinc-600">·</span>
+          <span>{state.playerCount}-max</span>
+          {state.straddleOn && state.playerCount >= 4 && (
+            <>
+              <span className="text-zinc-600">·</span>
+              <span style={{ color: "oklch(0.795 0.184 155)" }}>
+                straddle ${state.straddleAmt}
+              </span>
+            </>
+          )}
         </>
       )}
     </>
@@ -1035,44 +1311,81 @@ function MetaStrip({
 
   return (
     <div
-      className="self-stretch flex items-center gap-2.5 text-[12px] relative"
-      style={{ minHeight: 36 }}
+      className="self-stretch flex items-center gap-2.5 text-[12px] relative z-20"
+      style={{ minHeight: 40 }}
     >
-      <div ref={wrapperRef} className="relative">
-        <button
-          type="button"
-          onClick={() => setPopoverOpen(!popoverOpen)}
-          className="h-[30px] px-3 rounded-md text-[11.5px] cursor-pointer inline-flex items-center gap-2 transition-colors"
-          style={
-            popoverOpen
-              ? {
-                  background: "oklch(0.696 0.205 155 / 0.12)",
-                  border: "1px solid oklch(0.696 0.205 155 / 0.4)",
-                  color: "oklch(0.85 0.184 155)",
-                }
-              : {
-                  background: "oklch(1 0 0 / 0.04)",
-                  border: "1px solid oklch(1 0 0 / 0.10)",
-                  color: "oklch(0.85 0 0)",
-                }
+      <div ref={wrapperRef} className="relative flex items-center">
+        {(() => {
+          // Stakes / seats / game type are setup-only — once a hand
+          // starts the table is committed, and toggling, say, bomb pot
+          // mid-hand or resizing players' cards would silently break
+          // every downstream calculation. Render the trigger as a
+          // read-only summary chip outside setup; only setup gets the
+          // popover trigger + chevron.
+          const editable = state.phase === "setup";
+          if (!editable) {
+            return (
+              <span
+                className="px-3 rounded-md text-[11.5px] inline-flex items-center gap-2"
+                style={{
+                  height: 40,
+                  background: "oklch(1 0 0 / 0.03)",
+                  border: "1px solid oklch(1 0 0 / 0.08)",
+                  color: "oklch(0.7 0 0)",
+                }}
+                title="Stakes & seats are locked once the hand starts"
+              >
+                <Settings size={12} />
+                <span className="font-medium">Stakes &amp; seats</span>
+                {summary}
+              </span>
+            );
           }
-          aria-expanded={popoverOpen}
-        >
-          <Settings size={12} />
-          <span className="font-medium">Stakes &amp; seats</span>
-          {summary}
-          {popoverOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-        </button>
-        {popoverOpen && (
-          <SetupPopover
-            state={state}
-            dispatch={dispatch}
-            onClose={() => setPopoverOpen(false)}
-          />
-        )}
+          return (
+            <>
+              <button
+                type="button"
+                onClick={() => setPopoverOpen(!popoverOpen)}
+                className="px-3 rounded-md text-[11.5px] cursor-pointer inline-flex items-center gap-2 transition-colors"
+                style={
+                  popoverOpen
+                    ? {
+                        height: 40,
+                        background: "oklch(0.696 0.205 155 / 0.12)",
+                        border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+                        color: "oklch(0.85 0.184 155)",
+                      }
+                    : {
+                        height: 40,
+                        background: "oklch(1 0 0 / 0.04)",
+                        border: "1px solid oklch(1 0 0 / 0.10)",
+                        color: "oklch(0.85 0 0)",
+                      }
+                }
+                aria-expanded={popoverOpen}
+              >
+                <Settings size={12} />
+                <span className="font-medium">Stakes &amp; seats</span>
+                {summary}
+                {popoverOpen ? (
+                  <ChevronUp size={11} />
+                ) : (
+                  <ChevronDown size={11} />
+                )}
+              </button>
+              {popoverOpen && (
+                <SetupPopover
+                  state={state}
+                  dispatch={dispatch}
+                  onClose={() => setPopoverOpen(false)}
+                />
+              )}
+            </>
+          );
+        })()}
       </div>
       <span className="text-zinc-600">·</span>
-      <StreetPill phase={state.phase} />
+      <StreetPill phase={state.phase} bombPotOn={state.bombPotOn} />
       <span
         className="text-zinc-400 tabular-nums"
         style={{ fontVariantNumeric: "tabular-nums" }}
@@ -1096,19 +1409,21 @@ function MetaStrip({
       {/* Log button — only meaningful once actions exist. The log itself
           renders from inside this wrapper as a popover anchored beneath. */}
       {state.actions.length > 0 && (
-        <div ref={logWrapperRef} className="relative">
+        <div ref={logWrapperRef} className="relative flex items-center">
           <button
             type="button"
             onClick={() => setLogOpen(!logOpen)}
-            className="h-[30px] px-3 rounded-md text-[11.5px] cursor-pointer inline-flex items-center gap-1.5 transition-colors"
+            className="px-3 rounded-md text-[11.5px] cursor-pointer inline-flex items-center gap-1.5 transition-colors"
             style={
               logOpen
                 ? {
+                    height: 40,
                     background: "oklch(0.696 0.205 155 / 0.18)",
                     border: "1px solid oklch(0.696 0.205 155 / 0.5)",
                     color: "oklch(0.85 0.184 155)",
                   }
                 : {
+                    height: 40,
                     background: "oklch(1 0 0 / 0.04)",
                     border: "1px solid oklch(1 0 0 / 0.10)",
                     color: "oklch(0.85 0 0)",
@@ -1125,7 +1440,7 @@ function MetaStrip({
           </button>
           {logOpen && (
             <div
-              className="absolute right-0 top-9 z-50 rounded-xl"
+              className="absolute right-0 top-11 z-50 rounded-xl"
               style={{
                 width: 520,
                 maxHeight: 420,
@@ -1152,11 +1467,19 @@ function MetaStrip({
         <Button
           onClick={onStart}
           disabled={!heroOk}
-          size="sm"
-          style={{ background: EMERALD, color: BG, fontWeight: 600 }}
+          size="lg"
+          style={{
+            height: 40,
+            background: EMERALD,
+            color: BG,
+            fontWeight: 600,
+          }}
           className="hover:!bg-[oklch(0.745_0.198_155)] disabled:opacity-50"
+          title={heroOk ? "Press Space or Enter to start" : undefined}
         >
-          Start hand <ChevronRight />
+          Start hand
+          {heroOk && <Kbd tone="dark">Space</Kbd>}
+          <ChevronRight />
         </Button>
       )}
     </div>
@@ -1339,6 +1662,7 @@ function ActionLog({
 
 export default function Recorder() {
   const router = useRouter();
+  const confirm = useConfirm();
   const [state, dispatch] = useReducer(reducer, undefined, () =>
     initialStateFromDefaults(),
   );
@@ -1375,15 +1699,51 @@ export default function Recorder() {
     return () => window.removeEventListener("keydown", onKey);
   }, [dispatch]);
 
-  // Used cards (so the picker greys out duplicates)
+  // Space (or Enter) starts the hand from setup once hero hole cards are
+  // filled — closes the loop on the keyboard-only flow. The picker
+  // intercepts these keys when it's open (capture phase), so this only
+  // fires when the user is actually back at the meta-strip level.
+  useEffect(() => {
+    if (state.phase !== "setup") return;
+    const heroCards = state.players[state.heroPosition]?.cards;
+    if (!heroCards?.[0] || !heroCards?.[1]) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== " " && e.key !== "Enter") return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      // Don't hijack a focused button — Space/Enter on it should activate
+      // that button, not start the hand. The user can always click an
+      // empty area first to clear focus.
+      if (tag === "BUTTON") return;
+      e.preventDefault();
+      dispatch({ type: "startPlay" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [state.phase, state.players, state.heroPosition, dispatch]);
+
+  // Used cards (so the picker greys out duplicates). Aggregates both
+  // boards in double-board mode so a card on board 1 can't be re-picked
+  // for board 2 (or vice versa).
   const usedCards = useMemo(() => {
     const s = new Set<string>();
     state.players.forEach((p) => p.cards?.forEach((c) => c && s.add(c)));
     state.board.forEach((c) => c && s.add(c));
+    state.board2.forEach((c) => c && s.add(c));
     return s;
-  }, [state.players, state.board]);
+  }, [state.players, state.board, state.board2]);
 
   const N = state.playerCount;
+  // Hole-card count for the current game (2 NLHE / 4 PLO4 / 5 PLO5).
+  // Drives the hero + villain card-row sizing below.
+  const heroHoleCount = holeCardCount(state.gameType);
   const heroPos = state.heroPosition;
   // Visual seat positions, indexed by visual slot (0 = bottom-center / hero).
   const visualSeatPos = Array.from({ length: N }, (_, i) => seatXY(i, N));
@@ -1393,19 +1753,26 @@ export default function Recorder() {
   // Dealer button is always at cycle 0 (BTN). Bring it to its visual slot.
   const btnVisual = visualOf(0);
 
-  const setupPot =
-    state.sb +
-    state.bb +
-    (state.straddleOn && state.playerCount >= 4 ? state.straddleAmt : 0);
+  const setupPot = state.bombPotOn
+    ? state.bombPotAmt * N
+    : state.sb +
+      state.bb +
+      (state.straddleOn && state.playerCount >= 4 ? state.straddleAmt : 0);
   const pot =
     state.phase === "setup"
       ? setupPot
       : derived?.totalPot ?? totalPot(state);
 
-  // Setup-phase blind/straddle bubbles, keyed by cycle index.
+  // Setup-phase chip bubbles. For a normal hand: SB/BB (+ straddle) at
+  // their respective seats. For a bomb pot: every seat shows the flat
+  // ante so the user can see at a glance that everyone's contributing.
   const setupBets = useMemo(() => {
     if (state.phase !== "setup") return null;
     const b: Record<number, number> = {};
+    if (state.bombPotOn) {
+      for (let i = 0; i < N; i++) b[i] = state.bombPotAmt;
+      return b;
+    }
     if (N === 2) {
       b[0] = state.sb;
       b[1] = state.bb;
@@ -1422,6 +1789,8 @@ export default function Recorder() {
     state.bb,
     state.straddleOn,
     state.straddleAmt,
+    state.bombPotOn,
+    state.bombPotAmt,
   ]);
 
   const playBets = derived?.bets || {};
@@ -1469,9 +1838,78 @@ export default function Recorder() {
     [derived, state],
   );
 
-  const flopFilled = !!(state.board[0] && state.board[1] && state.board[2]);
-  const turnFilled = !!state.board[3];
-  const riverFilled = !!state.board[4];
+  // Pot awards resolved from current state. Single source of truth for both
+  // the showdown panel's display and `saveHand`'s persisted hero result. Is
+  // null when the hand isn't resolvable yet (pre-showdown, undecided villain,
+  // incomplete board, missing hero cards). The header Save button used to
+  // bypass this and persist `result = -heroPaid` for every hand at showdown,
+  // which is why hero-wins were showing as losses on /dashboard.
+  const resolvedAwards = useMemo<PotAward[][] | null>(() => {
+    if (state.phase !== "showdown" && state.phase !== "done") return null;
+    const board1 = state.board.filter((c): c is string => Boolean(c));
+    const board2 = state.doubleBoardOn
+      ? state.board2.filter((c): c is string => Boolean(c))
+      : null;
+    const pots = computeSidePots(state);
+    const survivors = state.players.filter((p) => !folded.has(p.seat));
+    const villainSurvivors = survivors.filter((p) => p.seat !== heroPos);
+    const heroAlone =
+      villainSurvivors.length === 0 ||
+      villainSurvivors.every((v) => muckedSet.has(v.seat));
+    if (heroAlone) {
+      return pots.map((p) => [{ amount: p.amount, winners: [heroPos] }]);
+    }
+    // Omaha needs all 4 / 5 hole cards; Hold'em needs 2. `isShown` gates
+    // on the right count for the current game type.
+    const holeCount = holeCardCount(state.gameType);
+    const isShown = (p: Player): boolean => {
+      if (!p.cards) return false;
+      for (let i = 0; i < holeCount; i++) if (!p.cards[i]) return false;
+      return true;
+    };
+    const villainsAwaiting = villainSurvivors.filter(
+      (v) => !muckedSet.has(v.seat) && !isShown(v),
+    );
+    if (villainsAwaiting.length > 0) return null;
+    if (board1.length < 5) return null;
+    if (board2 !== null && board2.length < 5) return null;
+    const hero = state.players[heroPos];
+    if (!isShown(hero)) return null;
+    const contestants = [
+      hero,
+      ...villainSurvivors.filter(
+        (v) => !muckedSet.has(v.seat) && isShown(v),
+      ),
+    ].map((p) => ({
+      seat: p.seat,
+      cards: (p.cards as string[]).slice(0, holeCount),
+    }));
+    try {
+      return board2
+        ? awardPotsMultiBoard(pots, contestants, [board1, board2], state.gameType)
+        : awardPots(pots, contestants, board1, state.gameType);
+    } catch {
+      return null;
+    }
+  }, [state, folded, muckedSet, heroPos]);
+
+  // Per-board street fill flags — track each board independently so we
+  // can chain the auto-open picker from board 1 to board 2 within the
+  // same street.
+  const board1FlopFilled = !!(state.board[0] && state.board[1] && state.board[2]);
+  const board2FlopFilled = !!(state.board2[0] && state.board2[1] && state.board2[2]);
+  const board1TurnFilled = !!state.board[3];
+  const board2TurnFilled = !!state.board2[3];
+  const board1RiverFilled = !!state.board[4];
+  const board2RiverFilled = !!state.board2[4];
+  // A street is "filled" only when every active board has its cards.
+  // For single-board hands the second-board flags are ignored.
+  const flopFilled =
+    board1FlopFilled && (!state.doubleBoardOn || board2FlopFilled);
+  const turnFilled =
+    board1TurnFilled && (!state.doubleBoardOn || board2TurnFilled);
+  const riverFilled =
+    board1RiverFilled && (!state.doubleBoardOn || board2RiverFilled);
 
   // Auto-advance street once cards are filled.
   useEffect(() => {
@@ -1499,12 +1937,19 @@ export default function Recorder() {
     return null;
   })();
 
-  const saveHand = (awards: PotAward[][] | null) => {
+  const saveHand = () => {
     // committedBySeatFinal applies the per-street uncalled-bet refund, so
     // heroPaid here is the chips hero actually parted with — not the raw
     // sum of bet/raise amounts (which double-counts re-raises and ignores
     // refunds). seatWinnings sums per-pot allocations for hero, handling
     // side pots and split-pot ties.
+    //
+    // Awards come from the `resolvedAwards` memo so both Save buttons
+    // (header + showdown panel) get the same per-pot resolution. The
+    // header button used to call this with `awards=null`, which silently
+    // saved every hand as `result = -heroPaid` regardless of who actually
+    // won — that's the dashboard / replayer mismatch users were hitting.
+    const awards = resolvedAwards;
     const heroPaid = committedBySeatFinal(state)[heroPos] ?? 0;
     const heroWon = awards ? seatWinnings(awards, heroPos) : 0;
     const result = heroWon - heroPaid;
@@ -1533,7 +1978,7 @@ export default function Recorder() {
         actions: state.actions,
       }),
       board: padded,
-      type: derivePotType(state.actions),
+      type: state.bombPotOn ? "BP" : derivePotType(state.actions),
       tags: [],
       result,
       fav: false,
@@ -1548,6 +1993,11 @@ export default function Recorder() {
         heroPosition: state.heroPosition,
         straddleOn: state.straddleOn,
         straddleAmt: state.straddleAmt,
+        bombPotOn: state.bombPotOn,
+        bombPotAmt: state.bombPotAmt,
+        doubleBoardOn: state.doubleBoardOn,
+        board2: state.doubleBoardOn ? state.board2 : undefined,
+        gameType: state.gameType,
         muckedSeats: [...state.muckedSeats],
         notes: state.notes.trim() || undefined,
         venue: state.venue.trim() || undefined,
@@ -1562,12 +2012,26 @@ export default function Recorder() {
     // Precompute per-step equity now (cheap, ~10ms × step count) so the
     // replayer never recomputes. recordedToHand needs an `id` to typecheck;
     // a placeholder is fine — we only read `steps` and `players` back from it.
+    // For double-board hands we run the same pass twice (once per board)
+    // and store both maps so the replayer renders two badges per seat.
     try {
       const replay = recordedToHand({ ...newHand, id: "tmp" } as SavedHand);
       if (replay && newHand._full) {
-        const equityByStep = precomputeEquityByStep(replay);
-        if (Object.keys(equityByStep).length > 0) {
-          newHand._full = { ...newHand._full, equityByStep };
+        const equityByStep = precomputeEquityByStep(
+          replay,
+          "board",
+          state.gameType,
+        );
+        const equityByStep2 = state.doubleBoardOn
+          ? precomputeEquityByStep(replay, "board2", state.gameType)
+          : undefined;
+        const patch: Partial<typeof newHand._full> = {};
+        if (Object.keys(equityByStep).length > 0)
+          patch.equityByStep = equityByStep;
+        if (equityByStep2 && Object.keys(equityByStep2).length > 0)
+          patch.equityByStep2 = equityByStep2;
+        if (Object.keys(patch).length > 0) {
+          newHand._full = { ...newHand._full, ...patch };
         }
       }
     } catch (e) {
@@ -1607,18 +2071,18 @@ export default function Recorder() {
     state.handName !== "New hand" ||
     state.venue.trim().length > 0;
 
-  // Cancel discards the in-progress hand and re-seeds setup from defaults.
-  // Stays on /record — leaving is what the back link is for.
-  const handleCancel = () => {
-    if (isDirty() && !window.confirm("Discard this hand and start over?"))
-      return;
-    dispatch({ type: "resetHand" });
-  };
-
-  // Back link → /dashboard. Confirm if there's unsaved work.
-  const handleBack = () => {
-    if (isDirty() && !window.confirm("Leave without saving this hand?"))
-      return false;
+  // Back link → /dashboard. Confirm if there's unsaved work. Returns a
+  // promise the caller can await before navigating away.
+  const handleBack = async () => {
+    if (isDirty()) {
+      const ok = await confirm({
+        title: "Leave without saving?",
+        message: "Your in-progress recording will be lost.",
+        confirmLabel: "Leave",
+        destructive: true,
+      });
+      if (!ok) return false;
+    }
     return true;
   };
 
@@ -1635,20 +2099,20 @@ export default function Recorder() {
               <span className="text-xs font-mono text-muted-foreground">
                 {phaseLabel}
               </span>
-              <Button variant="outline" size="sm" onClick={handleCancel}>
-                Cancel
-              </Button>
               <Button
                 size="sm"
-                onClick={() => saveHand(null)}
+                onClick={() => saveHand()}
                 disabled={
                   savePending ||
-                  (state.phase !== "showdown" && state.phase !== "done")
+                  (state.phase !== "showdown" && state.phase !== "done") ||
+                  resolvedAwards === null
                 }
                 title={
                   state.phase !== "showdown" && state.phase !== "done"
                     ? "Play through to showdown before saving"
-                    : undefined
+                    : resolvedAwards === null
+                      ? "Resolve every villain (show or muck) before saving"
+                      : undefined
                 }
                 style={{ background: EMERALD, color: BG, fontWeight: 600 }}
                 className="hover:!bg-[oklch(0.745_0.198_155)] disabled:opacity-50"
@@ -1660,7 +2124,7 @@ export default function Recorder() {
         />
       }
     >
-      <div className="flex-1 flex flex-col items-center px-6 py-6 gap-5 max-w-[1600px] w-full mx-auto">
+      <div className="flex-1 flex flex-col items-center px-6 py-4 gap-3 max-w-[1600px] w-full mx-auto">
         {/* Title row: just the editable hand name. The phase pill, pot, and
             action hint live in the meta strip below; venue & date moved out
             of the recorder entirely (they're editable from /dashboard). */}
@@ -1686,16 +2150,32 @@ export default function Recorder() {
         />
 
         {/* Table — dims to 55% while the setup popover is open so focus
-            stays on the controls. */}
+            stays on the controls. The inner cap keeps the table from
+            outgrowing the available vertical space; the 440px chrome
+            estimate reserves room for the header + meta strip + the
+            below-table row (action bar with drawer open ≈ 217, including
+            the Fold/Call/Raise row that the user must always see) +
+            paddings. Felt is `aspect-ratio: 2/1` so the height follows.
+            On shorter viewports the table shrinks proportionally so the
+            action bar never gets pushed off-screen. */}
         <div
-          className="self-stretch flex flex-col items-center transition-opacity"
+          className="self-stretch flex justify-center transition-opacity"
           style={{ opacity: setupPopoverOpen ? 0.55 : 1 }}
         >
+        <div
+          className="w-full flex flex-col items-center"
+          style={{ maxWidth: "calc((100vh - 440px) * 2)" }}
+        >
         <TableSurface>
-          {/* Pot + board */}
+          {/* Pot + board(s). The translateY nudge shifts the stack up to
+              keep clearance from the hero hole cards at the bottom; we
+              nudge further when a second board is present so both boards
+              sit visually above the hero. */}
           <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10"
-            style={{ transform: "translateY(-34px)" }}
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10"
+            style={{
+              transform: `translateY(${state.doubleBoardOn ? -56 : -34}px)`,
+            }}
           >
             <span
               className="px-3 h-8 inline-flex items-center rounded-lg text-[18px] font-semibold tabular-nums text-white pointer-events-none"
@@ -1715,17 +2195,57 @@ export default function Recorder() {
               size="md"
               ariaLabelPrefix="Board card"
               // Pulse the empty slots when we're waiting for the next street.
+              // Skip when the hand is already over (everyone folded) — those
+              // streets won't be played, so we shouldn't pulse or auto-open.
+              // Board 1's pulse only fires when board 1 itself is the next
+              // empty slot for the current street.
               highlight={
                 !!derived?.streetClosed &&
-                ((state.phase === "preflop" && !flopFilled) ||
-                  (state.phase === "flop" && !turnFilled) ||
-                  (state.phase === "turn" && !riverFilled))
+                !derived?.handOver &&
+                ((state.phase === "preflop" && !board1FlopFilled) ||
+                  (state.phase === "flop" && !board1TurnFilled) ||
+                  (state.phase === "turn" && !board1RiverFilled))
               }
+              // Mouseless flow: pop the picker open the moment a betting
+              // round closes, so the user types the next street's cards
+              // without reaching for the mouse.
+              autoOpenOnHighlight
               onPick={(idx, card) =>
-                dispatch({ type: "setBoard", idx, card })
+                dispatch({ type: "setBoard", idx, card, boardIdx: 0 })
               }
               onClear={(card) => dispatch({ type: "clearCard", card })}
             />
+            {state.doubleBoardOn && (
+              <CardRow
+                cards={state.board2}
+                used={usedCards}
+                disabled={state.phase === "setup"}
+                autoAdvanceCount={3}
+                size="md"
+                ariaLabelPrefix="Second board card"
+                // Board 2 highlights only after board 1 has caught up
+                // for the same street — that sequencing keeps the picker
+                // chain "board 1 then board 2" without juggling state.
+                highlight={
+                  !!derived?.streetClosed &&
+                  !derived?.handOver &&
+                  ((state.phase === "preflop" &&
+                    board1FlopFilled &&
+                    !board2FlopFilled) ||
+                    (state.phase === "flop" &&
+                      board1TurnFilled &&
+                      !board2TurnFilled) ||
+                    (state.phase === "turn" &&
+                      board1RiverFilled &&
+                      !board2RiverFilled))
+                }
+                autoOpenOnHighlight
+                onPick={(idx, card) =>
+                  dispatch({ type: "setBoard", idx, card, boardIdx: 1 })
+                }
+                onClear={(card) => dispatch({ type: "clearCard", card })}
+              />
+            )}
             <span className="text-white/15 font-medium tracking-[0.28em] uppercase text-[10px] pointer-events-none">
               savemyhands
             </span>
@@ -1859,21 +2379,33 @@ export default function Recorder() {
                     style={{ opacity: isFolded ? 0.3 : 1 }}
                   >
                     <CardRow
-                      cards={[cards?.[0] ?? null, cards?.[1] ?? null]}
+                      // Re-key on hole-card count so toggling NLHE → PLO
+                      // remounts the row. Otherwise the `animate-pulse`
+                      // animations on previously-mounted slots stay out
+                      // of phase with the freshly-mounted ones.
+                      key={`hero-${heroHoleCount}`}
+                      cards={Array.from(
+                        { length: heroHoleCount },
+                        (_, i) => cards?.[i] ?? null,
+                      )}
                       used={usedCards}
-                      autoAdvanceCount={2}
+                      autoAdvanceCount={heroHoleCount}
                       size="md"
                       ariaLabelPrefix="Hero card"
+                      fan={heroHoleCount > 2}
                       // Glow during setup if cards aren't filled yet — hero
                       // hole cards are required before "Start hand" works.
                       highlight={
                         state.phase === "setup" &&
-                        (!cards?.[0] || !cards?.[1])
+                        Array.from(
+                          { length: heroHoleCount },
+                          (_, i) => !cards?.[i],
+                        ).some(Boolean)
                       }
                       onPick={(idx, c) =>
                         dispatch({
                           type: "setHeroCard",
-                          idx: idx as 0 | 1,
+                          idx,
                           card: c,
                         })
                       }
@@ -1895,20 +2427,28 @@ export default function Recorder() {
                           style={{ opacity: isFolded ? 0.3 : 1 }}
                         >
                           <CardRow
-                            cards={[cards?.[0] ?? null, cards?.[1] ?? null]}
+                            key={`villain-${cycleIdx}-${heroHoleCount}`}
+                            cards={Array.from(
+                              { length: heroHoleCount },
+                              (_, i) => cards?.[i] ?? null,
+                            )}
                             used={usedCards}
-                            autoAdvanceCount={2}
+                            autoAdvanceCount={heroHoleCount}
                             size="sm"
                             gapClass="gap-1"
                             ariaLabelPrefix={`${posNames[cycleIdx]} card`}
-                            // Glow until both cards are revealed so the user
+                            fan={heroHoleCount > 2}
+                            // Glow until all cards are revealed so the user
                             // sees what's required to finish the showdown.
-                            highlight={!cards?.[0] || !cards?.[1]}
+                            highlight={Array.from(
+                              { length: heroHoleCount },
+                              (_, i) => !cards?.[i],
+                            ).some(Boolean)}
                             onPick={(idx, c) =>
                               dispatch({
                                 type: "setOppCard",
                                 seat: cycleIdx,
-                                idx: idx as 0 | 1,
+                                idx,
                                 card: c,
                               })
                             }
@@ -1921,20 +2461,18 @@ export default function Recorder() {
                     }
                     return (
                       <div
-                        className="absolute left-1/2 -translate-x-1/2 -top-14 flex gap-1"
+                        className="absolute left-1/2 -translate-x-1/2 -top-14"
                         style={{ opacity: isFolded ? 0.3 : 1 }}
                       >
-                        {[0, 1].map((j) => (
-                          <CardSlot
-                            key={j}
-                            card="__face_down__"
-                            faceDown
-                            size="sm"
-                            disabled
-                            used={usedCards}
-                            onPick={() => {}}
-                          />
-                        ))}
+                        <HandFan
+                          cards={Array.from(
+                            { length: heroHoleCount },
+                            () => null,
+                          )}
+                          size="sm"
+                          fan={heroHoleCount > 2}
+                          faceDown
+                        />
                       </div>
                     );
                   })()
@@ -1944,9 +2482,10 @@ export default function Recorder() {
           })}
         </TableSurface>
         </div>
+        </div>
 
         {/* Below-table area: action stuff on the left, notes on the right. */}
-        <div className="self-stretch flex flex-col lg:flex-row gap-5 items-stretch">
+        <div className="self-stretch flex flex-col lg:flex-row gap-3 items-stretch">
           <div className="flex-1 flex flex-col gap-4 min-w-0">
 
         {/* The inline action-log card moved into the meta strip's Log popover
@@ -2017,9 +2556,14 @@ export default function Recorder() {
           const villainSurvivors = survivors.filter(
             (p) => p.seat !== heroPos,
           );
-          // Each villain is "decided" once they've either shown cards or mucked.
-          const isShown = (p: Player) =>
-            !!(p.cards?.[0] && p.cards?.[1]);
+          // Game-aware "shown" check — Omaha needs the full 4 / 5 cards.
+          const showHoleCount = holeCardCount(state.gameType);
+          const isShown = (p: Player): boolean => {
+            if (!p.cards) return false;
+            for (let i = 0; i < showHoleCount; i++)
+              if (!p.cards[i]) return false;
+            return true;
+          };
           const villainsAwaiting = villainSurvivors.filter(
             (v) => !muckedSet.has(v.seat) && !isShown(v),
           );
@@ -2034,9 +2578,11 @@ export default function Recorder() {
           let evalError: string | null = null;
           let awards: PotAward[][] = [];
 
-          const board5 = state.board.filter((c): c is string => Boolean(c));
-          const heroCards = state.players[heroPos].cards;
-          const heroCardsOk = !!(heroCards?.[0] && heroCards?.[1]);
+          const board1Full = state.board.filter((c): c is string => Boolean(c));
+          const board2Full = state.doubleBoardOn
+            ? state.board2.filter((c): c is string => Boolean(c))
+            : null;
+          const heroCardsOk = isShown(state.players[heroPos]);
           const pots = computeSidePots(state);
           const finalPot = totalPotFinal(state);
 
@@ -2049,9 +2595,13 @@ export default function Recorder() {
             ]);
             winners = [heroPos];
           } else if (villainsAwaiting.length === 0) {
-            if (board5.length < 5) {
-              evalError =
-                "Fill in the rest of the board to determine the winner.";
+            const boardsIncomplete =
+              board1Full.length < 5 ||
+              (board2Full !== null && board2Full.length < 5);
+            if (boardsIncomplete) {
+              evalError = state.doubleBoardOn
+                ? "Fill in both boards to determine the winners."
+                : "Fill in the rest of the board to determine the winner.";
             } else if (!heroCardsOk) {
               evalError = "Hero hole cards are missing.";
             } else {
@@ -2064,12 +2614,20 @@ export default function Recorder() {
                 .filter(isShown)
                 .map((p) => ({
                   seat: p.seat,
-                  cards: [p.cards![0]!, p.cards![1]!],
+                  cards: (p.cards as string[]).slice(0, showHoleCount),
                 }));
               try {
-                awards = awardPots(pots, contestants, board5);
+                awards = board2Full
+                  ? awardPotsMultiBoard(
+                      pots,
+                      contestants,
+                      [board1Full, board2Full],
+                      state.gameType,
+                    )
+                  : awardPots(pots, contestants, board1Full, state.gameType);
                 // Aggregate distinct winners across pots for the summary
-                // header. Per-pot winners may differ in side-pot scenarios.
+                // header. Per-pot winners may differ in side-pot scenarios
+                // and per-board winners differ in double-board hands.
                 const winnerSet = new Set<number>();
                 for (const potAwards of awards)
                   for (const a of potAwards)
@@ -2077,7 +2635,13 @@ export default function Recorder() {
                 winners = [...winnerSet];
                 // Reuse determineWinner just to populate per-seat hand
                 // descriptions (for the "shows X · top pair" annotation).
-                scores = determineWinner(contestants, board5).scores;
+                // For double board, prefer board 1's descriptions — board 2
+                // is shown via the additional render layer below.
+                scores = determineWinner(
+                  contestants,
+                  board1Full,
+                  state.gameType,
+                ).scores;
               } catch (e) {
                 evalError = (e as Error).message;
               }
@@ -2086,7 +2650,6 @@ export default function Recorder() {
 
           const decided =
             heroAlone || villainsAwaiting.length === 0;
-          const canSave = winners.length > 0;
           const heroWonShare = seatWinnings(awards, heroPos);
 
           return (
@@ -2304,7 +2867,7 @@ export default function Recorder() {
                 </Button>
                 <div className="flex-1" />
                 <Button
-                  onClick={() => saveHand(canSave ? awards : null)}
+                  onClick={() => saveHand()}
                   size="lg"
                   disabled={!decided || savePending}
                   style={{ background: EMERALD, color: BG, fontWeight: 600 }}
@@ -2329,7 +2892,7 @@ export default function Recorder() {
               onChange={(e) =>
                 dispatch({ type: "setNotes", notes: e.target.value })
               }
-              className="flex w-full min-w-0 rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none flex-1 min-h-[200px]"
+              className="flex w-full min-w-0 rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none flex-1 min-h-[80px]"
             />
           </div>
         </div>

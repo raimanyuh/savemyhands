@@ -220,6 +220,22 @@ export async function setHandPublic(
   if (error) throw error;
 }
 
+// Bulk variant of setHandPublic. Same RLS semantics — non-owners just get
+// 0 rows updated. No-ops on empty input so callers can pass a filtered list
+// without an extra guard.
+export async function setHandsPublic(
+  ids: string[],
+  isPublic: boolean,
+): Promise<void> {
+  if (ids.length === 0) return;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("hands")
+    .update({ is_public: isPublic })
+    .in("id", ids);
+  if (error) throw error;
+}
+
 export async function deleteHand(id: string): Promise<void> {
   const supabase = await createClient();
   const { error } = await supabase.from("hands").delete().eq("id", id);
