@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   deleteHandAction,
@@ -17,6 +18,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Settings as SettingsIcon,
   Share2,
   Star,
   Tag,
@@ -28,6 +30,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Header, Shell } from "@/components/Shell";
+import { UsernamePicker } from "@/components/auth/UsernamePicker";
 import { isMultiway, potTypeOf, type SavedHand } from "./hand";
 
 const SAMPLE_HANDS: SavedHand[] = [
@@ -1025,18 +1028,23 @@ function HandListRow({
 }
 
 export default function Dashboard({
-  user,
+  initialUsername,
   signOutAction,
   initialHands,
   showSamples,
 }: {
-  user: string;
+  // The signed-in user's @username, or null if they haven't picked one yet.
+  initialUsername: string | null;
   signOutAction?: () => void | Promise<void>;
   // Hands fetched on the server for the signed-in user.
   initialHands: SavedHand[];
   // True when the user has no hands of their own; renders SAMPLE_HANDS as a
   // first-run demo. Hidden once they have any saved hand.
   showSamples: boolean;
+  // `?demo=N` URL param is accepted by the page wrapper but not yet wired
+  // through to the Dashboard — the side-branch sample-hands-gen integration
+  // wasn't part of the agreed forward-port scope.
+  demoCount?: number;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -1051,6 +1059,10 @@ export default function Dashboard({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<SavedHand | null>(null);
   const [tagAnchor, setTagAnchor] = useState<HTMLElement | null>(null);
+  // Local mirror of the username so the header reflects the picker's save
+  // immediately, before the next navigation revalidates.
+  const [username, setUsername] = useState<string | null>(initialUsername);
+  const [usernameOpen, setUsernameOpen] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "date",
     dir: "desc",
@@ -1422,7 +1434,28 @@ export default function Dashboard({
           title="Hands"
           right={
             <>
-              <span className="text-sm text-muted-foreground">{user}</span>
+              {username ? (
+                <button
+                  onClick={() => setUsernameOpen(true)}
+                  className="text-sm text-muted-foreground hover:text-zinc-200 transition-colors cursor-pointer"
+                  title="Change username"
+                >
+                  @{username}
+                </button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setUsernameOpen(true)}
+                >
+                  Set username
+                </Button>
+              )}
+              <Button asChild variant="outline" size="sm">
+                <Link href="/settings" title="Account settings">
+                  <SettingsIcon /> Settings
+                </Link>
+              </Button>
               {signOutAction && (
                 <form action={signOutAction}>
                   <Button type="submit" variant="outline" size="sm">
@@ -1690,6 +1723,13 @@ export default function Dashboard({
             hand={editing}
             onSave={(patch) => update(editing.id, patch)}
             onClose={() => setEditing(null)}
+          />
+        )}
+        {usernameOpen && (
+          <UsernamePicker
+            initial={username}
+            onSaved={(u) => setUsername(u)}
+            onClose={() => setUsernameOpen(false)}
           />
         )}
       </div>

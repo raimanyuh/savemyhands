@@ -8,6 +8,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { saveHandAction } from "@/lib/hands/actions";
 import {
@@ -73,6 +74,24 @@ import {
 // clockwise). Hero is always at visual slot 0.
 function cycleToVisual(cycleIdx: number, heroPos: number, n: number): number {
   return (cycleIdx - heroPos + n) % n;
+}
+
+// The action-log index of `cycleIdx`'s most recent action on the current
+// street. Used to map a click on a bet/check bubble back to the action it
+// represents so the annotation editor knows which step to attach the note to.
+// Returns null when the seat hasn't acted on this street yet (which is also
+// when the bubble isn't rendered, so this is mostly a defensive guard).
+function lastActionIdxForSeat(
+  actions: { seat: number; street: string }[],
+  cycleIdx: number,
+  street: string,
+): number | null {
+  for (let i = actions.length - 1; i >= 0; i--) {
+    if (actions[i].seat === cycleIdx && actions[i].street === street) {
+      return i;
+    }
+  }
+  return null;
 }
 
 // Inline-editable title at the top of the recorder.
@@ -183,6 +202,113 @@ function Kbd({
     >
       {children}
     </kbd>
+  );
+}
+
+// Annotation editor modal. Opened by clicking a bet/check bubble on the
+// felt; saves the typed note to `state.annotations[index]` via the reducer.
+// Mirrors the same shadcn-flavored modal pattern used by the Dashboard's
+// EditDetailsModal so the visual feel stays consistent.
+function AnnotationModal({
+  initial,
+  actionLabel,
+  onSave,
+  onClose,
+}: {
+  initial: string;
+  // The formatted action ("BTN raises to $24") shown in the modal header so
+  // the user knows which step they're annotating.
+  actionLabel: string;
+  onSave: (text: string) => void;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const commit = () => {
+    onSave(draft);
+    onClose();
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[400] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.55)" }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-[460px] rounded-xl border border-white/10 flex flex-col"
+        style={{
+          background: "oklch(0.205 0 0)",
+          boxShadow: "0 24px 60px rgba(0,0,0,0.7)",
+        }}
+      >
+        <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between gap-3">
+          <div className="flex items-baseline gap-2 min-w-0">
+            <h3 className="text-[15px] font-semibold tracking-tight shrink-0">
+              Note
+            </h3>
+            <span className="text-[12px] text-muted-foreground truncate">
+              {actionLabel}
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-200 cursor-pointer shrink-0"
+            aria-label="Close"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="px-5 py-4 flex flex-col gap-2">
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                onClose();
+              } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                commit();
+              }
+            }}
+            placeholder="What were you thinking on this action?"
+            className="w-full min-h-[100px] rounded-md border border-input bg-background px-2.5 py-2 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 resize-y"
+          />
+          <span className="text-[11px] text-muted-foreground">
+            ⌘↵ save · esc cancel · save empty to remove
+          </span>
+        </div>
+        <div className="px-5 py-3 border-t border-white/10 flex items-center justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={commit}
+            style={{
+              background: "oklch(0.696 0.205 155)",
+              color: "oklch(0.145 0 0)",
+              fontWeight: 600,
+            }}
+            className="hover:!bg-[oklch(0.745_0.198_155)]"
+          >
+            <Check /> Save
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1676,6 +1802,10 @@ export default function Recorder() {
   // Action-log popover; lifted so the inline log below the table can be
   // removed entirely (the popover replaces it).
   const [logOpen, setLogOpen] = useState(false);
+  // Annotation editor modal — `null` = closed, otherwise the index in
+  // state.actions whose annotation is being edited. Opens when the user
+  // clicks a bet/check bubble on the felt.
+  const [annotateIdx, setAnnotateIdx] = useState<number | null>(null);
 
   // Cmd/Ctrl-Z undo, available across phases (the per-action shortcuts live
   // inside ActionBar). Skips when typing in any field.
@@ -2009,38 +2139,46 @@ export default function Recorder() {
       },
     };
 
-    // Precompute per-step equity now (cheap, ~10ms × step count) so the
-    // replayer never recomputes. recordedToHand needs an `id` to typecheck;
-    // a placeholder is fine — we only read `steps` and `players` back from it.
-    // For double-board hands we run the same pass twice (once per board)
-    // and store both maps so the replayer renders two badges per seat.
-    try {
-      const replay = recordedToHand({ ...newHand, id: "tmp" } as SavedHand);
-      if (replay && newHand._full) {
-        const equityByStep = precomputeEquityByStep(
-          replay,
-          "board",
-          state.gameType,
-        );
-        const equityByStep2 = state.doubleBoardOn
-          ? precomputeEquityByStep(replay, "board2", state.gameType)
-          : undefined;
-        const patch: Partial<typeof newHand._full> = {};
-        if (Object.keys(equityByStep).length > 0)
-          patch.equityByStep = equityByStep;
-        if (equityByStep2 && Object.keys(equityByStep2).length > 0)
-          patch.equityByStep2 = equityByStep2;
-        if (Object.keys(patch).length > 0) {
-          newHand._full = { ...newHand._full, ...patch };
-        }
-      }
-    } catch (e) {
-      // Equity precompute failures shouldn't block the save — the replayer
-      // will fall back to live computation.
-      console.warn("Equity precompute failed; replayer will compute live.", e);
-    }
-
     startSave(async () => {
+      // Yield a frame before the heavy equity enumeration so React commits
+      // the `savePending` transition first — the button paints "Saving…"
+      // and turns disabled before the main thread locks. Without this the
+      // INP between click and next paint was several hundred ms on
+      // multiway / PLO / double-board hands (tracked as a Vercel INP
+      // alert). The yield itself is one microtask + a 0ms timeout, well
+      // under any user-perceivable threshold.
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Precompute per-step equity (recordedToHand needs an `id` to
+      // typecheck; a placeholder is fine — we only read `steps` and
+      // `players` back from it). Double-board runs the pass twice (once
+      // per board) so the replayer renders two badges per seat.
+      try {
+        const replay = recordedToHand({ ...newHand, id: "tmp" } as SavedHand);
+        if (replay && newHand._full) {
+          const equityByStep = precomputeEquityByStep(
+            replay,
+            "board",
+            state.gameType,
+          );
+          const equityByStep2 = state.doubleBoardOn
+            ? precomputeEquityByStep(replay, "board2", state.gameType)
+            : undefined;
+          const patch: Partial<typeof newHand._full> = {};
+          if (Object.keys(equityByStep).length > 0)
+            patch.equityByStep = equityByStep;
+          if (equityByStep2 && Object.keys(equityByStep2).length > 0)
+            patch.equityByStep2 = equityByStep2;
+          if (Object.keys(patch).length > 0) {
+            newHand._full = { ...newHand._full, ...patch };
+          }
+        }
+      } catch (e) {
+        // Equity precompute failures shouldn't block the save — the
+        // replayer will fall back to live computation.
+        console.warn("Equity precompute failed; replayer will compute live.", e);
+      }
+
       try {
         await saveHandAction(newHand);
       } catch (e) {
@@ -2271,12 +2409,27 @@ export default function Recorder() {
                 const cycleIdx = Number(s);
                 if (!amt || folded.has(cycleIdx)) return null;
                 const v = visualOf(cycleIdx);
+                const street =
+                  state.phase === "showdown" || state.phase === "done"
+                    ? "river"
+                    : state.phase;
+                const idx = lastActionIdxForSeat(
+                  state.actions,
+                  cycleIdx,
+                  street,
+                );
                 return (
                   <BetBubble
                     key={cycleIdx}
                     seatPos={visualSeatPos[v]}
                     amount={amt}
                     isHero={v === 0}
+                    onClick={
+                      idx !== null ? () => setAnnotateIdx(idx) : undefined
+                    }
+                    hasAnnotation={
+                      idx !== null && !!state.annotations[idx]?.trim()
+                    }
                   />
                 );
               })}
@@ -2290,12 +2443,27 @@ export default function Recorder() {
             Array.from(checkedSeats).map((cycleIdx) => {
               if (folded.has(cycleIdx)) return null;
               const v = visualOf(cycleIdx);
+              const street =
+                state.phase === "showdown" || state.phase === "done"
+                  ? "river"
+                  : state.phase;
+              const idx = lastActionIdxForSeat(
+                state.actions,
+                cycleIdx,
+                street,
+              );
               return (
                 <BetBubble
                   key={`check-${cycleIdx}`}
                   seatPos={visualSeatPos[v]}
                   isHero={v === 0}
                   label="check"
+                  onClick={
+                    idx !== null ? () => setAnnotateIdx(idx) : undefined
+                  }
+                  hasAnnotation={
+                    idx !== null && !!state.annotations[idx]?.trim()
+                  }
                 />
               );
             })}
@@ -2897,6 +3065,16 @@ export default function Recorder() {
           </div>
         </div>
       </div>
+      {annotateIdx !== null && state.actions[annotateIdx] && (
+        <AnnotationModal
+          initial={state.annotations[annotateIdx] ?? ""}
+          actionLabel={formatAction(state.actions[annotateIdx], state.playerCount)}
+          onSave={(text) =>
+            dispatch({ type: "setAnnotation", index: annotateIdx, text })
+          }
+          onClose={() => setAnnotateIdx(null)}
+        />
+      )}
     </Shell>
   );
 }

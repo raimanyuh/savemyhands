@@ -56,6 +56,7 @@ export default function Replayer({
   isOwner = false,
   isPublic = false,
   isAuthenticated = true,
+  ownerUsername,
   fullPayload,
 }: {
   hand: ReplayHand;
@@ -68,6 +69,9 @@ export default function Replayer({
   // sign-up CTA. Defaults to true so the recorder/dashboard flows that
   // already gate auth upstream don't have to thread this prop.
   isAuthenticated?: boolean;
+  // The owner's @username for "by @username" attribution. Null when the
+  // owner hasn't set one yet; in that case attribution is suppressed.
+  ownerUsername?: string | null;
   // The original SavedHand._full payload, threaded through so owner edits to
   // notes can patch both the top-level `notes` column and `_full.notes`
   // (the read prefers _full.notes, so both must move together).
@@ -83,6 +87,7 @@ export default function Replayer({
       isOwner={isOwner}
       isPublic={isPublic}
       isAuthenticated={isAuthenticated}
+      ownerUsername={ownerUsername ?? null}
       fullPayload={fullPayload}
     />
   );
@@ -95,6 +100,7 @@ function ReplayerInner({
   isOwner,
   isPublic,
   isAuthenticated,
+  ownerUsername,
   fullPayload,
 }: {
   hand: ReplayHand;
@@ -103,6 +109,7 @@ function ReplayerInner({
   isOwner: boolean;
   isPublic: boolean;
   isAuthenticated: boolean;
+  ownerUsername: string | null;
   fullPayload?: SavedHand["_full"];
 }) {
   const [step, setStep] = useState(0);
@@ -377,6 +384,14 @@ function ReplayerInner({
           backHref={isAuthenticated ? "/dashboard" : undefined}
           right={
             <>
+              {!isOwner && ownerUsername && (
+                <span className="text-xs text-muted-foreground">
+                  by{" "}
+                  <span className="text-foreground font-medium">
+                    @{ownerUsername}
+                  </span>
+                </span>
+              )}
               <span className="text-xs font-mono text-muted-foreground hidden sm:inline">
                 {url.split("/hand/")[0]}/hand/
                 <span className="text-foreground">{HAND.id}</span>
