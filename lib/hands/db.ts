@@ -112,14 +112,17 @@ export async function getHand(id: string): Promise<SavedHand | null> {
   return rowToSavedHand(data as HandRow);
 }
 
-// Server-rendered hand page needs both the data and the viewer's relationship
-// to it (signed in? owner?). RLS already filters out private rows for
-// non-owners — we just learn whether to surface owner-only controls and the
-// dashboard back-link.
+// Server-rendered hand page needs the data, the viewer's relationship to it
+// (signed in? owner?), and the owner's public username for attribution. RLS
+// already filters out private rows for non-owners — we just learn whether to
+// surface owner-only controls and the dashboard back-link.
 export async function getHandForViewing(id: string): Promise<{
   hand: SavedHand;
   isOwner: boolean;
   isAuthenticated: boolean;
+  // The owner's @username, or null if they haven't picked one. Public-readable
+  // via the profiles RLS policy so anon viewers see it too.
+  ownerUsername: string | null;
 } | null> {
   const supabase = await createClient();
   const {
@@ -133,10 +136,16 @@ export async function getHandForViewing(id: string): Promise<{
   if (error) throw error;
   if (!data) return null;
   const row = data as HandRow;
+  const { data: profileData } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("id", row.user_id)
+    .maybeSingle();
   return {
     hand: rowToSavedHand(row),
     isOwner: !!user && user.id === row.user_id,
     isAuthenticated: !!user,
+    ownerUsername: (profileData as { username: string } | null)?.username ?? null,
   };
 }
 

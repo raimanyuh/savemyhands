@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import Replayer from "@/components/poker/Replayer";
 import { recordedToHand } from "@/components/poker/hand";
 import { getHandForViewing } from "@/lib/hands/db";
+import { createClient } from "@/lib/supabase/server";
+import { SAMPLE_HAND_ID, getSampleHand } from "@/lib/sample-hand";
 
 export default async function HandPage({
   params,
@@ -10,8 +12,34 @@ export default async function HandPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const result = await getHandForViewing(id);
-  if (!result) notFound();
+
+  // The bundled sample hand bypasses the DB. We still need to know whether
+  // the visitor is signed in so the replayer renders the "Dashboard" back
+  // link (logged in) vs the "Sign up" CTA (logged out). Owner controls are
+  // always off — nobody owns the sample.
+  let result: {
+    hand: ReturnType<typeof getSampleHand>;
+    isOwner: boolean;
+    isAuthenticated: boolean;
+    ownerUsername: string | null;
+  };
+  if (id === SAMPLE_HAND_ID) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    result = {
+      hand: getSampleHand(),
+      isOwner: false,
+      isAuthenticated: !!user,
+      ownerUsername: null,
+    };
+  } else {
+    const fromDb = await getHandForViewing(id);
+    if (!fromDb) notFound();
+    result = fromDb;
+  }
+
   const replayHand = recordedToHand(result.hand);
   if (!replayHand) notFound();
 
@@ -30,6 +58,7 @@ export default async function HandPage({
       isOwner={result.isOwner}
       isPublic={!!result.hand.isPublic}
       isAuthenticated={result.isAuthenticated}
+      ownerUsername={result.ownerUsername}
       fullPayload={result.hand._full}
     />
   );

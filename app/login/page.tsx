@@ -45,6 +45,7 @@ export default function LoginPage() {
                 placeholder="you@example.com"
                 required
                 autoComplete="email"
+                className="h-11"
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -56,12 +57,17 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 required
                 autoComplete="current-password"
+                className="h-11"
               />
             </div>
             {state.error && (
               <p className="text-sm text-destructive">{state.error}</p>
             )}
-            <Button type="submit" className="w-full" disabled={pending}>
+            <Button
+              type="submit"
+              className="w-full h-11"
+              disabled={pending}
+            >
               {pending ? "Signing in…" : "Sign in"}
             </Button>
           </form>

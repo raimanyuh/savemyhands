@@ -74,6 +74,7 @@ const btnLg: CSSProperties = { height: 48, padding: "0 22px", fontSize: 14, bord
 function Nav() {
   return (
     <nav
+      className="smh-nav"
       style={{
         position: "relative",
         zIndex: 10,
@@ -106,6 +107,7 @@ function Nav() {
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <a
           href="#how"
+          className="smh-nav-anchor"
           style={{
             fontSize: 13,
             fontWeight: 500,
@@ -119,6 +121,7 @@ function Nav() {
         </a>
         <a
           href="#faq"
+          className="smh-nav-anchor"
           style={{
             fontSize: 13,
             fontWeight: 500,
@@ -144,6 +147,7 @@ function Nav() {
 function Hero() {
   return (
     <section
+      className="smh-hero"
       style={{
         position: "relative",
         zIndex: 5,
@@ -245,6 +249,7 @@ function Hero() {
         </div>
 
         <div
+          className="smh-hero-card"
           style={{
             position: "relative",
             padding: "32px 32px 28px",
@@ -533,6 +538,7 @@ function HowItWorks() {
   return (
     <section
       id="how"
+      className="smh-section"
       style={{ padding: "120px 32px", maxWidth: 1280, margin: "0 auto", width: "100%" }}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 56, maxWidth: 640 }}>
@@ -605,6 +611,7 @@ function HowItWorks() {
 function AnnotationsSection() {
   return (
     <section
+      className="smh-annotations"
       style={{
         padding: "40px 32px 120px",
         maxWidth: 1280,
@@ -904,6 +911,20 @@ export function LandingPage() {
         }
         @media (max-width: 880px) {
           .smh-annotations-grid { grid-template-columns: 1fr !important; }
+        }
+        /* Responsive landing tweaks: tighten padding on phones, hide nav
+           anchors that compete with the auth buttons, and hide the hero
+           replay-table card (which doesn't render legibly under ~480px wide
+           because seat plates start overlapping). */
+        @media (max-width: 640px) {
+          .smh-nav { padding: 18px 18px !important; flex-wrap: wrap !important; }
+          .smh-nav-anchor { display: none !important; }
+          .smh-hero { padding: 16px 18px 56px !important; }
+          .smh-hero-card { display: none !important; }
+          .smh-section { padding: 64px 18px !important; }
+          .smh-annotations { padding: 24px 18px 80px !important; }
+          .smh-faq { padding: 64px 18px 56px !important; }
+          .smh-faq-answer { padding-right: 0 !important; }
         }
       `}</style>
       <div style={pageAtmosphere} />

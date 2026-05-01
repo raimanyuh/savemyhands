@@ -24,7 +24,12 @@
       "Bash(tar -xzf /c/Users/Raimana/.claude/projects/C--Users-Raimana-Desktop-savemyhands/e6783bd8-ca08-4908-a07c-e3f989131915/tool-results/webfetch-1777425671056-pw24x3.bin -C /tmp/smh-design2)",
       "Bash(awk 'NR<823 || NR>1104' /c/Users/Raimana/Desktop/savemyhands/components/poker/Recorder.tsx)",
       "Bash(mv /tmp/Recorder.tsx.new /c/Users/Raimana/Desktop/savemyhands/components/poker/Recorder.tsx)",
-      "WebFetch(domain:savemyhands.app)"
+      "Bash(curl -sS -o /dev/null -w \"/ %{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(curl -sS -o /dev/null -w \"/login %{http_code}\\\\n\" http://localhost:3000/login)",
+      "Bash(curl -sS -o /dev/null -w \"/signup %{http_code}\\\\n\" http://localhost:3000/signup)",
+      "Bash(curl -sS -o /dev/null -w \"/dashboard %{http_code}\\\\n\" http://localhost:3000/dashboard)",
+      "Bash(curl -sS -o /dev/null -w \"/record %{http_code}\\\\n\" http://localhost:3000/record)",
+      "Bash(grep -n \"^import {.*ChevronUp\\\\|^import {$\\\\|ChevronLeft\" /c/Users/Administrator/Desktop/savemyhands/components/poker/Dashboard.tsx)"
     ]
   }
 }

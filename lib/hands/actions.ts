@@ -13,16 +13,24 @@ import {
   setHandsPublic,
   updateHandDetails,
 } from "./db";
+import { assertPayloadSize, clampSavedHand } from "./limits";
 import type { SavedHand } from "@/components/poker/hand";
 
 // Returns the saved hand (with its newly minted id) on success; throws on
 // failure. The client navigates after the call — keeping the redirect
 // client-side avoids the NEXT_REDIRECT throw that would interfere with a
 // caller-side try/catch.
+//
+// `clampSavedHand` truncates user-typed string fields (hand name, notes,
+// tags, player names, annotations, venue) to safe lengths so a malicious
+// authenticated user can't bloat their row. `assertPayloadSize` is a hard
+// reject for any payload that's still over 64KB after clamping.
 export async function saveHandAction(
   input: Omit<SavedHand, "id">,
 ): Promise<SavedHand> {
-  const hand = await insertHand(input);
+  const clamped = clampSavedHand(input);
+  assertPayloadSize(clamped);
+  const hand = await insertHand(clamped);
   revalidatePath("/dashboard");
   return hand;
 }
@@ -35,7 +43,9 @@ export async function updateHandDetailsAction(
   id: string,
   patch: HandDetailsPatch,
 ): Promise<void> {
-  await updateHandDetails(id, patch);
+  const clamped = clampSavedHand(patch);
+  assertPayloadSize(clamped);
+  await updateHandDetails(id, clamped);
   revalidatePath("/dashboard");
   revalidatePath(`/hand/${id}`);
 }

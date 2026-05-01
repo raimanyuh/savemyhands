@@ -45,6 +45,7 @@ export default function SignupPage() {
                 placeholder="you@example.com"
                 required
                 autoComplete="email"
+                className="h-11"
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -57,12 +58,17 @@ export default function SignupPage() {
                 required
                 autoComplete="new-password"
                 minLength={6}
+                className="h-11"
               />
             </div>
             {state.error && (
               <p className="text-sm text-destructive">{state.error}</p>
             )}
-            <Button type="submit" className="w-full" disabled={pending}>
+            <Button
+              type="submit"
+              className="w-full h-11"
+              disabled={pending}
+            >
               {pending ? "Creating account…" : "Create account"}
             </Button>
           </form>
