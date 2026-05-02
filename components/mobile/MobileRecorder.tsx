@@ -37,6 +37,7 @@ import {
   type PotAward,
 } from "@/components/poker/hand-eval";
 import { buildAndSaveHand } from "@/lib/recorder/save-hand";
+import { VerticalFelt } from "./VerticalFelt";
 
 const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
@@ -234,11 +235,48 @@ export default function MobileRecorder() {
             ? `Deal ${nextStreetLabel(state.phase)}`
             : "—";
 
-  // Live committed-by-seat — feeds the (placeholder) felt's stack labels
-  // once the felt component lands. Computed here so the placeholder can
-  // surface the current pot for sanity-checking during the build-out.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Live committed-by-seat — feeds VerticalFelt's stack-remaining label.
   const committed = committedBySeat(state);
+
+  // foldedSeats and checkedSeats are passed to VerticalFelt for plate
+  // dimming and check-bubble rendering. checkedSeats is computed per
+  // current street: a seat shows the "check" pill if its most recent
+  // action on the active street was a check.
+  const foldedSeats = useMemo(() => {
+    const set = new Set<number>();
+    for (const a of state.actions) if (a.action === "fold") set.add(a.seat);
+    return set;
+  }, [state.actions]);
+
+  const checkedSeats = useMemo(() => {
+    const set = new Set<number>();
+    if (state.phase === "setup") return set;
+    const seatLast: Record<number, string> = {};
+    for (const a of state.actions) {
+      if (a.street !== state.phase) continue;
+      seatLast[a.seat] = a.action;
+    }
+    for (const [seat, action] of Object.entries(seatLast)) {
+      if (action === "check") set.add(Number(seat));
+    }
+    return set;
+  }, [state.actions, state.phase]);
+
+  // Card-picker stub. Real CardPickerSheet lands in the next commit;
+  // for now, clicking a card slot routes through window.alert with a
+  // hint to use desktop. This keeps the Felt's onHeroCardSlot /
+  // onBoardSlot wiring in place so we don't have to refactor when the
+  // sheet ships.
+  const openHeroCardSlot = (slotIdx: number) => {
+    window.alert(
+      `Card picker for hero hole #${slotIdx + 1} lands in the next iteration. Use desktop to enter cards for now.`,
+    );
+  };
+  const openBoardSlot = (slotIdx: number, boardIdx: 0 | 1) => {
+    window.alert(
+      `Card picker for board ${boardIdx + 1} slot #${slotIdx + 1} lands in the next iteration. Use desktop to enter cards for now.`,
+    );
+  };
 
   return (
     <div
@@ -371,50 +409,24 @@ export default function MobileRecorder() {
         </span>
       </div>
 
-      {/* Felt — placeholder until VerticalFelt lands */}
-      <div className="flex-1 min-h-0 p-2 flex items-stretch">
-        <div
-          className="flex-1 flex items-center justify-center"
-          style={{
-            background:
-              "radial-gradient(ellipse 70% 95% at 50% 50%, var(--smh-mobile-felt-top) 0%, var(--smh-mobile-felt-bottom) 100%)",
-            borderRadius: 24,
-            boxShadow:
-              "0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)",
-          }}
-        >
-          <div
-            className="text-center font-mono"
-            style={{
-              fontSize: 11,
-              color: "rgba(255,255,255,0.5)",
-              letterSpacing: "0.1em",
-            }}
-          >
-            <div style={{ fontSize: 10, opacity: 0.6 }}>POT</div>
-            <div
-              style={{
-                fontSize: 22,
-                fontWeight: 700,
-                color: "oklch(0.98 0 0)",
-                fontVariantNumeric: "tabular-nums",
-                marginTop: 2,
-              }}
-            >
-              ${pot}
-            </div>
-            <div
-              style={{
-                fontSize: 9,
-                marginTop: 12,
-                opacity: 0.5,
-                letterSpacing: "0.18em",
-              }}
-            >
-              FELT · COMING NEXT
-            </div>
-          </div>
-        </div>
+      {/* Felt */}
+      <div className="flex-1 min-h-0 p-2">
+        <VerticalFelt
+          state={state}
+          committed={committed}
+          activeSeat={activeSeat}
+          foldedSeats={foldedSeats}
+          streetBets={derived?.bets ?? {}}
+          checkedSeats={checkedSeats}
+          onHeroCardSlot={
+            state.phase === "setup" ? openHeroCardSlot : undefined
+          }
+          onBoardSlot={
+            state.phase !== "setup" && state.phase !== "showdown" && state.phase !== "done"
+              ? openBoardSlot
+              : undefined
+          }
+        />
       </div>
 
       {/* Action bar — fixed-height 56pt buttons + step counter */}
