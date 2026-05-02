@@ -10,7 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { saveHandAction } from "@/lib/hands/actions";
+import { buildAndSaveHand } from "@/lib/recorder/save-hand";
 import {
   Check,
   ChevronDown,
@@ -40,7 +40,6 @@ import { CardRow } from "./CardPicker";
 import HandFan from "./HandFan";
 import {
   committedBySeat,
-  committedBySeatFinal,
   computeSidePots,
   deriveStreet,
   formatAction,
@@ -54,13 +53,6 @@ import {
   writeSetupDefaults,
 } from "./engine";
 import type { ActionType, GameType, Player, RecorderState } from "./engine";
-import {
-  derivePotType,
-  isMultiway,
-  recordedToHand,
-  type SavedHand,
-} from "./hand";
-import { precomputeEquityByStep } from "./equity";
 import {
   awardPots,
   awardPotsMultiBoard,
@@ -2068,119 +2060,19 @@ export default function Recorder() {
   })();
 
   const saveHand = () => {
-    // committedBySeatFinal applies the per-street uncalled-bet refund, so
-    // heroPaid here is the chips hero actually parted with — not the raw
-    // sum of bet/raise amounts (which double-counts re-raises and ignores
-    // refunds). seatWinnings sums per-pot allocations for hero, handling
-    // side pots and split-pot ties.
-    //
-    // Awards come from the `resolvedAwards` memo so both Save buttons
-    // (header + showdown panel) get the same per-pot resolution. The
-    // header button used to call this with `awards=null`, which silently
+    // resolvedAwards comes from the memo so both Save buttons (header +
+    // showdown panel) get the same per-pot resolution. The header button
+    // used to call buildAndSaveHand with awards=null, which silently
     // saved every hand as `result = -heroPaid` regardless of who actually
     // won — that's the dashboard / replayer mismatch users were hitting.
-    const awards = resolvedAwards;
-    const heroPaid = committedBySeatFinal(state)[heroPos] ?? 0;
-    const heroWon = awards ? seatWinnings(awards, heroPos) : 0;
-    const result = heroWon - heroPaid;
-    const board = state.board.filter((c): c is string => Boolean(c));
-    const padded: string[] = [...board];
-    while (padded.length < 5) padded.push("—");
-
-    // Render the user-chosen ISO date as "Mon DD, YY" for the dashboard column.
-    // We parse as local time to avoid the off-by-one timezone shift.
-    const [yy, mm, dd] = state.date.split("-").map(Number);
-    const dateObj = new Date(yy, (mm || 1) - 1, dd || 1);
-    const displayDate = dateObj.toLocaleDateString("en-US", {
-      month: "short",
-      day: "2-digit",
-      year: "2-digit",
-    });
-
-    const newHand: Omit<SavedHand, "id"> = {
-      name: state.handName.trim() || "Untitled hand",
-      date: displayDate,
-      stakes: `${state.sb}/${state.bb}`,
-      loc: state.venue.trim() || "—",
-      positions: posNames[heroPos] ?? "",
-      multiway: isMultiway({
-        playerCount: state.playerCount,
-        actions: state.actions,
-      }),
-      board: padded,
-      type: state.bombPotOn ? "BP" : derivePotType(state.actions),
-      tags: [],
-      result,
-      fav: false,
-      notes: state.notes.trim() || undefined,
-      _full: {
-        players: state.players,
-        actions: state.actions,
-        board: state.board,
-        sb: state.sb,
-        bb: state.bb,
-        playerCount: state.playerCount,
-        heroPosition: state.heroPosition,
-        straddleOn: state.straddleOn,
-        straddleAmt: state.straddleAmt,
-        bombPotOn: state.bombPotOn,
-        bombPotAmt: state.bombPotAmt,
-        doubleBoardOn: state.doubleBoardOn,
-        board2: state.doubleBoardOn ? state.board2 : undefined,
-        gameType: state.gameType,
-        muckedSeats: [...state.muckedSeats],
-        notes: state.notes.trim() || undefined,
-        venue: state.venue.trim() || undefined,
-        date: state.date,
-        annotations:
-          Object.keys(state.annotations).length > 0
-            ? { ...state.annotations }
-            : undefined,
-      },
-    };
-
     startSave(async () => {
-      // Yield a frame before the heavy equity enumeration so React commits
-      // the `savePending` transition first — the button paints "Saving…"
-      // and turns disabled before the main thread locks. Without this the
-      // INP between click and next paint was several hundred ms on
-      // multiway / PLO / double-board hands (tracked as a Vercel INP
-      // alert). The yield itself is one microtask + a 0ms timeout, well
-      // under any user-perceivable threshold.
-      await new Promise((r) => setTimeout(r, 0));
-
-      // Precompute per-step equity (recordedToHand needs an `id` to
-      // typecheck; a placeholder is fine — we only read `steps` and
-      // `players` back from it). Double-board runs the pass twice (once
-      // per board) so the replayer renders two badges per seat.
       try {
-        const replay = recordedToHand({ ...newHand, id: "tmp" } as SavedHand);
-        if (replay && newHand._full) {
-          const equityByStep = precomputeEquityByStep(
-            replay,
-            "board",
-            state.gameType,
-          );
-          const equityByStep2 = state.doubleBoardOn
-            ? precomputeEquityByStep(replay, "board2", state.gameType)
-            : undefined;
-          const patch: Partial<typeof newHand._full> = {};
-          if (Object.keys(equityByStep).length > 0)
-            patch.equityByStep = equityByStep;
-          if (equityByStep2 && Object.keys(equityByStep2).length > 0)
-            patch.equityByStep2 = equityByStep2;
-          if (Object.keys(patch).length > 0) {
-            newHand._full = { ...newHand._full, ...patch };
-          }
-        }
-      } catch (e) {
-        // Equity precompute failures shouldn't block the save — the
-        // replayer will fall back to live computation.
-        console.warn("Equity precompute failed; replayer will compute live.", e);
-      }
-
-      try {
-        await saveHandAction(newHand);
+        await buildAndSaveHand({
+          state,
+          resolvedAwards,
+          heroPos,
+          heroPosName: posNames[heroPos] ?? "",
+        });
       } catch (e) {
         console.error("Failed to save hand", e);
         window.alert(

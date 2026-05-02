@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import Recorder from "@/components/poker/Recorder";
+import RecorderShell from "@/components/poker/RecorderShell";
 
 export default async function RecordPage() {
   const supabase = await createClient();
@@ -10,5 +10,5 @@ export default async function RecordPage() {
 
   if (!user) redirect("/login");
 
-  return <Recorder />;
+  return <RecorderShell />;
 }
