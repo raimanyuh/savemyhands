@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>savemyhands — mobile prototype</title>
+<link rel="stylesheet" href="_mobile.css" />
+<style>
+  body {
+    background: #0a0a0a;
+    min-height: 100vh;
+    padding: 32px 24px 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 32px;
+  }
+  .head {
+    text-align: center;
+    max-width: 720px;
+    margin-bottom: 8px;
+  }
+  .head h1 {
+    margin: 0;
+    font: 600 28px var(--font-sans);
+    color: var(--fg-strong);
+    letter-spacing: -0.025em;
+  }
+  .head p {
+    margin: 8px 0 0;
+    color: var(--fg-muted);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .head .eyebrow {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--emerald-bright);
+    margin-bottom: 12px;
+    display: block;
+  }
+
+  /* Phone-row layout */
+  .row {
+    display: flex; flex-wrap: wrap; gap: 28px;
+    justify-content: center; align-items: flex-start;
+  }
+  .phone-cell { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .phone-cell .label {
+    font-size: 11px;
+    color: var(--fg-muted);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    text-align: center;
+  }
+  .phone-cell .label .name {
+    color: var(--fg-strong); font-weight: 600;
+  }
+  .phone-cell .label .sub {
+    color: var(--fg-subtle); font-family: var(--font-mono); font-size: 10px;
+    display: block; margin-top: 2px;
+  }
+  .phone-cell .label .pick {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: oklch(0.30 0.10 155 / 0.45);
+    border: 1px solid oklch(0.696 0.205 155 / 0.5);
+    color: var(--emerald-bright);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+    vertical-align: 1px;
+  }
+
+  .section {
+    width: 100%;
+    max-width: 1280px;
+  }
+  .section-head {
+    border-top: 1px solid rgba(255,255,255,0.08);
+    padding: 24px 0 16px;
+    margin: 0 0 24px;
+  }
+  .section-head .eyebrow {
+    display: block;
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--emerald-bright);
+    margin-bottom: 6px;
+  }
+  .section-head h2 {
+    margin: 0;
+    font: 600 22px var(--font-sans);
+    color: var(--fg-strong);
+    letter-spacing: -0.02em;
+  }
+  .section-head p {
+    margin: 6px 0 0;
+    color: var(--fg-muted);
+    font-size: 13px;
+    max-width: 640px;
+    line-height: 1.55;
+  }
+  .section-head .decision {
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 10px;
+    border-radius: 999px;
+    background: oklch(0.21 0.06 155 / 0.5);
+    border: 1px solid oklch(0.696 0.205 155 / 0.4);
+    font-size: 11px;
+    color: var(--fg-strong);
+  }
+  .section-head .decision .key {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--emerald-bright);
+    font-weight: 700;
+  }
+</style>
+
+<!-- React + Babel -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="screens.jsx"></script>
+</head>
+<body>
+  <div class="head">
+    <span class="eyebrow">savemyhands · mobile redesign · v2</span>
+    <h1>Locked direction — recorder, replayer, dashboard.</h1>
+    <p>You picked vertical table (A) + full-screen modal sizer (C) + persistent dock (A). The picker is now content-height; the replay dock no longer occludes the hero plate. Each phone is a working interactive mock at 390×844.</p>
+  </div>
+
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="env,react">
+    const { useState } = React;
+
+    function Cell({ label, sub, pick, children }) {
+      return (
+        <div className="phone-cell">
+          {children}
+          <div className="label">
+            <span className="name">{label}</span>
+            {pick && <span className="pick">your pick</span>}
+            {sub && <span className="sub">{sub}</span>}
+          </div>
+        </div>
+      );
+    }
+
+    function Section({ eyebrow, title, desc, decision, children }) {
+      return (
+        <div className="section">
+          <div className="section-head">
+            <span className="eyebrow">{eyebrow}</span>
+            <h2>{title}</h2>
+            {desc && <p>{desc}</p>}
+            {decision && (
+              <div className="decision">
+                <span className="key">decided</span>
+                <span>{decision}</span>
+              </div>
+            )}
+          </div>
+          <div className="row">{children}</div>
+        </div>
+      );
+    }
+
+    function App() {
+      // Recorder local state
+      const [sizerModalOpen, setSizerModal] = useState(false);
+      const [pickerOpen, setPicker] = useState(true);
+
+      return (
+        <div style={{ width: "100%" }}>
+          <Section
+            eyebrow="01 / record · primary"
+            title="The recorder, idle on the flop"
+            desc="Vertical (PokerNow-style) table, fixed 3-button action bar in the thumb zone, modal sizer when Raise is tapped. Hero anchored bottom-center; opponents on a portrait oval. Dealer button orbits the BTN seat."
+            decision="Vertical table · 3-button bar · modal raise sizer · bottom-sheet card picker">
+            <Cell label="Recorder · idle (flop)" sub="6-handed · NLHE · pot $48" pick>
+              <IPhoneFrame>
+                <RecorderScreen tableLayout="vertical" actionPattern="fixed"
+                  sizerOpen={false} setSizerOpen={() => {}}
+                  pickerOpen={false} setPickerOpen={() => {}} />
+              </IPhoneFrame>
+            </Cell>
+            <Cell label="Recorder · raising" sub="modal sizer (your pick)">
+              <IPhoneFrame>
+                <RecorderScreen tableLayout="vertical" actionPattern="modal"
+                  sizerOpen={sizerModalOpen} setSizerOpen={setSizerModal}
+                  pickerOpen={false} setPickerOpen={() => {}} />
+              </IPhoneFrame>
+            </Cell>
+            <Cell label="Recorder · picking a card" sub="bottom sheet, content height">
+              <IPhoneFrame>
+                <RecorderScreen tableLayout="vertical" actionPattern="fixed"
+                  sizerOpen={false} setSizerOpen={() => {}}
+                  pickerOpen={pickerOpen} setPickerOpen={setPicker} />
+              </IPhoneFrame>
+            </Cell>
+          </Section>
+
+          <Section
+            eyebrow="02 / replay"
+            title="Replayer, persistent dock"
+            desc="Read-only replay. Persistent dock — always visible. Hero plate now sits above the dock instead of behind it; on annotated steps the balloon slides up between the felt and the dock. Owner-only edit panel collapses out of sight; viewers see the felt + dock only."
+            decision="Persistent dock · hero plate clears the dock · annotation balloon dock-attached">
+            <Cell label="Replayer · annotated step" sub="owner viewing their hand" pick>
+              <IPhoneFrame>
+                <ReplayerScreen tableLayout="vertical" dockPattern="persistent" anonViewer={false} showAnnotation={true} />
+              </IPhoneFrame>
+            </Cell>
+            <Cell label="Replayer · plain step" sub="no annotation on this beat">
+              <IPhoneFrame>
+                <ReplayerScreen tableLayout="vertical" dockPattern="persistent" anonViewer={false} showAnnotation={false} />
+              </IPhoneFrame>
+            </Cell>
+            <Cell label="Replayer · anon viewer" sub="signup pill above felt">
+              <IPhoneFrame>
+                <ReplayerScreen tableLayout="vertical" dockPattern="persistent" anonViewer={true} showAnnotation={false} />
+              </IPhoneFrame>
+            </Cell>
+          </Section>
+
+          <Section
+            eyebrow="03 / dashboard"
+            title="Card-per-hand list"
+            desc="Six visible fields per row: hole cards · name · stake · date · result · star. Filters as a sheet (chip count badge on the trigger). Long-press a card to enter select mode. FAB to start a new hand.">
+            <Cell label="Dashboard · default" sub="search + filter + cards + FAB" pick>
+              <IPhoneFrame><DashboardScreen /></IPhoneFrame>
+            </Cell>
+          </Section>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,199 @@
+/* savemyhands — colors & type tokens
+ * Mirrors the values defined in app/globals.css of the savemyhands repo
+ * (the .dark theme block — savemyhands runs dark-only).
+ *
+ * Color philosophy: pure neutral charcoal (chroma 0) for every UI surface,
+ * plus a single saturated accent — emerald — for primary actions, status,
+ * and brand. Warm hex literals only on the wood-rail and felt-green
+ * gradients of the poker table itself.
+ */
+
+:root {
+  /* ── Neutrals (charcoal) ─────────────────────────────────── */
+  --bg:                 oklch(0.145 0 0); /* page background */
+  --bg-elev-1:          oklch(0.18  0 0); /* card surfaces (landing) */
+  --bg-elev-2:          oklch(0.205 0 0); /* dialog / popover */
+  --bg-elev-3:          oklch(0.215 0 0); /* card (shadcn token) */
+  --bg-elev-4:          oklch(0.285 0 0); /* secondary / muted / accent */
+
+  --fg:                 oklch(0.985 0 0); /* primary text */
+  --fg-strong:          #fafaf9;          /* landing headings (warm-tinted) */
+  --fg-muted:           oklch(0.715 0 0); /* secondary text */
+  --fg-subtle:          oklch(0.556 0 0); /* tertiary, dimmed */
+  --fg-disabled:        oklch(0.45  0 0);
+
+  --border:             oklch(1 0 0 / 8%);
+  --border-strong:      oklch(1 0 0 / 12%);
+  --input-bg:           oklch(1 0 0 / 12%);
+  --ring:               oklch(0.586 0 0);
+
+  /* ── Brand accent — emerald ───────────────────────────────── */
+  /* Two emerald tones live in the codebase. The shadcn token uses 0.696
+   * (slightly darker, used for primary buttons + checkbox fills). The
+   * landing page uses 0.745 (slightly lighter, used for headings + bullets).
+   * Both are valid; pick the darker for filled UI, the lighter for accents
+   * on text. */
+  --emerald:            oklch(0.696 0.205 155); /* primary action fill */
+  --emerald-bright:     oklch(0.745 0.198 155); /* landing accent + hover */
+  --emerald-deep:       oklch(0.42  0.12  155); /* atmospheric glow tint */
+
+  /* ── Semantic ─────────────────────────────────────────────── */
+  --destructive:        oklch(0.704 0.191 22.216);
+
+  /* ── Suit colors (4-color deck) ───────────────────────────── */
+  --suit-spade:         #0a0a0a;
+  --suit-club:          oklch(0.5 0.16 145); /* green */
+  --suit-diamond:       oklch(0.5 0.18 250); /* blue */
+  --suit-heart:         oklch(0.55 0.22 22); /* red */
+
+  /* ── Felt + rail (warm hex literals — table only) ─────────── */
+  --rail-wood-light:    #4a2511;
+  --rail-wood-mid:      #2c1505;
+  --rail-wood-dark:     #190a02;
+  --felt-light:         #1f7a47;
+  --felt-mid:           #0e3d22;
+  --felt-dark:          #082818;
+
+  /* ── Card-back red (alt 4-color deck back) ────────────────── */
+  --card-back-red-light:#6b1722;
+  --card-back-red-dark: #2a0608;
+
+  /* ── Type ─────────────────────────────────────────────────── */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+               Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-heading: var(--font-sans);
+
+  /* ── Radius scale (shadcn) ────────────────────────────────── */
+  --radius:    0.625rem;          /* 10px — base */
+  --radius-sm: calc(var(--radius) * 0.6);  /* 6px */
+  --radius-md: calc(var(--radius) * 0.8);  /* 8px */
+  --radius-lg: var(--radius);              /* 10px */
+  --radius-xl: calc(var(--radius) * 1.4);  /* 14px */
+  --radius-2xl: calc(var(--radius) * 1.8); /* 18px */
+  --radius-3xl: calc(var(--radius) * 2.2); /* 22px */
+  --radius-4xl: calc(var(--radius) * 2.6); /* 26px */
+
+  /* ── Shadows ──────────────────────────────────────────────── */
+  --shadow-sm:   0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md:   0 4px 10px rgba(0,0,0,0.5);
+  --shadow-lg:   0 8px 20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.04);
+  --shadow-xl:   0 20px 50px rgba(0,0,0,0.45);
+  --shadow-2xl:  0 30px 80px rgba(0,0,0,0.5);
+  --shadow-dialog: 0 24px 60px rgba(0,0,0,0.7);
+
+  /* Wood-rail outer shadow (for the table) */
+  --shadow-rail: 0 28px 80px rgba(0,0,0,0.75), 0 6px 18px rgba(0,0,0,0.6),
+                 inset 0 1px 0 rgba(255,255,255,0.06);
+  --shadow-felt-inner: inset 0 0 100px rgba(0,0,0,0.55),
+                       inset 0 2px 6px rgba(0,0,0,0.45);
+
+  /* ── Atmosphere & grain (page-level) ──────────────────────── */
+  --atmosphere-emerald-glow:
+    radial-gradient(ellipse 70% 45% at 50% -5%,
+      oklch(0.42 0.12 155 / 0.14) 0%, transparent 65%);
+}
+
+/* ════════════════════════════════════════════════════════════
+ * Semantic type roles. Tracking, weight and size mirror the
+ * landing page + shell + recorder usage in the codebase. The app
+ * leans heavily on tight letter-spacing for headings (-0.02 to
+ * -0.035em) and an UPPERCASE 0.22em-tracked eyebrow micro-label.
+ * ════════════════════════════════════════════════════════════ */
+
+.smh-h1 {
+  font-family: var(--font-heading);
+  font-size: clamp(40px, 5.6vw, 76px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 0.98;
+  color: var(--fg-strong);
+  text-wrap: balance;
+}
+
+.smh-h2 {
+  font-family: var(--font-heading);
+  font-size: clamp(28px, 3.5vw, 44px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--fg-strong);
+}
+
+.smh-h3 {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg-strong);
+}
+
+.smh-h4 {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+
+/* Body — landing & marketing surfaces */
+.smh-body {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  text-wrap: pretty;
+}
+
+.smh-body-sm {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+/* Eyebrow — the brand's signature micro-label */
+.smh-eyebrow {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--emerald-bright);
+}
+
+/* Plate label — uppercase 0.14em (seat-plate POSITION) */
+.smh-plate-label {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: oklch(0.85 0 0);
+}
+
+/* Mono — used for share URLs, step counters, action hints, action log */
+.smh-mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* UI button text */
+.smh-button-text {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+
+/* Stack value — emerald, semibold, tabular */
+.smh-stack {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--emerald-bright);
+  font-variant-numeric: tabular-nums;
+}

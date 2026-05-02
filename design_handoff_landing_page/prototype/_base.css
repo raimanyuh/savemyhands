@@ -1,0 +1,66 @@
+/* Shared base for preview cards.
+ * Each card is sized ~700×<varies>px and shows ONE concept (not framed,
+ * no titles — the asset name renders outside the card).
+ */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap");
+@import url("../colors_and_type.css");
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  padding: 24px;
+  min-height: 150px;
+}
+
+.row     { display: flex; align-items: center; gap: 12px; }
+.col     { display: flex; flex-direction: column; gap: 12px; }
+.wrap    { display: flex; flex-wrap: wrap; gap: 12px; }
+.between { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+.muted   { color: var(--fg-muted); }
+.mono    { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* Generic swatch */
+.swatch {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.swatch .fill { aspect-ratio: 1.6 / 1; }
+.swatch .meta {
+  padding: 8px 10px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-elev-2);
+}
+.swatch .meta .name {
+  color: var(--fg);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+.swatch .meta .val {
+  color: var(--fg-subtle);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
