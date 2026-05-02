@@ -312,15 +312,13 @@ function BoardCard({
     const rank = card.slice(0, -1);
     const suit = card.slice(-1);
     const suitColor =
-      suit === "s"
+      suit === "♠"
         ? "#0a0a0a"
-        : suit === "c"
+        : suit === "♣"
           ? "oklch(0.5 0.16 145)"
-          : suit === "d"
+          : suit === "♦"
             ? "oklch(0.5 0.18 250)"
             : "oklch(0.55 0.22 22)";
-    const suitGlyph =
-      suit === "s" ? "♠" : suit === "c" ? "♣" : suit === "d" ? "♦" : "♥";
     return (
       <div
         className="flex flex-col items-center justify-center font-bold"
@@ -336,7 +334,7 @@ function BoardCard({
         }}
       >
         <span>{rank}</span>
-        <span style={{ fontSize: 12, marginTop: 1 }}>{suitGlyph}</span>
+        <span style={{ fontSize: 12, marginTop: 1 }}>{suit}</span>
       </div>
     );
   }
@@ -409,15 +407,13 @@ function CardFace({ card, size }: { card: string; size: "sm" | "md" }) {
   const suit = card.slice(-1);
   const dim = size === "md" ? { w: 38, h: 52, font: 14 } : { w: 22, h: 30, font: 10 };
   const suitColor =
-    suit === "s"
+    suit === "♠"
       ? "#0a0a0a"
-      : suit === "c"
+      : suit === "♣"
         ? "oklch(0.5 0.16 145)"
-        : suit === "d"
+        : suit === "♦"
           ? "oklch(0.5 0.18 250)"
           : "oklch(0.55 0.22 22)";
-  const suitGlyph =
-    suit === "s" ? "♠" : suit === "c" ? "♣" : suit === "d" ? "♦" : "♥";
   return (
     <div
       className="flex flex-col items-center justify-center font-bold"
@@ -433,7 +429,7 @@ function CardFace({ card, size }: { card: string; size: "sm" | "md" }) {
       }}
     >
       <span>{rank}</span>
-      <span style={{ fontSize: dim.font - 2, marginTop: 1 }}>{suitGlyph}</span>
+      <span style={{ fontSize: dim.font - 2, marginTop: 1 }}>{suit}</span>
     </div>
   );
 }

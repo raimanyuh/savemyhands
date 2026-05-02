@@ -19,27 +19,31 @@ import { useState } from "react";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 
 const RANKS = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"] as const;
-const SUITS = ["s", "h", "d", "c"] as const;
+// Unicode-glyph suits — must match the engine's card-id format (rank +
+// glyph). Engine and every downstream helper compare and render cards
+// as e.g. "K♠", not "Ks". A previous version of this file used letters,
+// which made every pick land in the engine as an unrecognized card.
+const SUITS = ["♠", "♥", "♦", "♣"] as const;
 
-const SUIT_GLYPH: Record<string, string> = {
-  s: "♠",
-  h: "♥",
-  d: "♦",
-  c: "♣",
+// Suit colors. Two color schemes — one for the suit-row buttons (dark
+// sheet background, so spade needs a near-white tint) and one for the
+// rank-grid cells (white card-face background, so spade returns to the
+// canonical near-black). Using one shared color collapsed spades on the
+// rank cells to white-on-white, making them invisible.
+const SUIT_COLOR_ON_DARK: Record<string, string> = {
+  "♠": "#fafafa",
+  "♣": "oklch(0.7 0.17 145)",
+  "♦": "oklch(0.72 0.16 250)",
+  "♥": "oklch(0.7 0.20 22)",
 };
-
-// Suit colors picked for legibility on the dark sheet background. Same
-// 4-color deck the desktop felt uses, but tuned slightly for the
-// near-white card faces in the picker grid.
-const SUIT_COLOR: Record<string, string> = {
-  s: "#fafafa",
-  c: "oklch(0.7 0.17 145)",
-  d: "oklch(0.72 0.16 250)",
-  h: "oklch(0.7 0.20 22)",
+const SUIT_COLOR_ON_LIGHT: Record<string, string> = {
+  "♠": "#0a0a0a",
+  "♣": "oklch(0.5 0.16 145)",
+  "♦": "oklch(0.5 0.18 250)",
+  "♥": "oklch(0.55 0.22 22)",
 };
 
 const EMERALD = "oklch(0.696 0.205 155)";
-const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
 
 export type CardPickerSheetProps = {
   open: boolean;
@@ -65,7 +69,7 @@ export function CardPickerSheet({
   onPick,
   onClose,
 }: CardPickerSheetProps) {
-  // Active suit filter. Resets to "s" each time the sheet opens so the
+  // Active suit filter. Resets to "♠" each time the sheet opens so the
   // user lands on a predictable starting point. We can't trust prior
   // selection across opens — the next slot might be a wholly different
   // intent (e.g. picker just closed on hero card 1, opens for hero
@@ -75,11 +79,11 @@ export function CardPickerSheet({
   // sentinel — this avoids the react-hooks/set-state-in-effect lint
   // rule that would fire on the more obvious useEffect-on-open pattern.
   const [activeSuit, setActiveSuit] =
-    useState<(typeof SUITS)[number]>("s");
+    useState<(typeof SUITS)[number]>("♠");
   const [lastOpen, setLastOpen] = useState(open);
   if (open !== lastOpen) {
     setLastOpen(open);
-    if (open) setActiveSuit("s");
+    if (open) setActiveSuit("♠");
   }
 
   const handlePick = (rank: string) => {
@@ -98,7 +102,8 @@ export function CardPickerSheet({
       maxHeightVh={70}
     >
       {/* Suit row — 4 buttons, taller than the brief's 40pt baseline so
-          we hit the 44pt accessibility minimum. */}
+          we hit the 44pt accessibility minimum. Spade uses the
+          on-dark color so it stays visible against the dark sheet bg. */}
       <div
         className="grid"
         style={{
@@ -123,21 +128,21 @@ export function CardPickerSheet({
                 border: active
                   ? `1px solid ${EMERALD}`
                   : "1px solid rgba(255,255,255,0.12)",
-                color: SUIT_COLOR[s],
+                color: SUIT_COLOR_ON_DARK[s],
                 fontSize: 22,
                 lineHeight: 1,
                 cursor: "pointer",
               }}
             >
-              {SUIT_GLYPH[s]}
+              {s}
             </button>
           );
         })}
       </div>
 
       {/* Rank grid — 7 columns (A K Q J T 9 8 / 7 6 5 4 3 2 ·).
-          The 14th cell is a placeholder so the grid stays uniform; we
-          could surface a Muck button there in a future revision. */}
+          Each cell uses the on-LIGHT color since the cell bg is
+          white. Using on-dark would render spade white-on-white. */}
       <div
         className="grid"
         style={{
@@ -162,7 +167,9 @@ export function CardPickerSheet({
                 border: taken
                   ? "1px dashed rgba(255,255,255,0.10)"
                   : "1px solid rgba(0,0,0,0.1)",
-                color: taken ? "oklch(0.4 0 0)" : SUIT_COLOR[activeSuit],
+                color: taken
+                  ? "oklch(0.4 0 0)"
+                  : SUIT_COLOR_ON_LIGHT[activeSuit],
                 fontSize: 18,
                 fontWeight: 700,
                 cursor: taken ? "not-allowed" : "pointer",
@@ -176,7 +183,7 @@ export function CardPickerSheet({
               }}
             >
               <span>{rank}</span>
-              <span style={{ fontSize: 14 }}>{SUIT_GLYPH[activeSuit]}</span>
+              <span style={{ fontSize: 14 }}>{activeSuit}</span>
             </button>
           );
         })}
@@ -191,7 +198,6 @@ export function CardPickerSheet({
         />
       </div>
 
-      {/* Hint footer — only renders if there's a previewable preview */}
       <div
         className="px-3 pb-2 font-mono"
         style={{
@@ -201,8 +207,7 @@ export function CardPickerSheet({
           textAlign: "center",
         }}
       >
-        Tap a suit, then a rank · {EMERALD_BRIGHT === EMERALD_BRIGHT ? "" : ""}
-        Esc or drag down to cancel
+        Tap a suit, then a rank · drag down or tap outside to cancel
       </div>
     </BottomSheet>
   );
