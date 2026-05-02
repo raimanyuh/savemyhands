@@ -38,6 +38,7 @@ import {
 } from "@/components/poker/hand-eval";
 import { buildAndSaveHand } from "@/lib/recorder/save-hand";
 import { VerticalFelt } from "./VerticalFelt";
+import { CardPickerSheet } from "./CardPickerSheet";
 
 const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
@@ -53,6 +54,14 @@ export default function MobileRecorder() {
   );
   const [savePending, startSave] = useTransition();
   const [setupOpen, setSetupOpen] = useState(false);
+  // Picker target — null when closed. Carries enough info for the pick
+  // handler to dispatch the right reducer event and to advance to the
+  // next empty slot in the same row when one exists.
+  const [pickerTarget, setPickerTarget] = useState<
+    | { kind: "hero"; slot: number }
+    | { kind: "board"; slot: number; boardIdx: 0 | 1 }
+    | null
+  >(null);
 
   const N = state.playerCount;
   const heroPos = state.heroPosition;
@@ -262,21 +271,89 @@ export default function MobileRecorder() {
     return set;
   }, [state.actions, state.phase]);
 
-  // Card-picker stub. Real CardPickerSheet lands in the next commit;
-  // for now, clicking a card slot routes through window.alert with a
-  // hint to use desktop. This keeps the Felt's onHeroCardSlot /
-  // onBoardSlot wiring in place so we don't have to refactor when the
-  // sheet ships.
-  const openHeroCardSlot = (slotIdx: number) => {
-    window.alert(
-      `Card picker for hero hole #${slotIdx + 1} lands in the next iteration. Use desktop to enter cards for now.`,
-    );
+  // Picker open handlers — set the target and let the sheet render.
+  const openHeroCardSlot = (slot: number) =>
+    setPickerTarget({ kind: "hero", slot });
+  const openBoardSlot = (slot: number, boardIdx: 0 | 1) =>
+    setPickerTarget({ kind: "board", slot, boardIdx });
+
+  // All cards currently on the felt — the picker greys these out so the
+  // user can't double-pick.
+  const usedCards = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of state.players) {
+      for (const c of p.cards ?? []) if (c) set.add(c);
+    }
+    for (const c of state.board) if (c) set.add(c);
+    for (const c of state.board2) if (c) set.add(c);
+    return set;
+  }, [state.players, state.board, state.board2]);
+
+  // Picker pick handler. Dispatches the relevant reducer event, then
+  // advances to the next empty slot in the same row if one exists.
+  const handlePick = (card: string) => {
+    if (!pickerTarget) return;
+    if (pickerTarget.kind === "hero") {
+      dispatch({ type: "setHeroCard", idx: pickerTarget.slot, card });
+      // Auto-advance through the hole-card row.
+      const heroPlayer = state.players[heroPos];
+      const cards = heroPlayer?.cards ?? [];
+      const next = nextEmptyAfter(cards, pickerTarget.slot, card);
+      if (next === null) setPickerTarget(null);
+      else setPickerTarget({ kind: "hero", slot: next });
+      return;
+    }
+    if (pickerTarget.kind === "board") {
+      dispatch({
+        type: "setBoard",
+        idx: pickerTarget.slot,
+        card,
+        boardIdx: pickerTarget.boardIdx,
+      });
+      // Auto-advance through the flop's three slots; turn/river are
+      // single-card so the next-empty check naturally returns null.
+      const board =
+        pickerTarget.boardIdx === 1 ? state.board2 : state.board;
+      const flopRange =
+        pickerTarget.slot >= 0 && pickerTarget.slot <= 2 ? [0, 2] : null;
+      if (flopRange) {
+        const next = nextEmptyInRange(
+          board,
+          flopRange[0],
+          flopRange[1],
+          pickerTarget.slot,
+          card,
+        );
+        if (next === null) setPickerTarget(null);
+        else
+          setPickerTarget({
+            kind: "board",
+            slot: next,
+            boardIdx: pickerTarget.boardIdx,
+          });
+      } else {
+        setPickerTarget(null);
+      }
+    }
   };
-  const openBoardSlot = (slotIdx: number, boardIdx: 0 | 1) => {
-    window.alert(
-      `Card picker for board ${boardIdx + 1} slot #${slotIdx + 1} lands in the next iteration. Use desktop to enter cards for now.`,
-    );
-  };
+
+  const pickerTitle = (() => {
+    if (!pickerTarget) return "";
+    if (pickerTarget.kind === "hero") {
+      const need = state.players[heroPos]?.cards?.length ?? 2;
+      return `Hero card ${pickerTarget.slot + 1} of ${need}`;
+    }
+    const boardLabel =
+      pickerTarget.slot <= 2
+        ? "Flop"
+        : pickerTarget.slot === 3
+          ? "Turn"
+          : "River";
+    const slotInStreet =
+      pickerTarget.slot <= 2 ? `${pickerTarget.slot + 1} of 3` : "";
+    const board2Tag = pickerTarget.boardIdx === 1 ? " (board 2)" : "";
+    return `${boardLabel}${slotInStreet ? ` · ${slotInStreet}` : ""}${board2Tag}`;
+  })();
 
   return (
     <div
@@ -553,6 +630,17 @@ export default function MobileRecorder() {
         )}
       </div>
 
+      {/* Card picker — mounted at the recorder root so it can layer over
+          everything (felt, action bar, setup sheet). The sheet itself
+          handles backdrop tap / Esc / drag-down dismiss. */}
+      <CardPickerSheet
+        open={pickerTarget !== null}
+        title={pickerTitle}
+        used={usedCards}
+        onPick={handlePick}
+        onClose={() => setPickerTarget(null)}
+      />
+
       {/* Setup sheet placeholder — real bottom sheet lands next iteration */}
       {setupOpen && (
         <div
@@ -618,6 +706,42 @@ function nextStreetLabel(phase: string): string {
   if (phase === "flop") return "turn";
   if (phase === "turn") return "river";
   return "next";
+}
+
+// Given a card array and the slot we just filled, find the next empty
+// slot index. `justPicked` is the card we just placed — the cards array
+// in state hasn't been updated yet by the time this runs (dispatch is
+// async-ish), so we treat that slot as filled. Returns null if every
+// slot in the row is full.
+function nextEmptyAfter(
+  cards: (string | null)[],
+  filledSlot: number,
+  justPicked: string,
+): number | null {
+  for (let i = 0; i < cards.length; i++) {
+    if (i === filledSlot) continue;
+    if (!cards[i]) return i;
+  }
+  // Re-scan including the slot we filled — handles the case where the
+  // user re-picks a slot that was already non-empty (replacing it). The
+  // justPicked card now lives there; nothing else to advance to.
+  void justPicked;
+  return null;
+}
+
+function nextEmptyInRange(
+  board: (string | null)[],
+  lo: number,
+  hi: number,
+  filledSlot: number,
+  justPicked: string,
+): number | null {
+  for (let i = lo; i <= hi; i++) {
+    if (i === filledSlot) continue;
+    if (!board[i]) return i;
+  }
+  void justPicked;
+  return null;
 }
 
 function ActionButton({
