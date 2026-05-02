@@ -35,8 +35,21 @@ function getServerSnapshot(): Breakpoint {
 
 function subscribe(callback: () => void): () => void {
   if (typeof window === "undefined") return () => {};
+  // Subscribe to both raw window resize and matchMedia breakpoint
+  // crossings. matchMedia fires more reliably when Chrome DevTools'
+  // device toolbar swaps emulated viewports — the resize event alone
+  // sometimes misses these, leaving the hook stuck on "desktop" even
+  // after the user picks an iPhone preset.
+  const mqMobile = window.matchMedia(`(max-width: ${MOBILE_MAX}px)`);
+  const mqTablet = window.matchMedia(`(max-width: ${TABLET_MAX}px)`);
   window.addEventListener("resize", callback);
-  return () => window.removeEventListener("resize", callback);
+  mqMobile.addEventListener("change", callback);
+  mqTablet.addEventListener("change", callback);
+  return () => {
+    window.removeEventListener("resize", callback);
+    mqMobile.removeEventListener("change", callback);
+    mqTablet.removeEventListener("change", callback);
+  };
 }
 
 export function useIsMobile(): {
