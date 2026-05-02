@@ -15,7 +15,7 @@
 // lift upward proportionally so the dock can't occlude the hero plate.
 
 import type { RecorderState } from "@/components/poker/engine";
-import { isPotLimit } from "@/components/poker/engine";
+import { holeCardCount, isPotLimit } from "@/components/poker/engine";
 import FannedPlayingCard from "@/components/poker/FannedPlayingCard";
 
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
@@ -229,6 +229,7 @@ export function VerticalFelt({
                 isHero,
                 phase: state.phase,
                 fan: isPotLimit(state.gameType),
+                expectedCardCount: holeCardCount(state.gameType),
                 onHeroCardSlot: isHero ? onHeroCardSlot : undefined,
               })}
             </div>
@@ -456,21 +457,28 @@ function renderHoleCards({
   isHero,
   phase,
   fan,
+  expectedCardCount,
   onHeroCardSlot,
 }: {
   player: { cards: (string | null)[] | null };
   isHero: boolean;
   phase: string;
   fan: boolean;
+  // How many cards the current game expects per player (2 NLHE,
+  // 4 PLO4, 5 PLO5). Used to render the right number of face-down
+  // backs for villains — their `cards` array starts as null in
+  // defaultPlayers and only gets populated at showdown, so falling
+  // back to (cards?.length ?? 2) would always show 2 backs in PLO.
+  expectedCardCount: number;
   onHeroCardSlot?: (slotIdx: number) => void;
 }) {
   const cards = player.cards;
-  // Villain pre-showdown: render face-down backs (one per expected card,
-  // or two if cards is null). When fanned, backs use the larger
-  // FannedPlayingCard dimensions so the fan doesn't visually shrink
-  // the moment a villain mucks vs. shows.
+  // Villain pre-showdown: render face-down backs (one per expected
+  // card). When fanned, backs use the larger FannedPlayingCard
+  // dimensions so the fan doesn't visually shrink the moment a villain
+  // mucks vs. shows.
   if (!isHero && phase !== "showdown" && phase !== "done") {
-    const count = cards?.length ?? 2;
+    const count = cards?.length || expectedCardCount;
     const items = Array.from({ length: count }).map((_, i) =>
       fan ? <FannedCardBack key={i} size="sm" /> : <CardBack key={i} size="sm" />,
     );

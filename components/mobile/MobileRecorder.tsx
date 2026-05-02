@@ -444,16 +444,35 @@ export default function MobileRecorder() {
         idx: pickerTarget.slot,
         card,
       });
-      // Auto-advance through the villain's hole-card row.
+      // Auto-advance through the villain's hole-card row. We can't
+      // read the post-dispatch state here, so we project what the
+      // cards array will look like AFTER the dispatch settles:
+      // (existing entries) + (just-picked card at pickerTarget.slot).
+      // Default villains start with cards: null so we have to use the
+      // game's expected hole-card count rather than (cards?.length ?? 2)
+      // — otherwise PLO would only advance through 2 slots, and the
+      // first pick would close the picker entirely (cards.length === 0
+      // when null).
+      const need = holeCardCount(state.gameType);
       const villain = state.players[pickerTarget.seat];
-      const cards = villain?.cards ?? [];
-      const next = nextEmptyAfter(cards, pickerTarget.slot, card);
-      if (next === null) setPickerTarget(null);
+      const projected: (string | null)[] = Array.from({ length: need }, (_, i) => {
+        if (i === pickerTarget.slot) return card;
+        return villain?.cards?.[i] ?? null;
+      });
+      let nextSlot: number | null = null;
+      for (let i = 0; i < need; i++) {
+        if (i === pickerTarget.slot) continue;
+        if (!projected[i]) {
+          nextSlot = i;
+          break;
+        }
+      }
+      if (nextSlot === null) setPickerTarget(null);
       else
         setPickerTarget({
           kind: "villain",
           seat: pickerTarget.seat,
-          slot: next,
+          slot: nextSlot,
         });
     }
   };
@@ -465,8 +484,9 @@ export default function MobileRecorder() {
       return `Hero card ${pickerTarget.slot + 1} of ${need}`;
     }
     if (pickerTarget.kind === "villain") {
-      const v = state.players[pickerTarget.seat];
-      const need = v?.cards?.length ?? 2;
+      // Same gameType-derived count as the auto-advance path — villain
+      // .cards starts as null so length-based fallback would mislabel.
+      const need = holeCardCount(state.gameType);
       const label = posNames[pickerTarget.seat] ?? "Villain";
       return `${label} card ${pickerTarget.slot + 1} of ${need}`;
     }
@@ -552,25 +572,16 @@ export default function MobileRecorder() {
             {state.doubleBoardOn ? " · 2B" : ""}
           </div>
         </div>
-        <button
-          type="button"
-          aria-label="Setup"
-          onClick={() => setSetupOpen(true)}
-          className="flex items-center justify-center"
-          style={{
-            width: 40,
-            height: 40,
-            color: "oklch(0.715 0 0)",
-            background: "transparent",
-            border: 0,
-            borderRadius: 10,
-          }}
-        >
-          <Settings size={20} />
-        </button>
+        {/* Right-side header slot is intentionally empty — the gear
+            moved into the meta strip's left position so it occupies
+            the same place as desktop's "Stakes & seats" trigger. */}
+        <div style={{ width: 40, height: 40 }} />
       </header>
 
-      {/* Meta strip — 36pt */}
+      {/* Meta strip — 36pt. Left slot doubles as the settings gear
+          during setup (when settings are editable) and as the street
+          pill during play (settings are locked once startPlay fires,
+          so the gear isn't useful mid-hand). */}
       <div
         className="flex items-center gap-2 shrink-0"
         style={{
@@ -578,31 +589,47 @@ export default function MobileRecorder() {
           borderBottom: "1px solid rgba(255,255,255,0.05)",
         }}
       >
-        <span
-          className="inline-flex items-center font-mono font-semibold"
-          style={{
-            height: 26,
-            padding: "0 9px",
-            borderRadius: 7,
-            background:
-              state.phase === "setup"
-                ? "oklch(0.215 0 0)"
-                : "oklch(0.30 0.10 155 / 0.35)",
-            border: `1px solid ${
-              state.phase === "setup"
-                ? "rgba(255,255,255,0.12)"
-                : "oklch(0.696 0.205 155 / 0.35)"
-            }`,
-            fontSize: 11,
-            color:
-              state.phase === "setup"
-                ? "oklch(0.92 0 0)"
-                : EMERALD_BRIGHT,
-            letterSpacing: "0.04em",
-          }}
-        >
-          {streetLabel}
-        </span>
+        {state.phase === "setup" ? (
+          <button
+            type="button"
+            aria-label="Setup"
+            onClick={() => setSetupOpen(true)}
+            className="inline-flex items-center justify-center"
+            style={{
+              height: 30,
+              padding: "0 10px",
+              borderRadius: 8,
+              background: "oklch(0.215 0 0)",
+              border: "1px solid rgba(255,255,255,0.18)",
+              color: "oklch(0.92 0 0)",
+              gap: 6,
+            }}
+          >
+            <Settings size={14} />
+            <span
+              className="font-mono font-semibold"
+              style={{ fontSize: 11, letterSpacing: "0.04em" }}
+            >
+              Setup
+            </span>
+          </button>
+        ) : (
+          <span
+            className="inline-flex items-center font-mono font-semibold"
+            style={{
+              height: 26,
+              padding: "0 9px",
+              borderRadius: 7,
+              background: "oklch(0.30 0.10 155 / 0.35)",
+              border: "1px solid oklch(0.696 0.205 155 / 0.35)",
+              fontSize: 11,
+              color: EMERALD_BRIGHT,
+              letterSpacing: "0.04em",
+            }}
+          >
+            {streetLabel}
+          </span>
+        )}
         <span
           className="font-mono font-semibold"
           style={{

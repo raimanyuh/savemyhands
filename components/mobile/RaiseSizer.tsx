@@ -157,26 +157,72 @@ function useSizerControls(props: RaiseSizerProps) {
 
 function AmountReadout({
   amount,
+  setAmount,
   multiplier,
+  maxAllowed,
   size = "lg",
 }: {
   amount: string;
+  setAmount: (v: string) => void;
   multiplier: number;
+  maxAllowed: number;
   size?: "lg" | "md";
 }) {
+  // Editable big-text amount. inputMode="numeric" pops the iOS / Android
+  // numpad instead of the full keyboard; type="text" + pattern
+  // suppresses the desktop spinner buttons that would otherwise show
+  // up with type="number". Filtering non-digits in onChange keeps the
+  // value clean — the slider and chip presets write to the same state.
+  const fontSize = size === "lg" ? 56 : 36;
   return (
     <div className="text-center">
       <div
-        className="font-semibold"
+        className="inline-flex items-baseline justify-center font-semibold"
         style={{
-          fontSize: size === "lg" ? 56 : 36,
           color: "white",
           fontVariantNumeric: "tabular-nums",
           letterSpacing: "-0.02em",
           lineHeight: 1,
         }}
       >
-        ${amount}
+        <span style={{ fontSize: fontSize * 0.6 }}>$</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={amount}
+          onChange={(e) => {
+            const v = e.target.value.replace(/[^0-9]/g, "");
+            // Clamp to maxAllowed so a fat-finger at the high end can't
+            // commit an illegal raise. Below-min values are flagged by
+            // the confirm button's disabled state.
+            if (v === "") {
+              setAmount("");
+              return;
+            }
+            const n = Number(v);
+            setAmount(String(Math.min(maxAllowed, n)));
+          }}
+          onFocus={(e) => e.currentTarget.select()}
+          aria-label="Bet amount"
+          style={{
+            background: "transparent",
+            border: 0,
+            outline: 0,
+            color: "white",
+            fontSize,
+            fontWeight: 600,
+            fontVariantNumeric: "tabular-nums",
+            letterSpacing: "-0.02em",
+            textAlign: "center",
+            // Width grows with content; cap at a reasonable max so the
+            // input doesn't push siblings off-screen on small phones.
+            width: `${Math.max(2, amount.length + 1)}ch`,
+            maxWidth: "100%",
+            padding: 0,
+            lineHeight: 1,
+          }}
+        />
       </div>
       <div
         className="font-mono"
@@ -381,7 +427,9 @@ function ModalSizer(props: RaiseSizerProps) {
       >
         <AmountReadout
           amount={ctrl.amount}
+          setAmount={ctrl.setAmount}
           multiplier={ctrl.multiplier}
+          maxAllowed={ctrl.maxAllowed}
           size="lg"
         />
         <Slider
@@ -468,7 +516,9 @@ function DrawerSizer(props: RaiseSizerProps) {
         </div>
         <AmountReadout
           amount={ctrl.amount}
+          setAmount={ctrl.setAmount}
           multiplier={ctrl.multiplier}
+          maxAllowed={ctrl.maxAllowed}
           size="md"
         />
         <Slider
