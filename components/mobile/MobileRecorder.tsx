@@ -62,6 +62,7 @@ export default function MobileRecorder() {
   const [pickerTarget, setPickerTarget] = useState<
     | { kind: "hero"; slot: number }
     | { kind: "board"; slot: number; boardIdx: 0 | 1 }
+    | { kind: "villain"; seat: number; slot: number }
     | null
   >(null);
   const [sizerOpen, setSizerOpen] = useState(false);
@@ -337,6 +338,26 @@ export default function MobileRecorder() {
       } else {
         setPickerTarget(null);
       }
+      return;
+    }
+    if (pickerTarget.kind === "villain") {
+      dispatch({
+        type: "setOppCard",
+        seat: pickerTarget.seat,
+        idx: pickerTarget.slot,
+        card,
+      });
+      // Auto-advance through the villain's hole-card row.
+      const villain = state.players[pickerTarget.seat];
+      const cards = villain?.cards ?? [];
+      const next = nextEmptyAfter(cards, pickerTarget.slot, card);
+      if (next === null) setPickerTarget(null);
+      else
+        setPickerTarget({
+          kind: "villain",
+          seat: pickerTarget.seat,
+          slot: next,
+        });
     }
   };
 
@@ -345,6 +366,12 @@ export default function MobileRecorder() {
     if (pickerTarget.kind === "hero") {
       const need = state.players[heroPos]?.cards?.length ?? 2;
       return `Hero card ${pickerTarget.slot + 1} of ${need}`;
+    }
+    if (pickerTarget.kind === "villain") {
+      const v = state.players[pickerTarget.seat];
+      const need = v?.cards?.length ?? 2;
+      const label = posNames[pickerTarget.seat] ?? "Villain";
+      return `${label} card ${pickerTarget.slot + 1} of ${need}`;
     }
     const boardLabel =
       pickerTarget.slot <= 2
@@ -357,6 +384,22 @@ export default function MobileRecorder() {
     const board2Tag = pickerTarget.boardIdx === 1 ? " (board 2)" : "";
     return `${boardLabel}${slotInStreet ? ` · ${slotInStreet}` : ""}${board2Tag}`;
   })();
+
+  // Showdown helpers — used by the Showdown panel below.
+  const isShowdown = state.phase === "showdown" || state.phase === "done";
+  const muckedSet = useMemo(
+    () => new Set(state.muckedSeats),
+    [state.muckedSeats],
+  );
+  const villainSurvivors = useMemo(() => {
+    return state.players
+      .filter((p, i) => i !== heroPos)
+      .filter((p) => !foldedSeats.has(p.seat));
+  }, [state.players, foldedSeats, heroPos]);
+  const allVillainsDecided = villainSurvivors.every((v) => {
+    if (muckedSet.has(v.seat)) return true;
+    return v.cards?.every(Boolean);
+  });
 
   return (
     <div
@@ -509,7 +552,7 @@ export default function MobileRecorder() {
         />
       </div>
 
-      {/* Action bar — fixed-height 56pt buttons + step counter */}
+      {/* Bottom region — action bar during play, showdown panel at the end */}
       <div
         className="shrink-0"
         style={{
@@ -517,93 +560,122 @@ export default function MobileRecorder() {
             "8px 10px max(10px, env(safe-area-inset-bottom)) 10px",
           background: "oklch(0.18 0 0)",
           borderTop: "1px solid rgba(255,255,255,0.08)",
+          maxHeight: "50vh",
+          overflowY: "auto",
         }}
       >
-        <div
-          className="flex items-center justify-between"
-          style={{
-            marginBottom: 6,
-            fontSize: 11,
-            color: "oklch(0.55 0 0)",
-            fontFamily:
-              "var(--font-mono, ui-monospace, SFMono-Regular, monospace)",
-          }}
-        >
-          <span>
-            {state.actions.length === 0
-              ? state.phase === "setup"
-                ? "Setup"
-                : "Start of hand"
-              : `Step ${state.actions.length}`}
-          </span>
-          <button
-            type="button"
-            disabled={state.actions.length === 0}
-            onClick={() => dispatch({ type: "undoAction" })}
-            style={{
-              background: "transparent",
-              border: 0,
-              color: "oklch(0.715 0 0)",
-              padding: "4px 8px",
-              borderRadius: 6,
-              opacity: state.actions.length === 0 ? 0.4 : 1,
-              fontSize: 12,
+        {!isShowdown && (
+          <>
+            <div
+              className="flex items-center justify-between"
+              style={{
+                marginBottom: 6,
+                fontSize: 11,
+                color: "oklch(0.55 0 0)",
+                fontFamily:
+                  "var(--font-mono, ui-monospace, SFMono-Regular, monospace)",
+              }}
+            >
+              <span>
+                {state.actions.length === 0
+                  ? state.phase === "setup"
+                    ? "Setup"
+                    : "Start of hand"
+                  : `Step ${state.actions.length}`}
+              </span>
+              <button
+                type="button"
+                disabled={state.actions.length === 0}
+                onClick={() => dispatch({ type: "undoAction" })}
+                style={{
+                  background: "transparent",
+                  border: 0,
+                  color: "oklch(0.715 0 0)",
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  opacity: state.actions.length === 0 ? 0.4 : 1,
+                  fontSize: 12,
+                }}
+              >
+                ↶ Undo
+              </button>
+            </div>
+            <div
+              className="grid"
+              style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}
+            >
+              <ActionButton
+                kind="fold"
+                disabled={!derived || activeSeat === null}
+                onClick={() =>
+                  activeSeat !== null &&
+                  dispatch({
+                    type: "recordAction",
+                    action: { seat: activeSeat, action: "fold" },
+                  })
+                }
+                label="Fold"
+              />
+              <ActionButton
+                kind="cc"
+                disabled={!derived || activeSeat === null}
+                onClick={() => {
+                  if (activeSeat === null || !derived) return;
+                  if (derived.canCheck)
+                    dispatch({
+                      type: "recordAction",
+                      action: { seat: activeSeat, action: "check" },
+                    });
+                  else
+                    dispatch({
+                      type: "recordAction",
+                      action: { seat: activeSeat, action: "call" },
+                    });
+                }}
+                label={derived?.canCheck ? "Check" : "Call"}
+                sub={
+                  derived && !derived.canCheck && activeSeat !== null
+                    ? `$${derived.toCall}`
+                    : undefined
+                }
+              />
+              <ActionButton
+                kind="br"
+                disabled={!derived || activeSeat === null}
+                onClick={() => setSizerOpen(true)}
+                label={
+                  derived && derived.lastBet === 0 && activeSeat !== null
+                    ? "Bet"
+                    : "Raise"
+                }
+              />
+            </div>
+          </>
+        )}
+
+        {isShowdown && (
+          <ShowdownPanel
+            villains={villainSurvivors}
+            posNames={posNames}
+            muckedSet={muckedSet}
+            heroAlone={villainSurvivors.every((v) => muckedSet.has(v.seat))}
+            onShowVillain={(seat) =>
+              setPickerTarget({ kind: "villain", seat, slot: 0 })
+            }
+            onMuckVillain={(seat, mucked) =>
+              dispatch({ type: "setMuck", seat, mucked })
+            }
+            onClearVillainCards={(seat) => {
+              const v = state.players[seat];
+              for (const c of v?.cards ?? []) {
+                if (c) dispatch({ type: "clearCard", card: c });
+              }
             }}
-          >
-            ↶ Undo
-          </button>
-        </div>
-        <div
-          className="grid"
-          style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}
-        >
-          <ActionButton
-            kind="fold"
-            disabled={!derived || activeSeat === null}
-            onClick={() =>
-              activeSeat !== null &&
-              dispatch({
-                type: "recordAction",
-                action: { seat: activeSeat, action: "fold" },
-              })
-            }
-            label="Fold"
+            allDecided={allVillainsDecided}
           />
-          <ActionButton
-            kind="cc"
-            disabled={!derived || activeSeat === null}
-            onClick={() => {
-              if (activeSeat === null || !derived) return;
-              if (derived.canCheck)
-                dispatch({
-                  type: "recordAction",
-                  action: { seat: activeSeat, action: "check" },
-                });
-              else
-                dispatch({
-                  type: "recordAction",
-                  action: { seat: activeSeat, action: "call" },
-                });
-            }}
-            label={derived?.canCheck ? "Check" : "Call"}
-            sub={
-              derived && !derived.canCheck && activeSeat !== null
-                ? `$${derived.toCall}`
-                : undefined
-            }
-          />
-          <ActionButton
-            kind="br"
-            disabled={!derived || activeSeat === null}
-            onClick={() => setSizerOpen(true)}
-            label={
-              derived && derived.lastBet === 0 && activeSeat !== null
-                ? "Bet"
-                : "Raise"
-            }
-          />
-        </div>
-        {(state.phase === "showdown" || state.phase === "done") && (
+        )}
+
+        {isShowdown && (
           <button
             type="button"
             onClick={saveHand}
@@ -727,6 +799,203 @@ function nextEmptyInRange(
   }
   void justPicked;
   return null;
+}
+
+function ShowdownPanel({
+  villains,
+  posNames,
+  muckedSet,
+  heroAlone,
+  onShowVillain,
+  onMuckVillain,
+  onClearVillainCards,
+  allDecided,
+}: {
+  villains: Player[];
+  posNames: readonly string[];
+  muckedSet: Set<number>;
+  heroAlone: boolean;
+  onShowVillain: (seat: number) => void;
+  onMuckVillain: (seat: number, mucked: boolean) => void;
+  onClearVillainCards: (seat: number) => void;
+  allDecided: boolean;
+}) {
+  if (heroAlone) {
+    return (
+      <div
+        style={{
+          padding: "10px 4px 0",
+          fontSize: 12,
+          color: "oklch(0.715 0 0)",
+          textAlign: "center",
+        }}
+      >
+        Everyone else folded or mucked.
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col" style={{ gap: 6, padding: "4px 0" }}>
+      <div
+        className="flex items-center"
+        style={{
+          fontSize: 10,
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          color: EMERALD_BRIGHT,
+          marginBottom: 2,
+        }}
+      >
+        Showdown
+        {!allDecided && (
+          <span
+            className="ml-2"
+            style={{
+              fontSize: 10,
+              color: "oklch(0.55 0 0)",
+              letterSpacing: 0,
+              textTransform: "none",
+              fontStyle: "italic",
+            }}
+          >
+            · resolve every villain to save
+          </span>
+        )}
+      </div>
+      {villains.map((v) => {
+        const isMucked = muckedSet.has(v.seat);
+        const cardsFilled = !!v.cards?.every(Boolean);
+        return (
+          <div
+            key={v.seat}
+            className="flex items-center"
+            style={{
+              gap: 8,
+              padding: "8px 10px",
+              borderRadius: 10,
+              background: "oklch(0.215 0 0)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              minHeight: 44,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                color: "oklch(0.715 0 0)",
+                minWidth: 36,
+              }}
+            >
+              {posNames[v.seat]}
+            </span>
+            {v.name && (
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "oklch(0.92 0 0)",
+                  maxWidth: 88,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {v.name}
+              </span>
+            )}
+            <span className="flex-1" />
+            {cardsFilled ? (
+              <>
+                <span
+                  className="font-mono"
+                  style={{
+                    fontSize: 12,
+                    color: EMERALD_BRIGHT,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {v.cards!.join(" ")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onClearVillainCards(v.seat)}
+                  style={{
+                    fontSize: 11,
+                    color: "oklch(0.715 0 0)",
+                    background: "transparent",
+                    border: 0,
+                    padding: "4px 6px",
+                  }}
+                >
+                  Edit
+                </button>
+              </>
+            ) : isMucked ? (
+              <>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontStyle: "italic",
+                    color: "oklch(0.55 0 0)",
+                  }}
+                >
+                  mucks
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onMuckVillain(v.seat, false)}
+                  style={{
+                    fontSize: 11,
+                    color: "oklch(0.715 0 0)",
+                    background: "transparent",
+                    border: 0,
+                    padding: "4px 6px",
+                  }}
+                >
+                  Undo
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onMuckVillain(v.seat, true)}
+                  style={{
+                    height: 32,
+                    padding: "0 12px",
+                    borderRadius: 8,
+                    background: "transparent",
+                    border: "1px solid rgba(255,255,255,0.18)",
+                    color: "oklch(0.92 0 0)",
+                    fontSize: 12,
+                  }}
+                >
+                  Muck
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onShowVillain(v.seat)}
+                  style={{
+                    height: 32,
+                    padding: "0 14px",
+                    borderRadius: 8,
+                    background: EMERALD,
+                    color: BG,
+                    fontWeight: 600,
+                    border: 0,
+                    fontSize: 12,
+                  }}
+                >
+                  Show
+                </button>
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function ActionButton({
