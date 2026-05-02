@@ -30,7 +30,7 @@ import {
   initialStateFromDefaults,
   reducer,
 } from "@/components/poker/engine";
-import type { Player } from "@/components/poker/engine";
+import type { Player, RecorderState } from "@/components/poker/engine";
 import {
   awardPots,
   awardPotsMultiBoard,
@@ -260,6 +260,37 @@ export default function MobileRecorder() {
     for (const a of state.actions) if (a.action === "fold") set.add(a.seat);
     return set;
   }, [state.actions]);
+
+  // Setup-phase bubbles — SB/BB (and straddle if on) for normal hands,
+  // flat ante on every seat for bomb pots. Mirrors the desktop felt's
+  // setupBets so the user can see who's posting before the hand begins.
+  // During play, deriveStreet's bets take over and this is unused.
+  const setupBets = useMemo(() => {
+    if (state.phase !== "setup") return {};
+    const b: Record<number, number> = {};
+    if (state.bombPotOn) {
+      for (let i = 0; i < N; i++) b[i] = state.bombPotAmt;
+      return b;
+    }
+    if (N === 2) {
+      b[0] = state.sb;
+      b[1] = state.bb;
+    } else {
+      b[1] = state.sb;
+      b[2] = state.bb;
+      if (state.straddleOn && N >= 4) b[3] = state.straddleAmt;
+    }
+    return b;
+  }, [
+    state.phase,
+    N,
+    state.sb,
+    state.bb,
+    state.straddleOn,
+    state.straddleAmt,
+    state.bombPotOn,
+    state.bombPotAmt,
+  ]);
 
   const checkedSeats = useMemo(() => {
     const set = new Set<number>();
@@ -539,7 +570,9 @@ export default function MobileRecorder() {
           committed={committed}
           activeSeat={activeSeat}
           foldedSeats={foldedSeats}
-          streetBets={derived?.bets ?? {}}
+          streetBets={
+            state.phase === "setup" ? setupBets : derived?.bets ?? {}
+          }
           checkedSeats={checkedSeats}
           onHeroCardSlot={
             state.phase === "setup" ? openHeroCardSlot : undefined
@@ -564,7 +597,9 @@ export default function MobileRecorder() {
           overflowY: "auto",
         }}
       >
-        {!isShowdown && (
+        {state.phase === "setup" && <SetupCTA state={state} dispatch={dispatch} />}
+
+        {state.phase !== "setup" && !isShowdown && (
           <>
             <div
               className="flex items-center justify-between"
@@ -578,9 +613,7 @@ export default function MobileRecorder() {
             >
               <span>
                 {state.actions.length === 0
-                  ? state.phase === "setup"
-                    ? "Setup"
-                    : "Start of hand"
+                  ? "Start of hand"
                   : `Step ${state.actions.length}`}
               </span>
               <button
@@ -799,6 +832,49 @@ function nextEmptyInRange(
   }
   void justPicked;
   return null;
+}
+
+function SetupCTA({
+  state,
+  dispatch,
+}: {
+  state: RecorderState;
+  dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
+}) {
+  const heroCards = state.players[state.heroPosition]?.cards ?? [];
+  const need = heroCards.length;
+  const filledCount = heroCards.filter(Boolean).length;
+  const filled = need > 0 && filledCount === need;
+  // PLO modes need 4 or 5 cards; surface the count in both states so
+  // the user knows how many more to pick. Without this, the disabled
+  // CTA at "Tap hero hole cards to start" was ambiguous after 2 picks
+  // in PLO5 — the user thought they were done.
+  const label = filled
+    ? "Start hand"
+    : need > 2
+      ? `Pick hero hole cards (${filledCount} / ${need})`
+      : filledCount === 0
+        ? "Tap hero hole cards to start"
+        : `Pick hero hole cards (${filledCount} / ${need})`;
+  return (
+    <button
+      type="button"
+      disabled={!filled}
+      onClick={() => dispatch({ type: "startPlay" })}
+      style={{
+        width: "100%",
+        height: 56,
+        borderRadius: 12,
+        background: filled ? EMERALD : "oklch(0.215 0 0)",
+        color: filled ? BG : "oklch(0.55 0 0)",
+        fontWeight: 600,
+        fontSize: 15,
+        border: 0,
+      }}
+    >
+      {label}
+    </button>
+  );
 }
 
 function ShowdownPanel({

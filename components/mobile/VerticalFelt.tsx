@@ -15,6 +15,7 @@
 // lift upward proportionally so the dock can't occlude the hero plate.
 
 import type { RecorderState } from "@/components/poker/engine";
+import { isPotLimit } from "@/components/poker/engine";
 
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
 
@@ -159,25 +160,30 @@ export function VerticalFelt({
         </div>
       </div>
 
-      {/* Board cards — centered horizontally */}
+      {/* Board cards — centered horizontally. Two stacked rows when
+          double-board is on; the second row sits a card-height below
+          board 1 and uses the same per-slot interaction. */}
       <div
-        className="absolute left-1/2 -translate-x-1/2 flex"
-        style={{ top: "44%", gap: 4 }}
+        className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center"
+        style={{ top: "42%", gap: 6 }}
       >
-        {state.board.map((card, idx) => (
-          <BoardCard
-            key={idx}
-            card={card}
-            highlighted={
-              !card &&
-              onBoardSlot !== undefined &&
-              isNextBoardSlot(state.board, idx, state.phase)
-            }
-            onClick={
-              onBoardSlot ? () => onBoardSlot(idx, 0) : undefined
-            }
+        <BoardRow
+          board={state.board}
+          phase={state.phase}
+          boardIdx={0}
+          onBoardSlot={onBoardSlot}
+        />
+        {state.doubleBoardOn && (
+          <BoardRow
+            board={state.board2}
+            phase={state.phase}
+            boardIdx={1}
+            onBoardSlot={onBoardSlot}
+            // Small "B2" tag so the user can tell the boards apart at a
+            // glance — otherwise two rows of cards is ambiguous.
+            label="B2"
           />
-        ))}
+        )}
       </div>
 
       {/* Each seat */}
@@ -206,15 +212,17 @@ export function VerticalFelt({
               transition: "top 200ms ease",
             }}
           >
-            {/* Hole cards — above the plate */}
+            {/* Hole cards — above the plate. PLO modes render in a
+                fan; NLHE keeps the flat 2-card row. */}
             <div
               className="flex justify-center"
-              style={{ gap: 2, marginBottom: 4 }}
+              style={{ marginBottom: 4 }}
             >
               {renderHoleCards({
                 player,
                 isHero,
                 phase: state.phase,
+                fan: isPotLimit(state.gameType),
                 onHeroCardSlot: isHero ? onHeroCardSlot : undefined,
               })}
             </div>
@@ -275,6 +283,52 @@ function potOf(
     // visually too — but committedBySeat already includes them, so this
     // second term is normally 0. Kept defensively.
     0 * Object.values(streetBets).reduce((s, v) => s + (v || 0), 0);
+}
+
+function BoardRow({
+  board,
+  phase,
+  boardIdx,
+  onBoardSlot,
+  label,
+}: {
+  board: (string | null)[];
+  phase: string;
+  boardIdx: 0 | 1;
+  onBoardSlot?: (slotIdx: number, boardIdx: 0 | 1) => void;
+  label?: string;
+}) {
+  return (
+    <div className="flex items-center" style={{ gap: 4 }}>
+      {label && (
+        <span
+          className="font-mono"
+          style={{
+            fontSize: 9,
+            color: "rgba(255,255,255,0.55)",
+            letterSpacing: "0.12em",
+            marginRight: 2,
+          }}
+        >
+          {label}
+        </span>
+      )}
+      {board.map((card, idx) => (
+        <BoardCard
+          key={idx}
+          card={card}
+          highlighted={
+            !card &&
+            onBoardSlot !== undefined &&
+            isNextBoardSlot(board, idx, phase)
+          }
+          onClick={
+            onBoardSlot ? () => onBoardSlot(idx, boardIdx) : undefined
+          }
+        />
+      ))}
+    </div>
+  );
 }
 
 function isNextBoardSlot(
@@ -370,11 +424,13 @@ function renderHoleCards({
   player,
   isHero,
   phase,
+  fan,
   onHeroCardSlot,
 }: {
   player: { cards: (string | null)[] | null };
   isHero: boolean;
   phase: string;
+  fan: boolean;
   onHeroCardSlot?: (slotIdx: number) => void;
 }) {
   const cards = player.cards;
@@ -382,12 +438,13 @@ function renderHoleCards({
   // or two if cards is null).
   if (!isHero && phase !== "showdown" && phase !== "done") {
     const count = cards?.length ?? 2;
-    return Array.from({ length: count }).map((_, i) => (
+    const items = Array.from({ length: count }).map((_, i) => (
       <CardBack key={i} size="sm" />
     ));
+    return fan ? <Fan size="sm">{items}</Fan> : <FlatRow gap={2}>{items}</FlatRow>;
   }
   if (!cards) return null;
-  return cards.map((c, idx) => {
+  const items = cards.map((c, idx) => {
     if (!c) {
       return (
         <CardSlot
@@ -400,6 +457,78 @@ function renderHoleCards({
     }
     return <CardFace key={idx} card={c} size={isHero ? "md" : "sm"} />;
   });
+  return fan ? (
+    <Fan size={isHero ? "md" : "sm"}>{items}</Fan>
+  ) : (
+    <FlatRow gap={2}>{items}</FlatRow>
+  );
+}
+
+// Flat row layout — used by NLHE (2 cards) and any non-fan render.
+function FlatRow({
+  children,
+  gap = 2,
+}: {
+  children: React.ReactNode;
+  gap?: number;
+}) {
+  return (
+    <div className="flex" style={{ gap }}>
+      {children}
+    </div>
+  );
+}
+
+// Fan layout — children get rotated and offset around a center axis so
+// 4-5 cards fit under a seat plate without a wide flat row. Mirrors
+// the desktop HandFan's geometry so PLO hands look the same regardless
+// of viewport.
+function Fan({
+  children,
+  size,
+}: {
+  children: React.ReactNode;
+  size: "sm" | "md";
+}) {
+  const arr = Array.isArray(children) ? children : [children];
+  const n = arr.length;
+  const cardW = size === "md" ? 38 : 22;
+  const cardH = size === "md" ? 52 : 30;
+  const angleStep = 7;
+  // Tighter overlap on small (villain) cards so 5 fit comfortably under
+  // a 64px-min plate; wider step on hero cards for legibility.
+  const offsetStep = size === "md" ? 16 : 10;
+  const center = (n - 1) / 2;
+  const totalWidth = cardW + (n - 1) * offsetStep;
+  return (
+    <div
+      className="relative"
+      style={{
+        width: totalWidth,
+        height: cardH + 8,
+      }}
+    >
+      {arr.map((child, i) => {
+        const angle = (i - center) * angleStep;
+        const tx = (i - center) * offsetStep;
+        return (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              transform: `translate(-50%, -50%) translate(${tx}px, 0) rotate(${angle}deg)`,
+              transformOrigin: "center",
+              zIndex: i,
+            }}
+          >
+            {child}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function CardFace({ card, size }: { card: string; size: "sm" | "md" }) {
