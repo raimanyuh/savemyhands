@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Design handoff packages are reference material, not production code.
+    // The JSX/CSS files in here are intentionally non-idiomatic — they
+    // were authored against a Babel-in-browser setup with no build step.
+    "design_handoff_*/**",
   ]),
 ]);
 

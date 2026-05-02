@@ -115,6 +115,14 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* Mobile-only design tokens. Consumed by components/mobile/*. The
+     desktop felt uses warm hex literals (#1f7a47 etc.) defined inline
+     in PokerTable; mobile uses an emerald-tinted oklch gradient that
+     sits closer to the brand accent. Keep the two palettes separate. */
+  --smh-mobile-felt-top: oklch(0.36 0.06 155);
+  --smh-mobile-felt-bottom: oklch(0.28 0.05 155);
+  --smh-mobile-emerald-bright: oklch(0.745 0.198 155);
 }
 
 @layer base {
