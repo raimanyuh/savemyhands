@@ -39,6 +39,7 @@ import {
 import { buildAndSaveHand } from "@/lib/recorder/save-hand";
 import { VerticalFelt } from "./VerticalFelt";
 import { CardPickerSheet } from "./CardPickerSheet";
+import { RaiseSizer } from "./RaiseSizer";
 
 const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
@@ -62,6 +63,7 @@ export default function MobileRecorder() {
     | { kind: "board"; slot: number; boardIdx: 0 | 1 }
     | null
   >(null);
+  const [sizerOpen, setSizerOpen] = useState(false);
 
   const N = state.playerCount;
   const heroPos = state.heroPosition;
@@ -592,11 +594,7 @@ export default function MobileRecorder() {
           <ActionButton
             kind="br"
             disabled={!derived || activeSeat === null}
-            onClick={() =>
-              window.alert(
-                "Raise sizer comes in the next iteration — for now use desktop to enter raises.",
-              )
-            }
+            onClick={() => setSizerOpen(true)}
             label={
               derived && derived.lastBet === 0 && activeSeat !== null
                 ? "Bet"
@@ -640,6 +638,41 @@ export default function MobileRecorder() {
         onPick={handlePick}
         onClose={() => setPickerTarget(null)}
       />
+
+      {/* Raise sizer — modal at vh<700, drawer above. Math mirrors the
+          desktop ActionBar's pot-limit clamp. */}
+      {derived && activeSeat !== null && (
+        <RaiseSizer
+          open={sizerOpen}
+          isBetMode={derived.lastBet === 0}
+          pot={derived.totalPot}
+          toCall={derived.toCall}
+          lastBet={derived.lastBet}
+          minRaise={derived.minRaise}
+          allInAmount={
+            (derived.bets[activeSeat] || 0) +
+            Math.max(
+              0,
+              (state.players[activeSeat]?.stack ?? 0) -
+                (committed[activeSeat] || 0),
+            )
+          }
+          gameType={state.gameType}
+          onCommit={(amount) => {
+            const isBetMode = derived.lastBet === 0;
+            dispatch({
+              type: "recordAction",
+              action: {
+                seat: activeSeat,
+                action: isBetMode ? "bet" : "raise",
+                amount,
+              },
+            });
+            setSizerOpen(false);
+          }}
+          onCancel={() => setSizerOpen(false)}
+        />
+      )}
 
       {/* Setup sheet placeholder — real bottom sheet lands next iteration */}
       {setupOpen && (
