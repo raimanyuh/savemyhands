@@ -16,6 +16,7 @@
 
 import type { RecorderState } from "@/components/poker/engine";
 import { isPotLimit } from "@/components/poker/engine";
+import FannedPlayingCard from "@/components/poker/FannedPlayingCard";
 
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
 
@@ -86,6 +87,10 @@ export type VerticalFeltProps = {
   // Cycle indices that checked on the current street. Renders a no-chip
   // "check" pill in the bubble slot.
   checkedSeats: Set<number>;
+  // True when betting is closed for the current street — drives the
+  // emerald pulse on the next-to-deal board slot. Without this gate the
+  // pulse would fire mid-betting too, which is misleading.
+  streetClosed?: boolean;
   // Reserve this many pixels at the bottom for a floating dock so the
   // hero plate isn't occluded. 0 in the recorder; ~96 in the replayer.
   bottomInset?: number;
@@ -101,6 +106,7 @@ export function VerticalFelt({
   foldedSeats,
   streetBets,
   checkedSeats,
+  streetClosed = false,
   bottomInset = 0,
   onHeroCardSlot,
   onBoardSlot,
@@ -161,8 +167,9 @@ export function VerticalFelt({
       </div>
 
       {/* Board cards — centered horizontally. Two stacked rows when
-          double-board is on; the second row sits a card-height below
-          board 1 and uses the same per-slot interaction. */}
+          double-board is on; both rows are visually identical (no B1/B2
+          tag) so they read as a paired set rather than primary +
+          secondary. The user knows which is which by spatial position. */}
       <div
         className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center"
         style={{ top: "42%", gap: 6 }}
@@ -171,6 +178,7 @@ export function VerticalFelt({
           board={state.board}
           phase={state.phase}
           boardIdx={0}
+          streetClosed={streetClosed}
           onBoardSlot={onBoardSlot}
         />
         {state.doubleBoardOn && (
@@ -178,10 +186,8 @@ export function VerticalFelt({
             board={state.board2}
             phase={state.phase}
             boardIdx={1}
+            streetClosed={streetClosed}
             onBoardSlot={onBoardSlot}
-            // Small "B2" tag so the user can tell the boards apart at a
-            // glance — otherwise two rows of cards is ambiguous.
-            label="B2"
           />
         )}
       </div>
@@ -236,31 +242,59 @@ export function VerticalFelt({
               folded={folded}
               isHero={isHero}
             />
+          </div>
+        );
+      })}
 
-            {/* Bet / check bubble — below the plate (also for hero per spec) */}
-            {!folded && (streetBets[cycleIdx] || checkedSeats.has(cycleIdx)) && (
-              <div
-                className="flex items-center justify-center"
-                style={{ marginTop: 4, gap: 3 }}
+      {/* Bet / check bubbles — separate absolute layer so each bubble
+          can be positioned geometrically *toward the felt center*
+          rather than inline below its seat plate. Mirrors the desktop
+          BetBubble's chipXY math: linear interpolation from the seat's
+          position to (50, 50) by a per-seat factor t. Hero gets a
+          larger pull (0.45) so the bubble clears the hole-card row;
+          other seats get 0.30. */}
+      {Array.from({ length: N }).map((_, visualSlot) => {
+        const cycleIdx = (heroPos + visualSlot) % N;
+        if (foldedSeats.has(cycleIdx)) return null;
+        const amount = streetBets[cycleIdx];
+        const checked = checkedSeats.has(cycleIdx);
+        if (!amount && !checked) return null;
+        const coord = seatCoords[visualSlot];
+        if (!coord) return null;
+        const isHero = cycleIdx === heroPos;
+        const seatTop = Math.max(4, coord.top - liftFactor);
+        const t = isHero ? 0.45 : 0.3;
+        const left = coord.left + t * (50 - coord.left);
+        const top = seatTop + t * (50 - seatTop);
+        return (
+          <div
+            key={`bubble-${cycleIdx}`}
+            className="absolute flex items-center"
+            style={{
+              left: `${left}%`,
+              top: `${top}%`,
+              transform: "translate(-50%, -50%)",
+              gap: 3,
+              zIndex: 25,
+              pointerEvents: "none",
+            }}
+          >
+            {amount ? (
+              <BetChip amount={amount} />
+            ) : (
+              <span
+                className="font-mono font-semibold"
+                style={{
+                  fontSize: 9,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  background: "rgba(9,9,11,0.85)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  color: "white",
+                }}
               >
-                {streetBets[cycleIdx] ? (
-                  <BetChip amount={streetBets[cycleIdx]} />
-                ) : (
-                  <span
-                    className="font-mono font-semibold"
-                    style={{
-                      fontSize: 9,
-                      padding: "2px 6px",
-                      borderRadius: 4,
-                      background: "rgba(9,9,11,0.85)",
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      color: "white",
-                    }}
-                  >
-                    check
-                  </span>
-                )}
-              </div>
+                check
+              </span>
             )}
           </div>
         );
@@ -289,30 +323,17 @@ function BoardRow({
   board,
   phase,
   boardIdx,
+  streetClosed,
   onBoardSlot,
-  label,
 }: {
   board: (string | null)[];
   phase: string;
   boardIdx: 0 | 1;
+  streetClosed: boolean;
   onBoardSlot?: (slotIdx: number, boardIdx: 0 | 1) => void;
-  label?: string;
 }) {
   return (
     <div className="flex items-center" style={{ gap: 4 }}>
-      {label && (
-        <span
-          className="font-mono"
-          style={{
-            fontSize: 9,
-            color: "rgba(255,255,255,0.55)",
-            letterSpacing: "0.12em",
-            marginRight: 2,
-          }}
-        >
-          {label}
-        </span>
-      )}
       {board.map((card, idx) => (
         <BoardCard
           key={idx}
@@ -320,6 +341,7 @@ function BoardRow({
           highlighted={
             !card &&
             onBoardSlot !== undefined &&
+            streetClosed &&
             isNextBoardSlot(board, idx, phase)
           }
           onClick={
@@ -336,16 +358,25 @@ function isNextBoardSlot(
   idx: number,
   phase: string,
 ): boolean {
-  // Highlight the first empty slot in the active street's range.
+  // After a street closes, the NEXT street's slots become deal-able.
+  // Map: phase X (with streetClosed) → next-street slot range.
+  //   preflop closes → flop slots [0..2]
+  //   flop closes    → turn slot [3]
+  //   turn closes    → river slot [4]
+  // The previous version mapped each phase to its own slots, which was
+  // wrong — by the time the user is on the flop phase, the flop cards
+  // are already on the felt and there's nothing to highlight there.
   const ranges: Record<string, [number, number]> = {
-    flop: [0, 2],
-    turn: [3, 3],
-    river: [4, 4],
+    preflop: [0, 2],
+    flop: [3, 3],
+    turn: [4, 4],
   };
   const range = ranges[phase];
   if (!range) return false;
   const [lo, hi] = range;
   if (idx < lo || idx > hi) return false;
+  // Pulse only the first empty slot in the range so the user knows
+  // exactly where to tap next.
   for (let i = lo; i <= idx; i++) {
     if (board[i]) return false;
     if (i === idx) return true;
@@ -435,23 +466,42 @@ function renderHoleCards({
 }) {
   const cards = player.cards;
   // Villain pre-showdown: render face-down backs (one per expected card,
-  // or two if cards is null).
+  // or two if cards is null). When fanned, backs use the larger
+  // FannedPlayingCard dimensions so the fan doesn't visually shrink
+  // the moment a villain mucks vs. shows.
   if (!isHero && phase !== "showdown" && phase !== "done") {
     const count = cards?.length ?? 2;
-    const items = Array.from({ length: count }).map((_, i) => (
-      <CardBack key={i} size="sm" />
-    ));
+    const items = Array.from({ length: count }).map((_, i) =>
+      fan ? <FannedCardBack key={i} size="sm" /> : <CardBack key={i} size="sm" />,
+    );
     return fan ? <Fan size="sm">{items}</Fan> : <FlatRow gap={2}>{items}</FlatRow>;
   }
   if (!cards) return null;
   const items = cards.map((c, idx) => {
     if (!c) {
-      return (
+      return fan ? (
+        <FannedSlot
+          key={idx}
+          size={isHero ? "md" : "sm"}
+          onClick={onHeroCardSlot ? () => onHeroCardSlot(idx) : undefined}
+          highlight={!!onHeroCardSlot && isHero}
+        />
+      ) : (
         <CardSlot
           key={idx}
           size={isHero ? "md" : "sm"}
           onClick={onHeroCardSlot ? () => onHeroCardSlot(idx) : undefined}
           highlight={!!onHeroCardSlot && isHero}
+        />
+      );
+    }
+    if (fan) {
+      return (
+        <FannedPlayingCard
+          key={idx}
+          rank={c.slice(0, -1)}
+          suit={c.slice(-1)}
+          size={isHero ? "md" : "sm"}
         />
       );
     }
@@ -461,6 +511,47 @@ function renderHoleCards({
     <Fan size={isHero ? "md" : "sm"}>{items}</Fan>
   ) : (
     <FlatRow gap={2}>{items}</FlatRow>
+  );
+}
+
+// Fan-mode slot — empty placeholder that matches FannedPlayingCard's
+// dimensions exactly so the fan stays visually coherent before all
+// cards are picked. Clickable for hero hole cards during setup.
+function FannedSlot({
+  size,
+  onClick,
+  highlight,
+}: {
+  size: "sm" | "md";
+  onClick?: () => void;
+  highlight?: boolean;
+}) {
+  const dim = size === "md" ? { w: 50, h: 70 } : { w: 38, h: 54 };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className="flex items-center justify-center"
+      style={{
+        width: dim.w,
+        height: dim.h,
+        background: "oklch(0.205 0 0)",
+        border: highlight
+          ? `2px solid ${EMERALD_BRIGHT}`
+          : "2px dashed rgba(255,255,255,0.18)",
+        color: highlight ? EMERALD_BRIGHT : "oklch(0.45 0 0)",
+        borderRadius: 6,
+        fontSize: 16,
+        cursor: onClick ? "pointer" : "default",
+        boxShadow: highlight
+          ? `0 0 12px oklch(0.745 0.198 155 / 0.4)`
+          : "none",
+        animation: highlight ? "pulse 1.5s ease-in-out infinite" : "none",
+      }}
+    >
+      +
+    </button>
   );
 }
 
@@ -480,9 +571,9 @@ function FlatRow({
 }
 
 // Fan layout — children get rotated and offset around a center axis so
-// 4-5 cards fit under a seat plate without a wide flat row. Mirrors
-// the desktop HandFan's geometry so PLO hands look the same regardless
-// of viewport.
+// 4-5 cards fit under a seat plate without a wide flat row. Dimensions
+// match FannedPlayingCard so the corner-index card design stays
+// readable when the right edge of one card overlaps the next.
 function Fan({
   children,
   size,
@@ -492,12 +583,15 @@ function Fan({
 }) {
   const arr = Array.isArray(children) ? children : [children];
   const n = arr.length;
-  const cardW = size === "md" ? 38 : 22;
-  const cardH = size === "md" ? 52 : 30;
+  // Card dimensions mirror FannedPlayingCard exactly (sm=38×54,
+  // md=50×70) so the empty-slot placeholders don't visually mismatch
+  // filled cards.
+  const cardW = size === "md" ? 50 : 38;
+  const cardH = size === "md" ? 70 : 54;
   const angleStep = 7;
-  // Tighter overlap on small (villain) cards so 5 fit comfortably under
-  // a 64px-min plate; wider step on hero cards for legibility.
-  const offsetStep = size === "md" ? 16 : 10;
+  // Wider step on hero cards for legibility; tighter on villain cards
+  // so a 5-fan still fits under the 64pt-min plate.
+  const offsetStep = size === "md" ? 18 : 14;
   const center = (n - 1) / 2;
   const totalWidth = cardW + (n - 1) * offsetStep;
   return (
@@ -505,7 +599,7 @@ function Fan({
       className="relative"
       style={{
         width: totalWidth,
-        height: cardH + 8,
+        height: cardH + 12,
       }}
     >
       {arr.map((child, i) => {
@@ -610,6 +704,24 @@ function CardBack({ size }: { size: "sm" | "md" }) {
         height: dim.h,
         background: "linear-gradient(135deg, #6b1722 0%, #2a0608 100%)",
         borderRadius: 5,
+        border: "1px solid rgba(255,255,255,0.1)",
+        boxShadow: "0 3px 8px rgba(0,0,0,0.5)",
+      }}
+    />
+  );
+}
+
+// Card back at FannedPlayingCard dimensions — used in fan mode so the
+// face-down stack matches the size of the face-up FannedPlayingCard.
+function FannedCardBack({ size }: { size: "sm" | "md" }) {
+  const dim = size === "md" ? { w: 50, h: 70 } : { w: 38, h: 54 };
+  return (
+    <div
+      style={{
+        width: dim.w,
+        height: dim.h,
+        background: "linear-gradient(135deg, #6b1722 0%, #2a0608 100%)",
+        borderRadius: 6,
         border: "1px solid rgba(255,255,255,0.1)",
         boxShadow: "0 3px 8px rgba(0,0,0,0.5)",
       }}

@@ -15,6 +15,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
   useTransition,
 } from "react";
@@ -117,6 +118,71 @@ export default function MobileRecorder() {
       return () => clearTimeout(t);
     }
   }, [derived?.handOver, derived]);
+
+  // River close → showdown. Without this the recorder would freeze on
+  // the river phase after betting closes with multiple players still in
+  // — the action bar gates on activeSeat, which is null when the
+  // street is closed. Desktop has a manual "Go to showdown" CTA; the
+  // mobile recorder skips that ceremony and just advances.
+  useEffect(() => {
+    if (!derived || !derived.streetClosed) return;
+    if (state.phase === "river" && riverFilled) {
+      dispatch({ type: "goShowdown" });
+    }
+  }, [derived?.streetClosed, derived, state.phase, riverFilled]);
+
+  // Auto-open the card picker on the next-to-deal board slot when a
+  // betting round closes. Mirrors the desktop picker's
+  // autoOpenOnHighlight behavior — the user shouldn't have to know that
+  // tapping the dashed slot is what advances the hand. The ref tracks
+  // which (phase + slot + boardIdx) tuple we last auto-opened for, so
+  // dismissing the picker doesn't trigger a re-open. Manual taps on
+  // any board slot still work via openBoardSlot.
+  const lastAutoOpenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!derived || !derived.streetClosed) return;
+    // Determine which slot to deal next based on current phase.
+    let slot: number | null = null;
+    let boardIdx: 0 | 1 = 0;
+    if (state.phase === "preflop") {
+      // Flop: find first empty of [0,1,2] on board1; if board1 is full
+      // and double-board is on, queue board2's first empty flop slot.
+      const b1 = state.board.findIndex((c, i) => i <= 2 && !c);
+      if (b1 !== -1) {
+        slot = b1;
+      } else if (state.doubleBoardOn) {
+        const b2 = state.board2.findIndex((c, i) => i <= 2 && !c);
+        if (b2 !== -1) {
+          slot = b2;
+          boardIdx = 1;
+        }
+      }
+    } else if (state.phase === "flop") {
+      if (!state.board[3]) slot = 3;
+      else if (state.doubleBoardOn && !state.board2[3]) {
+        slot = 3;
+        boardIdx = 1;
+      }
+    } else if (state.phase === "turn") {
+      if (!state.board[4]) slot = 4;
+      else if (state.doubleBoardOn && !state.board2[4]) {
+        slot = 4;
+        boardIdx = 1;
+      }
+    }
+    if (slot === null) return;
+    const key = `${state.phase}-${slot}-${boardIdx}`;
+    if (lastAutoOpenRef.current === key) return;
+    lastAutoOpenRef.current = key;
+    setPickerTarget({ kind: "board", slot, boardIdx });
+  }, [
+    derived?.streetClosed,
+    derived,
+    state.phase,
+    state.board,
+    state.board2,
+    state.doubleBoardOn,
+  ]);
 
   // resolvedAwards: per-pot allocation when showdown is fully resolved.
   // Returns null if any villain hasn't shown/mucked, the board is
@@ -574,6 +640,7 @@ export default function MobileRecorder() {
             state.phase === "setup" ? setupBets : derived?.bets ?? {}
           }
           checkedSeats={checkedSeats}
+          streetClosed={derived?.streetClosed ?? false}
           onHeroCardSlot={
             state.phase === "setup" ? openHeroCardSlot : undefined
           }
