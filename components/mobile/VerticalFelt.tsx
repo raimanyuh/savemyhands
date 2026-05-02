@@ -16,7 +16,24 @@
 
 import type { RecorderState } from "@/components/poker/engine";
 import { holeCardCount, isPotLimit } from "@/components/poker/engine";
-import FannedPlayingCard from "@/components/poker/FannedPlayingCard";
+
+// Hero / villain card dimensions on the mobile felt. Tuned so the
+// 5-card PLO5 fan + plate of an 8-handed side seat doesn't overrun
+// the felt edge — a notch smaller than the desktop FannedPlayingCard
+// dims, but big enough that NLHE villain backs are readable instead
+// of looking like postage stamps. Used by every card-shaped element
+// on the felt (face, back, slot, fanned variants) so NLHE and PLO
+// stay visually consistent.
+const CARD_DIM = {
+  sm: { w: 30, h: 42 }, // villain hole / NLHE villain back
+  md: { w: 44, h: 62 }, // hero hole
+} as const;
+// Mobile felt's own corner-index card dims (for PLO fans). Smaller
+// than the shared FannedPlayingCard which is sized for desktop.
+const FANNED_CARD = {
+  sm: { rank: 12, suit: 10, centerSuit: 18, cornerOffset: 3 },
+  md: { rank: 15, suit: 12, centerSuit: 24, cornerOffset: 4 },
+} as const;
 
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
 
@@ -505,7 +522,7 @@ function renderHoleCards({
     }
     if (fan) {
       return (
-        <FannedPlayingCard
+        <MobileFannedCard
           key={idx}
           rank={c.slice(0, -1)}
           suit={c.slice(-1)}
@@ -522,7 +539,7 @@ function renderHoleCards({
   );
 }
 
-// Fan-mode slot — empty placeholder that matches FannedPlayingCard's
+// Fan-mode slot — empty placeholder that matches MobileFannedCard's
 // dimensions exactly so the fan stays visually coherent before all
 // cards are picked. Clickable for hero hole cards during setup.
 function FannedSlot({
@@ -534,7 +551,7 @@ function FannedSlot({
   onClick?: () => void;
   highlight?: boolean;
 }) {
-  const dim = size === "md" ? { w: 50, h: 70 } : { w: 38, h: 54 };
+  const dim = CARD_DIM[size];
   return (
     <button
       type="button"
@@ -580,8 +597,9 @@ function FlatRow({
 
 // Fan layout — children get rotated and offset around a center axis so
 // 4-5 cards fit under a seat plate without a wide flat row. Dimensions
-// match FannedPlayingCard so the corner-index card design stays
-// readable when the right edge of one card overlaps the next.
+// driven by CARD_DIM so the empty-slot placeholders don't visually
+// mismatch filled cards, and so a 5-card PLO fan on an 8-handed side
+// seat still fits within the felt edges.
 function Fan({
   children,
   size,
@@ -591,15 +609,12 @@ function Fan({
 }) {
   const arr = Array.isArray(children) ? children : [children];
   const n = arr.length;
-  // Card dimensions mirror FannedPlayingCard exactly (sm=38×54,
-  // md=50×70) so the empty-slot placeholders don't visually mismatch
-  // filled cards.
-  const cardW = size === "md" ? 50 : 38;
-  const cardH = size === "md" ? 70 : 54;
+  const cardW = CARD_DIM[size].w;
+  const cardH = CARD_DIM[size].h;
   const angleStep = 7;
   // Wider step on hero cards for legibility; tighter on villain cards
-  // so a 5-fan still fits under the 64pt-min plate.
-  const offsetStep = size === "md" ? 18 : 14;
+  // so a 5-fan still fits under a 56pt-min plate without spilling.
+  const offsetStep = size === "md" ? 16 : 12;
   const center = (n - 1) / 2;
   const totalWidth = cardW + (n - 1) * offsetStep;
   return (
@@ -636,7 +651,9 @@ function Fan({
 function CardFace({ card, size }: { card: string; size: "sm" | "md" }) {
   const rank = card.slice(0, -1);
   const suit = card.slice(-1);
-  const dim = size === "md" ? { w: 38, h: 52, font: 14 } : { w: 22, h: 30, font: 10 };
+  const cd = CARD_DIM[size];
+  const font = size === "md" ? 16 : 12;
+  const dim = { w: cd.w, h: cd.h, font };
   const suitColor =
     suit === "♠"
       ? "#0a0a0a"
@@ -674,7 +691,7 @@ function CardSlot({
   onClick?: () => void;
   highlight?: boolean;
 }) {
-  const dim = size === "md" ? { w: 38, h: 52 } : { w: 22, h: 30 };
+  const dim = CARD_DIM[size];
   return (
     <button
       type="button"
@@ -704,7 +721,7 @@ function CardSlot({
 }
 
 function CardBack({ size }: { size: "sm" | "md" }) {
-  const dim = size === "md" ? { w: 38, h: 52 } : { w: 22, h: 30 };
+  const dim = CARD_DIM[size];
   return (
     <div
       style={{
@@ -719,10 +736,87 @@ function CardBack({ size }: { size: "sm" | "md" }) {
   );
 }
 
-// Card back at FannedPlayingCard dimensions — used in fan mode so the
-// face-down stack matches the size of the face-up FannedPlayingCard.
+// Mobile-tuned fanned card with corner-indices design. Smaller than
+// the desktop-sized FannedPlayingCard so a 5-card fan on an 8-handed
+// side seat doesn't run off the felt edge. Shape and color rules
+// mirror FannedPlayingCard so the visual language stays consistent
+// between desktop and mobile.
+function MobileFannedCard({
+  rank,
+  suit,
+  size,
+}: {
+  rank: string;
+  suit: string;
+  size: "sm" | "md";
+}) {
+  const cd = CARD_DIM[size];
+  const f = FANNED_CARD[size];
+  const color =
+    suit === "♠"
+      ? "#0a0a0a"
+      : suit === "♣"
+        ? "oklch(0.5 0.16 145)"
+        : suit === "♦"
+          ? "oklch(0.5 0.18 250)"
+          : "oklch(0.55 0.22 22)";
+  return (
+    <div
+      className="rounded-md font-bold relative"
+      style={{
+        width: cd.w,
+        height: cd.h,
+        background: "#fafafa",
+        color,
+        boxShadow: "0 4px 10px rgba(0,0,0,0.5)",
+        border: "1px solid rgba(0,0,0,0.1)",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: f.cornerOffset,
+          left: f.cornerOffset + 1,
+          fontSize: f.rank,
+          lineHeight: 1,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {rank}
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          top: f.cornerOffset + f.rank + 1,
+          left: f.cornerOffset + 1,
+          fontSize: f.suit,
+          lineHeight: 1,
+        }}
+      >
+        {suit}
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "55%",
+          transform: "translate(-50%, -50%)",
+          fontSize: f.centerSuit,
+          lineHeight: 1,
+          opacity: 0.5,
+        }}
+      >
+        {suit}
+      </div>
+    </div>
+  );
+}
+
+// Card back at fan dimensions — same width/height as the face-up
+// MobileFannedCard so the stack stays the same size whether the
+// villain has shown or not.
 function FannedCardBack({ size }: { size: "sm" | "md" }) {
-  const dim = size === "md" ? { w: 50, h: 70 } : { w: 38, h: 54 };
+  const dim = CARD_DIM[size];
   return (
     <div
       style={{
@@ -761,8 +855,10 @@ function Plate({
           ? `1px solid ${EMERALD_BRIGHT}`
           : "1px solid rgba(255,255,255,0.10)",
         borderRadius: 999,
-        padding: "5px 10px",
-        minWidth: 64,
+        // Tightened from 5px×10px / minWidth 64 so 8-handed PLO side
+        // seats don't hit the felt edge.
+        padding: "4px 8px",
+        minWidth: 56,
         gap: 1,
         boxShadow: acting
           ? `0 0 0 2px oklch(0.696 0.205 155 / 0.25), 0 6px 14px rgba(0,0,0,0.5)`
@@ -789,7 +885,7 @@ function Plate({
               fontSize: 11,
               color: isHero ? "white" : "oklch(0.92 0 0)",
               lineHeight: 1.1,
-              maxWidth: 80,
+              maxWidth: 72,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
