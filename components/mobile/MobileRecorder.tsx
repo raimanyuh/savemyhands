@@ -40,6 +40,7 @@ import { buildAndSaveHand } from "@/lib/recorder/save-hand";
 import { VerticalFelt } from "./VerticalFelt";
 import { CardPickerSheet } from "./CardPickerSheet";
 import { RaiseSizer } from "./RaiseSizer";
+import { SetupSheet } from "./SetupSheet";
 
 const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
@@ -674,62 +675,13 @@ export default function MobileRecorder() {
         />
       )}
 
-      {/* Setup sheet placeholder — real bottom sheet lands next iteration */}
-      {setupOpen && (
-        <div
-          className="fixed inset-0 z-[400] flex items-end"
-          style={{ background: "rgba(0,0,0,0.55)" }}
-          onClick={() => setSetupOpen(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full"
-            style={{
-              background: "var(--popover)",
-              borderTopLeftRadius: 18,
-              borderTopRightRadius: 18,
-              padding: 16,
-              minHeight: 200,
-            }}
-          >
-            <div
-              className="font-semibold mb-3"
-              style={{ fontSize: 14 }}
-            >
-              Setup (placeholder)
-            </div>
-            <p
-              style={{
-                fontSize: 12,
-                color: "oklch(0.715 0 0)",
-                lineHeight: 1.5,
-              }}
-            >
-              The full mobile setup sheet (game type, players, blinds,
-              straddle, bomb pot, double board, hero position, default
-              stack, save/load defaults) lands in the next iteration of
-              this PR. Use the desktop recorder for full configuration in
-              the meantime — settings round-trip cleanly.
-            </p>
-            <button
-              type="button"
-              onClick={() => setSetupOpen(false)}
-              style={{
-                marginTop: 16,
-                padding: "10px 14px",
-                borderRadius: 10,
-                background: EMERALD,
-                color: BG,
-                fontWeight: 600,
-                border: 0,
-                fontSize: 13,
-              }}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Setup sheet — bottom-sheet replacement for the desktop popover */}
+      <SetupSheet
+        open={setupOpen}
+        onClose={() => setSetupOpen(false)}
+        state={state}
+        dispatch={dispatch}
+      />
     </div>
   );
 }
