@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { logout } from "@/app/actions/auth";
-import Dashboard from "@/components/poker/Dashboard";
+import DashboardShell from "@/components/poker/DashboardShell";
 import { listMyHands } from "@/lib/hands/db";
 import { getMyProfile } from "@/lib/profiles/db";
 
@@ -37,7 +37,7 @@ export default async function DashboardPage({
     : 0;
 
   return (
-    <Dashboard
+    <DashboardShell
       initialUsername={profile?.username ?? null}
       signOutAction={logout}
       initialHands={hands}

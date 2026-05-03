@@ -25,6 +25,7 @@ import {
   setHandPublicAction,
   updateHandDetailsAction,
 } from "@/lib/hands/actions";
+import { useAnnotationEdit } from "@/lib/replayer/use-annotation-edit";
 import type { SavedHand } from "./hand";
 import { computeEquity } from "./equity";
 import PlayingCard from "./PlayingCard";
@@ -122,15 +123,67 @@ function ReplayerInner({
   // Action-log popover (opened via the Log button on the floating dock).
   const [logOpen, setLogOpen] = useState(false);
 
+  // `_full` payload mirror. Each save (notes, annotations, future
+  // edit-detail flows) reads from this and updates it on success so
+  // sibling saves don't clobber each other's `_full` writes — the
+  // database stores the entire payload as a single jsonb column, so
+  // any patch needs to include every field the user has edited so far
+  // in this session. Without the mirror, a notes save built from the
+  // original prop would revert prior annotation edits, and vice versa.
+  const [livePayload, setLivePayload] = useState(fullPayload);
+
+  // Annotation override + persist hook. Owner-only edit affordances
+  // call saveAnnotation; reads route through annotationOf so local
+  // edits show immediately without a re-fetch. Anonymous viewers get
+  // the same hook (no-op for them; server save short-circuits without
+  // a handId, but they never invoke it because the Edit button is
+  // owner-gated).
+  const { annotationOf, isStepAnnotated, saveAnnotation } =
+    useAnnotationEdit({ handId, livePayload, setLivePayload });
+
   // Step indices that have an annotation, used to draw markers on the
   // scrubber and to power "[" / "]" jump-to-annotation shortcuts.
   const annotatedSteps = useMemo(
     () =>
       HAND.steps
-        .map((s, i) => (s.annotation && s.annotation.trim() ? i : -1))
+        .map((s, i) => (isStepAnnotated(s) ? i : -1))
         .filter((i) => i >= 0),
-    [HAND],
+    [HAND, isStepAnnotated],
   );
+
+  // Annotation edit state — which step is being edited (null when
+  // not), and the textarea draft. Mirrors the hand-level Notes edit
+  // pattern further down.
+  const [editingAnnoStep, setEditingAnnoStep] = useState<number | null>(null);
+  const [annoDraft, setAnnoDraft] = useState("");
+  // Cancel an in-progress edit if the user scrubs to a different
+  // step. The balloon is anchored to the active seat at the current
+  // step; scrubbing detaches it, so the textarea would silently
+  // disappear without saving. Set-state-during-render is fine here —
+  // the condition self-stabilizes.
+  if (editingAnnoStep != null && editingAnnoStep !== step) {
+    setEditingAnnoStep(null);
+    setAnnoDraft("");
+  }
+  const beginEditAnno = (initial: string | undefined) => {
+    setAnnoDraft(initial ?? "");
+    setEditingAnnoStep(step);
+  };
+  const cancelEditAnno = () => {
+    setEditingAnnoStep(null);
+    setAnnoDraft("");
+  };
+  const commitEditAnno = async () => {
+    const idx = HAND.steps[step]?.actionIndex;
+    if (idx == null) {
+      cancelEditAnno();
+      return;
+    }
+    const text = annoDraft;
+    setEditingAnnoStep(null);
+    setAnnoDraft("");
+    await saveAnnotation(idx, text);
+  };
 
   useEffect(() => {
     if (!playing) return;
@@ -363,10 +416,16 @@ function ReplayerInner({
         const patch: Parameters<typeof updateHandDetailsAction>[1] = {
           notes: trimmed || undefined,
         };
-        if (fullPayload) {
-          patch._full = { ...fullPayload, notes: trimmed || undefined };
+        // Build _full from the live mirror so any in-session
+        // annotation edits are preserved.
+        if (livePayload) {
+          const nextPayload = { ...livePayload, notes: trimmed || undefined };
+          patch._full = nextPayload;
+          await updateHandDetailsAction(handId, patch);
+          setLivePayload(nextPayload);
+        } else {
+          await updateHandDetailsAction(handId, patch);
         }
-        await updateHandDetailsAction(handId, patch);
       } catch (e) {
         console.error("Failed to save notes", e);
         setNotesValue(previous);
@@ -775,8 +834,12 @@ function ReplayerInner({
             const v = visualOf(seatCycle);
             const pos = visualSeatPos[v];
             const onLeft = pos.left < 50;
-            const note = cur.annotation;
-            if (!note) return null;
+            const note = annotationOf(cur);
+            const isEditing = editingAnnoStep === step;
+            // Render the balloon when there's a note OR while owner
+            // is mid-edit. Action steps with no note + non-edit state
+            // render no balloon.
+            if (!note && !isEditing) return null;
             const balloonWidth = 280;
             return (
               <>
@@ -827,13 +890,73 @@ function ReplayerInner({
                       >
                         Note
                       </span>
+                      {isOwner &&
+                        cur.actionIndex !== undefined &&
+                        !isEditing && (
+                          <button
+                            onClick={() => beginEditAnno(note)}
+                            className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                            title={note ? "Edit note" : "Add note"}
+                            aria-label={note ? "Edit note" : "Add note"}
+                          >
+                            <Pencil size={11} />
+                            {note ? "Edit" : "Add"}
+                          </button>
+                        )}
                     </div>
-                    <p
-                      className="text-[12.5px] leading-snug whitespace-pre-wrap"
-                      style={{ color: "oklch(0.92 0.05 155)" }}
-                    >
-                      {note}
-                    </p>
+                    {isEditing ? (
+                      <div className="flex flex-col gap-2">
+                        <textarea
+                          autoFocus
+                          value={annoDraft}
+                          onChange={(e) => setAnnoDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              cancelEditAnno();
+                            } else if (
+                              (e.metaKey || e.ctrlKey) &&
+                              e.key === "Enter"
+                            ) {
+                              e.preventDefault();
+                              commitEditAnno();
+                            }
+                          }}
+                          placeholder="What was happening here?"
+                          rows={3}
+                          className="flex w-full rounded-md border bg-transparent px-2 py-1.5 text-[12.5px] leading-snug outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40 resize-y"
+                          style={{
+                            borderColor: "oklch(0.696 0.205 155 / 0.4)",
+                            color: "oklch(0.92 0.05 155)",
+                          }}
+                        />
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={cancelEditAnno}
+                            className="text-[11px] px-2 py-1 rounded text-muted-foreground hover:text-foreground cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={commitEditAnno}
+                            className="text-[11px] px-2 py-1 rounded font-medium cursor-pointer"
+                            style={{
+                              background: "oklch(0.696 0.205 155)",
+                              color: "oklch(0.145 0 0)",
+                            }}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p
+                        className="text-[12.5px] leading-snug whitespace-pre-wrap"
+                        style={{ color: "oklch(0.92 0.05 155)" }}
+                      >
+                        {note}
+                      </p>
+                    )}
                   </div>
                 </div>
               </>
@@ -1180,7 +1303,7 @@ function ReplayerInner({
                 </div>
                 {g.items.map(({ i, s }) => {
                   const active = i === step;
-                  const annotated = !!(s.annotation && s.annotation.trim());
+                  const annotated = isStepAnnotated(s);
                   return (
                     <button
                       key={i}

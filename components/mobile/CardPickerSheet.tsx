@@ -69,22 +69,12 @@ export function CardPickerSheet({
   onPick,
   onClose,
 }: CardPickerSheetProps) {
-  // Active suit filter. Resets to "♠" each time the sheet opens so the
-  // user lands on a predictable starting point. We can't trust prior
-  // selection across opens — the next slot might be a wholly different
-  // intent (e.g. picker just closed on hero card 1, opens for hero
-  // card 2, the user might want a different suit).
-  //
-  // Reset is implemented via setState-during-render with an open-prop
-  // sentinel — this avoids the react-hooks/set-state-in-effect lint
-  // rule that would fire on the more obvious useEffect-on-open pattern.
+  // Active suit filter. Persists across opens — most multi-card flows
+  // (3-card flop, PLO 4/5 hole cards) revisit the same suit so leaving
+  // the last pick's suit selected saves a tap. The user can still
+  // switch suits at any time by tapping a different one.
   const [activeSuit, setActiveSuit] =
     useState<(typeof SUITS)[number]>("♠");
-  const [lastOpen, setLastOpen] = useState(open);
-  if (open !== lastOpen) {
-    setLastOpen(open);
-    if (open) setActiveSuit("♠");
-  }
 
   const handlePick = (rank: string) => {
     const card = rank + activeSuit;

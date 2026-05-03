@@ -103,22 +103,36 @@ export function BottomSheet({
 
   const close = () => onOpenChange(false);
 
-  const onTouchStart = (e: React.TouchEvent) => {
-    dragStartY.current = e.touches[0].clientY;
+  // Drag handlers via Pointer Events so both touch (real mobile) and
+  // mouse (DevTools, hybrid devices) drive the dismiss gesture. Pointer
+  // capture lets the move/up events follow the pointer outside the
+  // grabber's bounds.
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragStartY.current = e.clientY;
     setDragging(true);
+    try {
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    } catch {
+      /* setPointerCapture can throw on some older browsers — ignore */
+    }
   };
-  const onTouchMove = (e: React.TouchEvent) => {
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (dragStartY.current == null) return;
-    const dy = e.touches[0].clientY - dragStartY.current;
+    const dy = e.clientY - dragStartY.current;
     setDragOffset(Math.max(0, dy));
   };
-  const onTouchEnd = () => {
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (dragOffset > DRAG_DISMISS_PX) {
       onOpenChange(false);
     }
     setDragOffset(0);
     setDragging(false);
     dragStartY.current = null;
+    try {
+      (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
   };
 
   // While closing, translate fully off-screen. While dragging, follow
@@ -164,9 +178,10 @@ export function BottomSheet({
           role="button"
           aria-label="Drag to dismiss"
           tabIndex={-1}
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
           className="flex justify-center pt-2 pb-1 cursor-grab"
           style={{ touchAction: "none" }}
         >

@@ -126,6 +126,10 @@ export type ReplayStep = {
   winner?: number;
   // Recorder annotation tied to this action, surfaced under the narration.
   annotation?: string;
+  // Original index into `_full.actions` for action steps. Lets the
+  // replayer patch the right `_full.annotations[index]` key when the
+  // owner edits a note. Undefined on board-reveal and showdown steps.
+  actionIndex?: number;
   // Per-seat chips committed on the CURRENT street through this step, with
   // each commit capped at the seat's remaining stack. Drives the bet/check
   // bubble amounts. A board-reveal step resets to {} (new street).
@@ -389,6 +393,7 @@ export function recordedToHand(rec: SavedHand): ReplayHand | null {
         active: a.seat,
         action: actStr,
         annotation: annotations[index],
+        actionIndex: index,
         streetBetsAfter: { ...streetBets },
         committedAfter: mergeCommitted(streetBets),
       });

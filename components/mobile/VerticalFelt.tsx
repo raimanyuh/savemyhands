@@ -17,6 +17,22 @@
 import type { RecorderState } from "@/components/poker/engine";
 import { holeCardCount, isPotLimit } from "@/components/poker/engine";
 
+// Subset of RecorderState that the felt actually reads. Lets the
+// replayer synthesize a state object per step without faking the full
+// reducer shape (sb/bb/actions/straddle/etc.). RecorderState satisfies
+// this interface, so the recorder call site is unchanged.
+export type FeltViewState = Pick<
+  RecorderState,
+  | "playerCount"
+  | "heroPosition"
+  | "players"
+  | "phase"
+  | "gameType"
+  | "doubleBoardOn"
+  | "board"
+  | "board2"
+>;
+
 // Hero / villain card dimensions on the mobile felt. Tuned so the
 // 5-card PLO5 fan + plate of an 8-handed side seat doesn't overrun
 // the felt edge — a notch smaller than the desktop FannedPlayingCard
@@ -90,7 +106,7 @@ const POSITION_LABELS: Record<number, string[]> = {
 };
 
 export type VerticalFeltProps = {
-  state: RecorderState;
+  state: FeltViewState;
   // Per-seat cumulative chips committed (from committedBySeat). Used to
   // compute current stacks shown on plates.
   committed: Record<number, number>;
@@ -114,6 +130,12 @@ export type VerticalFeltProps = {
   // Recorder click handlers. In replay mode pass undefined.
   onHeroCardSlot?: (slotIdx: number) => void;
   onBoardSlot?: (slotIdx: number, boardIdx: 0 | 1) => void;
+  // Villain card slot handler — only relevant during showdown when a
+  // villain has revealed cards. Tapping a filled villain card re-opens
+  // the picker for that slot so the recorder can correct mis-picks
+  // without going through the showdown panel's "Edit" (which clears
+  // every card on that villain).
+  onVillainCardSlot?: (seat: number, slotIdx: number) => void;
 };
 
 export function VerticalFelt({
@@ -127,6 +149,7 @@ export function VerticalFelt({
   bottomInset = 0,
   onHeroCardSlot,
   onBoardSlot,
+  onVillainCardSlot,
 }: VerticalFeltProps) {
   const N = state.playerCount;
   const heroPos = state.heroPosition;
@@ -244,10 +267,12 @@ export function VerticalFelt({
               {renderHoleCards({
                 player,
                 isHero,
+                seat: cycleIdx,
                 phase: state.phase,
                 fan: isPotLimit(state.gameType),
                 expectedCardCount: holeCardCount(state.gameType),
                 onHeroCardSlot: isHero ? onHeroCardSlot : undefined,
+                onVillainCardSlot: !isHero ? onVillainCardSlot : undefined,
               })}
             </div>
 
@@ -409,6 +434,9 @@ function BoardCard({
 }: {
   card: string | null;
   highlighted?: boolean;
+  // When the card slot is empty, onClick opens the picker for that
+  // slot. When the slot is FILLED, onClick re-opens the picker so the
+  // user can replace it (same handler, same flow).
   onClick?: () => void;
 }) {
   if (card) {
@@ -422,19 +450,34 @@ function BoardCard({
           : suit === "♦"
             ? "oklch(0.5 0.18 250)"
             : "oklch(0.55 0.22 22)";
+    const Style = {
+      width: 38,
+      height: 54,
+      background: "#fafafa",
+      borderRadius: 5,
+      color: suitColor,
+      fontSize: 14,
+      boxShadow: "0 4px 10px rgba(0,0,0,0.5)",
+      lineHeight: 1,
+    } as const;
+    if (onClick) {
+      return (
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={`Change ${rank}${suit}`}
+          className="flex flex-col items-center justify-center font-bold"
+          style={{ ...Style, border: 0, padding: 0, cursor: "pointer" }}
+        >
+          <span>{rank}</span>
+          <span style={{ fontSize: 12, marginTop: 1 }}>{suit}</span>
+        </button>
+      );
+    }
     return (
       <div
         className="flex flex-col items-center justify-center font-bold"
-        style={{
-          width: 38,
-          height: 54,
-          background: "#fafafa",
-          borderRadius: 5,
-          color: suitColor,
-          fontSize: 14,
-          boxShadow: "0 4px 10px rgba(0,0,0,0.5)",
-          lineHeight: 1,
-        }}
+        style={Style}
       >
         <span>{rank}</span>
         <span style={{ fontSize: 12, marginTop: 1 }}>{suit}</span>
@@ -472,13 +515,18 @@ function BoardCard({
 function renderHoleCards({
   player,
   isHero,
+  seat,
   phase,
   fan,
   expectedCardCount,
   onHeroCardSlot,
+  onVillainCardSlot,
 }: {
   player: { cards: (string | null)[] | null };
   isHero: boolean;
+  // Cycle index of this seat — needed when binding a villain re-edit
+  // handler so the parent knows which seat to re-open the picker for.
+  seat: number;
   phase: string;
   fan: boolean;
   // How many cards the current game expects per player (2 NLHE,
@@ -487,7 +535,14 @@ function renderHoleCards({
   // defaultPlayers and only gets populated at showdown, so falling
   // back to (cards?.length ?? 2) would always show 2 backs in PLO.
   expectedCardCount: number;
+  // Tap handler for hero card slots — both empty (open picker) and
+  // filled (re-open picker to replace). Available during setup only;
+  // the recorder gates this at the call site.
   onHeroCardSlot?: (slotIdx: number) => void;
+  // Same for villain card slots, scoped to showdown phase. The seat
+  // arg is bound at this layer so the felt doesn't have to thread
+  // seat through every card render call site.
+  onVillainCardSlot?: (seat: number, slotIdx: number) => void;
 }) {
   const cards = player.cards;
   // Villain pre-showdown: render face-down backs (one per expected
@@ -502,24 +557,41 @@ function renderHoleCards({
     return fan ? <Fan size="sm">{items}</Fan> : <FlatRow gap={2}>{items}</FlatRow>;
   }
   if (!cards) return null;
+  // Bind the slot-tap handler once per seat so we don't re-derive it
+  // for every card. Hero cards use onHeroCardSlot; non-hero use
+  // onVillainCardSlot when provided.
+  const slotHandler: ((idx: number) => void) | undefined = isHero
+    ? onHeroCardSlot
+    : onVillainCardSlot
+      ? (idx: number) => onVillainCardSlot(seat, idx)
+      : undefined;
+  // Pulse every empty slot whenever the slot handler is wired so the
+  // user can see the full set of taps available — picking 2/4/5 hole
+  // cards reads as a single multi-card task rather than a sequence of
+  // single-slot prompts.
   const items = cards.map((c, idx) => {
     if (!c) {
+      const isActive = !!slotHandler;
       return fan ? (
         <FannedSlot
           key={idx}
           size={isHero ? "md" : "sm"}
-          onClick={onHeroCardSlot ? () => onHeroCardSlot(idx) : undefined}
-          highlight={!!onHeroCardSlot && isHero}
+          onClick={slotHandler ? () => slotHandler(idx) : undefined}
+          highlight={isActive}
         />
       ) : (
         <CardSlot
           key={idx}
           size={isHero ? "md" : "sm"}
-          onClick={onHeroCardSlot ? () => onHeroCardSlot(idx) : undefined}
-          highlight={!!onHeroCardSlot && isHero}
+          onClick={slotHandler ? () => slotHandler(idx) : undefined}
+          highlight={isActive}
         />
       );
     }
+    // Filled — pass onClick so the user can tap to replace. The same
+    // handler covers both empty and filled states; the engine reducer
+    // overwrites cleanly in setHeroCard / setOppCard.
+    const onClick = slotHandler ? () => slotHandler(idx) : undefined;
     if (fan) {
       return (
         <MobileFannedCard
@@ -527,10 +599,18 @@ function renderHoleCards({
           rank={c.slice(0, -1)}
           suit={c.slice(-1)}
           size={isHero ? "md" : "sm"}
+          onClick={onClick}
         />
       );
     }
-    return <CardFace key={idx} card={c} size={isHero ? "md" : "sm"} />;
+    return (
+      <CardFace
+        key={idx}
+        card={c}
+        size={isHero ? "md" : "sm"}
+        onClick={onClick}
+      />
+    );
   });
   return fan ? (
     <Fan size={isHero ? "md" : "sm"}>{items}</Fan>
@@ -648,7 +728,18 @@ function Fan({
   );
 }
 
-function CardFace({ card, size }: { card: string; size: "sm" | "md" }) {
+function CardFace({
+  card,
+  size,
+  onClick,
+}: {
+  card: string;
+  size: "sm" | "md";
+  // When provided, the card becomes a button that re-opens the picker
+  // for this slot. Used so filled hero/villain cards stay editable in
+  // the appropriate phase instead of getting locked once picked.
+  onClick?: () => void;
+}) {
   const rank = card.slice(0, -1);
   const suit = card.slice(-1);
   const cd = CARD_DIM[size];
@@ -662,19 +753,34 @@ function CardFace({ card, size }: { card: string; size: "sm" | "md" }) {
         : suit === "♦"
           ? "oklch(0.5 0.18 250)"
           : "oklch(0.55 0.22 22)";
+  const Style = {
+    width: dim.w,
+    height: dim.h,
+    background: "#fafafa",
+    borderRadius: 5,
+    color: suitColor,
+    fontSize: dim.font,
+    boxShadow: "0 4px 10px rgba(0,0,0,0.5)",
+    lineHeight: 1,
+  } as const;
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={`Change ${rank}${suit}`}
+        className="flex flex-col items-center justify-center font-bold"
+        style={{ ...Style, border: 0, padding: 0, cursor: "pointer" }}
+      >
+        <span>{rank}</span>
+        <span style={{ fontSize: dim.font - 2, marginTop: 1 }}>{suit}</span>
+      </button>
+    );
+  }
   return (
     <div
       className="flex flex-col items-center justify-center font-bold"
-      style={{
-        width: dim.w,
-        height: dim.h,
-        background: "#fafafa",
-        borderRadius: 5,
-        color: suitColor,
-        fontSize: dim.font,
-        boxShadow: "0 4px 10px rgba(0,0,0,0.5)",
-        lineHeight: 1,
-      }}
+      style={Style}
     >
       <span>{rank}</span>
       <span style={{ fontSize: dim.font - 2, marginTop: 1 }}>{suit}</span>
@@ -745,10 +851,12 @@ function MobileFannedCard({
   rank,
   suit,
   size,
+  onClick,
 }: {
   rank: string;
   suit: string;
   size: "sm" | "md";
+  onClick?: () => void;
 }) {
   const cd = CARD_DIM[size];
   const f = FANNED_CARD[size];
@@ -760,8 +868,12 @@ function MobileFannedCard({
         : suit === "♦"
           ? "oklch(0.5 0.18 250)"
           : "oklch(0.55 0.22 22)";
+  const Tag = onClick ? "button" : "div";
   return (
-    <div
+    <Tag
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      aria-label={onClick ? `Change ${rank}${suit}` : undefined}
       className="rounded-md font-bold relative"
       style={{
         width: cd.w,
@@ -770,6 +882,8 @@ function MobileFannedCard({
         color,
         boxShadow: "0 4px 10px rgba(0,0,0,0.5)",
         border: "1px solid rgba(0,0,0,0.1)",
+        padding: 0,
+        cursor: onClick ? "pointer" : "default",
       }}
     >
       <div
@@ -808,7 +922,7 @@ function MobileFannedCard({
       >
         {suit}
       </div>
-    </div>
+    </Tag>
   );
 }
 

@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import Replayer from "@/components/poker/Replayer";
+import ReplayerShell from "@/components/poker/ReplayerShell";
 import { recordedToHand } from "@/components/poker/hand";
 import { getHandForViewing } from "@/lib/hands/db";
 import { createClient } from "@/lib/supabase/server";
@@ -51,10 +51,11 @@ export default async function HandPage({
   const shareUrl = `${proto}://${host}/hand/${id}`;
 
   return (
-    <Replayer
+    <ReplayerShell
       hand={replayHand}
       shareUrl={shareUrl}
       handId={id}
+      handName={result.hand.name}
       isOwner={result.isOwner}
       isPublic={!!result.hand.isPublic}
       isAuthenticated={result.isAuthenticated}

@@ -42,6 +42,7 @@ import { VerticalFelt } from "./VerticalFelt";
 import { CardPickerSheet } from "./CardPickerSheet";
 import { RaiseSizer } from "./RaiseSizer";
 import { SetupSheet } from "./SetupSheet";
+import { BottomSheet } from "@/components/ui/bottom-sheet";
 
 const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
@@ -57,6 +58,7 @@ export default function MobileRecorder() {
   );
   const [savePending, startSave] = useTransition();
   const [setupOpen, setSetupOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
   // Picker target — null when closed. Carries enough info for the pick
   // handler to dispatch the right reducer event and to advance to the
   // next empty slot in the same row when one exists.
@@ -139,49 +141,48 @@ export default function MobileRecorder() {
   // dismissing the picker doesn't trigger a re-open. Manual taps on
   // any board slot still work via openBoardSlot.
   const lastAutoOpenRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!derived || !derived.streetClosed) return;
-    // Determine which slot to deal next based on current phase.
-    let slot: number | null = null;
-    let boardIdx: 0 | 1 = 0;
+  // Helper used by both the auto-open effect below and the
+  // "Deal next street" CTA in the bottom region. Returns the
+  // next slot/board to deal into based on current phase, or null
+  // when nothing's pending.
+  const nextDealSlot = useMemo<
+    { slot: number; boardIdx: 0 | 1 } | null
+  >(() => {
     if (state.phase === "preflop") {
-      // Flop: find first empty of [0,1,2] on board1; if board1 is full
-      // and double-board is on, queue board2's first empty flop slot.
       const b1 = state.board.findIndex((c, i) => i <= 2 && !c);
-      if (b1 !== -1) {
-        slot = b1;
-      } else if (state.doubleBoardOn) {
+      if (b1 !== -1) return { slot: b1, boardIdx: 0 };
+      if (state.doubleBoardOn) {
         const b2 = state.board2.findIndex((c, i) => i <= 2 && !c);
-        if (b2 !== -1) {
-          slot = b2;
-          boardIdx = 1;
-        }
+        if (b2 !== -1) return { slot: b2, boardIdx: 1 };
       }
     } else if (state.phase === "flop") {
-      if (!state.board[3]) slot = 3;
-      else if (state.doubleBoardOn && !state.board2[3]) {
-        slot = 3;
-        boardIdx = 1;
-      }
+      if (!state.board[3]) return { slot: 3, boardIdx: 0 };
+      if (state.doubleBoardOn && !state.board2[3])
+        return { slot: 3, boardIdx: 1 };
     } else if (state.phase === "turn") {
-      if (!state.board[4]) slot = 4;
-      else if (state.doubleBoardOn && !state.board2[4]) {
-        slot = 4;
-        boardIdx = 1;
-      }
+      if (!state.board[4]) return { slot: 4, boardIdx: 0 };
+      if (state.doubleBoardOn && !state.board2[4])
+        return { slot: 4, boardIdx: 1 };
     }
-    if (slot === null) return;
-    const key = `${state.phase}-${slot}-${boardIdx}`;
+    return null;
+  }, [state.phase, state.board, state.board2, state.doubleBoardOn]);
+
+  useEffect(() => {
+    if (!derived || !derived.streetClosed) return;
+    if (!nextDealSlot) return;
+    const key = `${state.phase}-${nextDealSlot.slot}-${nextDealSlot.boardIdx}`;
     if (lastAutoOpenRef.current === key) return;
     lastAutoOpenRef.current = key;
-    setPickerTarget({ kind: "board", slot, boardIdx });
+    setPickerTarget({
+      kind: "board",
+      slot: nextDealSlot.slot,
+      boardIdx: nextDealSlot.boardIdx,
+    });
   }, [
     derived?.streetClosed,
     derived,
     state.phase,
-    state.board,
-    state.board2,
-    state.doubleBoardOn,
+    nextDealSlot,
   ]);
 
   // resolvedAwards: per-pot allocation when showdown is fully resolved.
@@ -379,7 +380,11 @@ export default function MobileRecorder() {
     setPickerTarget({ kind: "board", slot, boardIdx });
 
   // All cards currently on the felt — the picker greys these out so the
-  // user can't double-pick.
+  // user can't double-pick. When the picker is targeting a *filled*
+  // slot (the user tapped a card to replace it), drop that slot's
+  // current card from the set so the same card stays selectable —
+  // otherwise the user would be unable to keep the slot's value or
+  // even re-pick it deliberately.
   const usedCards = useMemo(() => {
     const set = new Set<string>();
     for (const p of state.players) {
@@ -387,34 +392,62 @@ export default function MobileRecorder() {
     }
     for (const c of state.board) if (c) set.add(c);
     for (const c of state.board2) if (c) set.add(c);
+    if (pickerTarget) {
+      let cur: string | null = null;
+      if (pickerTarget.kind === "hero") {
+        cur = state.players[heroPos]?.cards?.[pickerTarget.slot] ?? null;
+      } else if (pickerTarget.kind === "villain") {
+        cur =
+          state.players[pickerTarget.seat]?.cards?.[pickerTarget.slot] ?? null;
+      } else {
+        cur =
+          pickerTarget.boardIdx === 1
+            ? state.board2[pickerTarget.slot] ?? null
+            : state.board[pickerTarget.slot] ?? null;
+      }
+      if (cur) set.delete(cur);
+    }
     return set;
-  }, [state.players, state.board, state.board2]);
+  }, [state.players, state.board, state.board2, pickerTarget, heroPos]);
 
   // Picker pick handler. Dispatches the relevant reducer event, then
   // advances to the next empty slot in the same row if one exists.
+  // When the targeted slot was already filled (user tapped a card to
+  // replace it), close the picker after the dispatch instead of
+  // auto-advancing — the user's intent was a single replacement, not
+  // a re-walk of the whole row.
   const handlePick = (card: string) => {
     if (!pickerTarget) return;
     if (pickerTarget.kind === "hero") {
-      dispatch({ type: "setHeroCard", idx: pickerTarget.slot, card });
-      // Auto-advance through the hole-card row.
       const heroPlayer = state.players[heroPos];
       const cards = heroPlayer?.cards ?? [];
+      const wasReplacing = !!cards[pickerTarget.slot];
+      dispatch({ type: "setHeroCard", idx: pickerTarget.slot, card });
+      if (wasReplacing) {
+        setPickerTarget(null);
+        return;
+      }
       const next = nextEmptyAfter(cards, pickerTarget.slot, card);
       if (next === null) setPickerTarget(null);
       else setPickerTarget({ kind: "hero", slot: next });
       return;
     }
     if (pickerTarget.kind === "board") {
+      const board =
+        pickerTarget.boardIdx === 1 ? state.board2 : state.board;
+      const wasReplacing = !!board[pickerTarget.slot];
       dispatch({
         type: "setBoard",
         idx: pickerTarget.slot,
         card,
         boardIdx: pickerTarget.boardIdx,
       });
+      if (wasReplacing) {
+        setPickerTarget(null);
+        return;
+      }
       // Auto-advance through the flop's three slots; turn/river are
       // single-card so the next-empty check naturally returns null.
-      const board =
-        pickerTarget.boardIdx === 1 ? state.board2 : state.board;
       const flopRange =
         pickerTarget.slot >= 0 && pickerTarget.slot <= 2 ? [0, 2] : null;
       if (flopRange) {
@@ -438,12 +471,18 @@ export default function MobileRecorder() {
       return;
     }
     if (pickerTarget.kind === "villain") {
+      const villain = state.players[pickerTarget.seat];
+      const wasReplacing = !!villain?.cards?.[pickerTarget.slot];
       dispatch({
         type: "setOppCard",
         seat: pickerTarget.seat,
         idx: pickerTarget.slot,
         card,
       });
+      if (wasReplacing) {
+        setPickerTarget(null);
+        return;
+      }
       // Auto-advance through the villain's hole-card row. We can't
       // read the post-dispatch state here, so we project what the
       // cards array will look like AFTER the dispatch settles:
@@ -454,7 +493,6 @@ export default function MobileRecorder() {
       // first pick would close the picker entirely (cards.length === 0
       // when null).
       const need = holeCardCount(state.gameType);
-      const villain = state.players[pickerTarget.seat];
       const projected: (string | null)[] = Array.from({ length: need }, (_, i) => {
         if (i === pickerTarget.slot) return card;
         return villain?.cards?.[i] ?? null;
@@ -550,10 +588,28 @@ export default function MobileRecorder() {
         >
           <ChevronLeft size={22} />
         </button>
-        <div className="flex-1 text-center leading-tight">
+        <button
+          type="button"
+          onClick={() => setRenameOpen(true)}
+          aria-label="Rename hand"
+          className="flex-1 text-center leading-tight"
+          style={{
+            background: "transparent",
+            border: 0,
+            padding: 0,
+            cursor: "pointer",
+            minWidth: 0,
+          }}
+        >
           <div
             className="font-semibold tracking-tight"
-            style={{ fontSize: 14, color: "oklch(0.98 0 0)" }}
+            style={{
+              fontSize: 14,
+              color: "oklch(0.98 0 0)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
           >
             {state.handName || "New hand"}
           </div>
@@ -571,7 +627,7 @@ export default function MobileRecorder() {
             {state.gameType !== "NLHE" ? ` · ${state.gameType}` : ""}
             {state.doubleBoardOn ? " · 2B" : ""}
           </div>
-        </div>
+        </button>
         {/* Right-side header slot is intentionally empty — the gear
             moved into the meta strip's left position so it occupies
             the same place as desktop's "Stakes & seats" trigger. */}
@@ -676,6 +732,12 @@ export default function MobileRecorder() {
               ? openBoardSlot
               : undefined
           }
+          onVillainCardSlot={
+            isShowdown
+              ? (seat, slot) =>
+                  setPickerTarget({ kind: "villain", seat, slot })
+              : undefined
+          }
         />
       </div>
 
@@ -727,56 +789,88 @@ export default function MobileRecorder() {
                 ↶ Undo
               </button>
             </div>
-            <div
-              className="grid"
-              style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}
-            >
-              <ActionButton
-                kind="fold"
-                disabled={!derived || activeSeat === null}
+            {derived?.streetClosed && activeSeat === null && nextDealSlot ? (
+              // Between-streets gap: betting closed, no active seat, but
+              // we still owe board cards. Picker auto-opens for the
+              // next-to-deal slot, but if the user dismisses it the
+              // action bar would otherwise show three disabled buttons —
+              // dead chrome with no path forward. The CTA replaces those
+              // with a single "Deal X" button that re-opens the picker.
+              <button
+                type="button"
                 onClick={() =>
-                  activeSeat !== null &&
-                  dispatch({
-                    type: "recordAction",
-                    action: { seat: activeSeat, action: "fold" },
+                  setPickerTarget({
+                    kind: "board",
+                    slot: nextDealSlot.slot,
+                    boardIdx: nextDealSlot.boardIdx,
                   })
                 }
-                label="Fold"
-              />
-              <ActionButton
-                kind="cc"
-                disabled={!derived || activeSeat === null}
-                onClick={() => {
-                  if (activeSeat === null || !derived) return;
-                  if (derived.canCheck)
-                    dispatch({
-                      type: "recordAction",
-                      action: { seat: activeSeat, action: "check" },
-                    });
-                  else
-                    dispatch({
-                      type: "recordAction",
-                      action: { seat: activeSeat, action: "call" },
-                    });
+                style={{
+                  width: "100%",
+                  height: 56,
+                  borderRadius: 12,
+                  background: EMERALD,
+                  color: BG,
+                  fontWeight: 600,
+                  fontSize: 15,
+                  border: 0,
                 }}
-                label={derived?.canCheck ? "Check" : "Call"}
-                sub={
-                  derived && !derived.canCheck && activeSeat !== null
-                    ? `$${derived.toCall}`
-                    : undefined
-                }
-              />
-              <ActionButton
-                kind="br"
-                disabled={!derived || activeSeat === null}
-                onClick={() => setSizerOpen(true)}
-                label={
-                  derived && derived.lastBet === 0 && activeSeat !== null
-                    ? "Bet"
-                    : "Raise"
-                }
-              />
-            </div>
+              >
+                Deal {nextStreetLabel(state.phase)}
+                {nextDealSlot.boardIdx === 1 ? " (board 2)" : ""}
+              </button>
+            ) : (
+              <div
+                className="grid"
+                style={{ gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}
+              >
+                <ActionButton
+                  kind="fold"
+                  disabled={!derived || activeSeat === null}
+                  onClick={() =>
+                    activeSeat !== null &&
+                    dispatch({
+                      type: "recordAction",
+                      action: { seat: activeSeat, action: "fold" },
+                    })
+                  }
+                  label="Fold"
+                />
+                <ActionButton
+                  kind="cc"
+                  disabled={!derived || activeSeat === null}
+                  onClick={() => {
+                    if (activeSeat === null || !derived) return;
+                    if (derived.canCheck)
+                      dispatch({
+                        type: "recordAction",
+                        action: { seat: activeSeat, action: "check" },
+                      });
+                    else
+                      dispatch({
+                        type: "recordAction",
+                        action: { seat: activeSeat, action: "call" },
+                      });
+                  }}
+                  label={derived?.canCheck ? "Check" : "Call"}
+                  sub={
+                    derived && !derived.canCheck && activeSeat !== null
+                      ? `$${derived.toCall}`
+                      : undefined
+                  }
+                />
+                <ActionButton
+                  kind="br"
+                  disabled={!derived || activeSeat === null}
+                  onClick={() => setSizerOpen(true)}
+                  label={
+                    derived && derived.lastBet === 0 && activeSeat !== null
+                      ? "Bet"
+                      : "Raise"
+                  }
+                />
+              </div>
+            )}
           </>
         )}
 
@@ -881,7 +975,99 @@ export default function MobileRecorder() {
         state={state}
         dispatch={dispatch}
       />
+
+      {/* Rename sheet — opens from header title tap. Editable any
+          time, including mid-hand (the desktop recorder also allows
+          rename mid-hand via inline edit). */}
+      <RenameSheet
+        open={renameOpen}
+        initial={state.handName}
+        onClose={() => setRenameOpen(false)}
+        onSave={(name) => {
+          dispatch({ type: "setHandName", name });
+          setRenameOpen(false);
+        }}
+      />
     </div>
+  );
+}
+
+function RenameSheet({
+  open,
+  initial,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  initial: string;
+  onClose: () => void;
+  onSave: (name: string) => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  // Re-seed when sheet (re)opens. setState-during-render with sentinel
+  // to avoid the react-hooks/set-state-in-effect rule.
+  const [lastOpen, setLastOpen] = useState(open);
+  if (open !== lastOpen) {
+    setLastOpen(open);
+    if (open) setDraft(initial);
+  }
+  const submit = () => {
+    const trimmed = draft.trim();
+    onSave(trimmed || "New hand");
+  };
+  return (
+    <BottomSheet
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+      title="Hand name"
+    >
+      <div
+        className="flex flex-col"
+        style={{ padding: "12px 14px 16px", gap: 12 }}
+      >
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          placeholder="New hand"
+          className="w-full"
+          style={{
+            height: 44,
+            borderRadius: 10,
+            background: "oklch(0.16 0 0)",
+            border: "1px solid rgba(255,255,255,0.10)",
+            color: "oklch(0.92 0 0)",
+            fontSize: 15,
+            padding: "0 12px",
+            outline: "none",
+          }}
+        />
+        <button
+          type="button"
+          onClick={submit}
+          style={{
+            width: "100%",
+            height: 48,
+            borderRadius: 12,
+            background: EMERALD,
+            color: BG,
+            fontWeight: 600,
+            fontSize: 14,
+            border: 0,
+          }}
+        >
+          Save
+        </button>
+      </div>
+    </BottomSheet>
   );
 }
 
