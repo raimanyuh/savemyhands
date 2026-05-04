@@ -117,7 +117,7 @@ Multi-PR rollout on `dev`, periodically merged to `main`. Specs in `design_hando
 - ✅ **Action-annotation editing** in both replayers. Inline textarea on desktop, bottom-sheet textarea on mobile. Optimistic + server-merged via `useAnnotationEdit`.
 
 ### Remaining (suggested order, separate PRs)
-1. *(none currently — mobile landing pass shipped 2026-05-04.)*
+1. **🔴 BROKEN: Add-note-from-replayer doesn't persist.** Owner adds annotation via the new pill (desktop) or dock button (mobile), clicks Save, optimistic note appears, refresh wipes it. Two diagnostic guards added in commit `8bc364f` (alert when `livePayload` missing in `useAnnotationEdit`; throw-on-zero-rows in `updateHandDetails`) — user reports the issue persists *after* that fix went live, but didn't share which alert (if any) they saw before logging off. **Pick up next session by asking which alert message appeared, checking DevTools console for `[saveAnnotation]` log, and inspecting Vercel deploy logs.** See `memory/annotation_save_bug.md` for the full diagnostic state.
 
 ### Open questions deferred
 - 9+ handed mobile felt — capped at 8.
