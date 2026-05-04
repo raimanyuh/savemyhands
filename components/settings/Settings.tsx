@@ -17,6 +17,7 @@ import { X } from "lucide-react";
 import { Header, Shell } from "@/components/Shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ContactInline } from "@/components/Contact";
 import { UsernamePicker } from "@/components/auth/UsernamePicker";
 import {
   changePasswordAction,
@@ -112,6 +113,17 @@ export default function Settings({
           </Row>
           <Row label="Password">
             <PasswordForm />
+          </Row>
+        </SectionCard>
+
+        <SectionCard title="Help & feedback">
+          <Row label="Contact">
+            <div className="flex flex-col gap-3">
+              <span className="text-sm text-muted-foreground">
+                Bug, feature request, or just want to chat? Reach out.
+              </span>
+              <ContactInline />
+            </div>
           </Row>
         </SectionCard>
 

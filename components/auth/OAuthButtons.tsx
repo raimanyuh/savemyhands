@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import type { CSSProperties } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-// Inline brand glyphs — lucide doesn't ship Google/Discord marks, and the
-// alternative is pulling in a brand-icon dep just for two logos.
 function GoogleGlyph() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
@@ -43,10 +41,28 @@ function DiscordGlyph() {
   );
 }
 
+const buttonBase: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 10,
+  width: "100%",
+  height: 42,
+  padding: "0 14px",
+  borderRadius: 10,
+  background: "rgba(9,9,11,0.5)",
+  color: "#fafaf9",
+  border: "1px solid rgba(255,255,255,0.10)",
+  fontSize: 13,
+  fontWeight: 500,
+  letterSpacing: "-0.005em",
+  cursor: "pointer",
+  transition: "background 150ms ease, border-color 150ms ease",
+};
+
 export function OAuthButtons({ label = "Continue with" }: { label?: string }) {
-  // `pending` tracks which provider was clicked so we can disable both
-  // buttons while the redirect is in flight.
   const [pending, setPending] = useState<"google" | "discord" | null>(null);
+  const [hovered, setHovered] = useState<"google" | "discord" | null>(null);
 
   const signIn = async (provider: "google" | "discord") => {
     setPending(provider);
@@ -58,34 +74,46 @@ export function OAuthButtons({ label = "Continue with" }: { label?: string }) {
       },
     });
     if (error) {
-      // The redirect didn't kick in — surface the failure instead of leaving
-      // the buttons spinning forever.
       console.error("OAuth error", error);
       window.alert(`Couldn't start ${provider} sign-in. ${error.message}`);
       setPending(null);
     }
   };
 
+  const styleFor = (provider: "google" | "discord"): CSSProperties => ({
+    ...buttonBase,
+    background:
+      hovered === provider ? "rgba(255,255,255,0.06)" : buttonBase.background,
+    borderColor:
+      hovered === provider
+        ? "rgba(255,255,255,0.18)"
+        : "rgba(255,255,255,0.10)",
+    opacity: pending !== null && pending !== provider ? 0.5 : 1,
+    cursor: pending !== null ? "default" : "pointer",
+  });
+
   return (
-    <div className="flex flex-col gap-2">
-      <Button
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <button
         type="button"
-        variant="outline"
-        className="w-full h-11"
         disabled={pending !== null}
         onClick={() => signIn("google")}
+        onPointerEnter={() => setHovered("google")}
+        onPointerLeave={() => setHovered(null)}
+        style={styleFor("google")}
       >
         <GoogleGlyph /> {label} Google
-      </Button>
-      <Button
+      </button>
+      <button
         type="button"
-        variant="outline"
-        className="w-full h-11"
         disabled={pending !== null}
         onClick={() => signIn("discord")}
+        onPointerEnter={() => setHovered("discord")}
+        onPointerLeave={() => setHovered(null)}
+        style={styleFor("discord")}
       >
         <DiscordGlyph /> {label} Discord
-      </Button>
+      </button>
     </div>
   );
 }

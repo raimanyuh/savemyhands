@@ -61,6 +61,28 @@ type SeatCoord = { left: number; top: number };
 // and so on. These are the *visual* slots, not cycle indices — the felt
 // translates between the two.
 const SEAT_COORDS_BY_N: Record<number, SeatCoord[]> = {
+  2: [
+    { left: 50, top: 90 },
+    { left: 50, top: 14 },
+  ],
+  3: [
+    { left: 50, top: 92 },
+    { left: 14, top: 32 },
+    { left: 86, top: 32 },
+  ],
+  4: [
+    { left: 50, top: 92 },
+    { left: 12, top: 56 },
+    { left: 50, top: 12 },
+    { left: 88, top: 56 },
+  ],
+  5: [
+    { left: 50, top: 92 },
+    { left: 12, top: 72 },
+    { left: 14, top: 30 },
+    { left: 50, top: 10 },
+    { left: 86, top: 30 },
+  ],
   6: [
     { left: 50, top: 92 },
     { left: 12, top: 78 },
@@ -100,6 +122,10 @@ function cycleToVisual(cycleIdx: number, heroPos: number, n: number): number {
 }
 
 const POSITION_LABELS: Record<number, string[]> = {
+  2: ["BTN/SB", "BB"],
+  3: ["BTN", "SB", "BB"],
+  4: ["BTN", "SB", "BB", "CO"],
+  5: ["BTN", "SB", "BB", "UTG", "CO"],
   6: ["BTN", "SB", "BB", "UTG", "HJ", "CO"],
   7: ["BTN", "SB", "BB", "UTG", "UTG+1", "HJ", "CO"],
   8: ["BTN", "SB", "BB", "UTG", "UTG+1", "MP", "HJ", "CO"],

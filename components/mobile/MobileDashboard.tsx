@@ -44,7 +44,6 @@ import { potTypeOf, type SavedHand } from "@/components/poker/hand";
 import {
   GAME_LABEL,
   MiniCard,
-  SAMPLE_HANDS,
   doubleBoardOf,
   gameTypeOf,
   heroPositionOf,
@@ -67,19 +66,15 @@ export default function MobileDashboard({
   initialUsername,
   signOutAction,
   initialHands,
-  showSamples,
 }: {
   initialUsername: string | null;
   signOutAction?: () => void | Promise<void>;
   initialHands: SavedHand[];
-  showSamples: boolean;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
 
-  const [hands, setHands] = useState<SavedHand[]>(() =>
-    showSamples ? [...initialHands, ...SAMPLE_HANDS] : initialHands,
-  );
+  const [hands, setHands] = useState<SavedHand[]>(() => initialHands);
   const [, startMutation] = useTransition();
 
   const [search, setSearch] = useState("");
@@ -95,11 +90,6 @@ export default function MobileDashboard({
 
   const [username, setUsername] = useState<string | null>(initialUsername);
   const [usernameOpen, setUsernameOpen] = useState(false);
-
-  const sampleIds = useMemo(
-    () => new Set(SAMPLE_HANDS.map((h) => h.id)),
-    [],
-  );
 
   // Distinct filter values discovered from the dataset.
   const filterOptions = useMemo(
@@ -162,7 +152,6 @@ export default function MobileDashboard({
       prev = hs.find((h) => h.id === id);
       return hs.map((h) => (h.id === id ? { ...h, ...patch } : h));
     });
-    if (sampleIds.has(id)) return;
     startMutation(async () => {
       try {
         await updateHandDetailsAction(id, patch);
@@ -191,11 +180,9 @@ export default function MobileDashboard({
     setHands((hs) => hs.filter((h) => !targetSet.has(h.id)));
     setSelected(new Set());
     setBulkActionsOpen(false);
-    const persistable = targets.filter((id) => !sampleIds.has(id));
-    if (persistable.length === 0) return;
     startMutation(async () => {
       try {
-        await deleteHandsAction(persistable);
+        await deleteHandsAction(targets);
       } catch (e) {
         console.error("Failed to delete hands", e);
         window.alert(
@@ -211,17 +198,13 @@ export default function MobileDashboard({
     if (targets.length === 0) return;
     const targetSet = new Set(targets);
     const targetHands = hands.filter((h) => targetSet.has(h.id));
-    const persistable = targetHands.filter((h) => !sampleIds.has(h.id));
-    if (persistable.length === 0) {
-      window.alert("Sample hands can't be shared. Save your own first.");
-      return;
-    }
+    if (targetHands.length === 0) return;
     const ok = await confirm({
-      title: `Share ${persistable.length} hand${persistable.length === 1 ? "" : "s"}?`,
+      title: `Share ${targetHands.length} hand${targetHands.length === 1 ? "" : "s"}?`,
       message: (
         <>
           Anyone with the link will be able to view{" "}
-          {persistable.length === 1 ? "this hand" : "these hands"}. The links
+          {targetHands.length === 1 ? "this hand" : "these hands"}. The links
           will be copied to your clipboard.
         </>
       ),
@@ -231,7 +214,7 @@ export default function MobileDashboard({
 
     const origin =
       typeof window !== "undefined" ? window.location.origin : "";
-    const lines = persistable.map(
+    const lines = targetHands.map(
       (h) => `${h.name} — ${origin}/hand/${h.id}`,
     );
     const text = lines.join("\n");
@@ -246,7 +229,7 @@ export default function MobileDashboard({
     );
     setBulkActionsOpen(false);
 
-    const ids = persistable.map((h) => h.id);
+    const ids = targetHands.map((h) => h.id);
     startMutation(async () => {
       try {
         await setHandsPublicAction(ids, true);
@@ -285,15 +268,13 @@ export default function MobileDashboard({
     setBulkTagOpen(false);
     startMutation(async () => {
       await Promise.all(
-        [...patches.entries()]
-          .filter(([id]) => !sampleIds.has(id))
-          .map(async ([id, tags]) => {
-            try {
-              await updateHandDetailsAction(id, { tags });
-            } catch (e) {
-              console.error("Failed to update tags for", id, e);
-            }
-          }),
+        [...patches.entries()].map(async ([id, tags]) => {
+          try {
+            await updateHandDetailsAction(id, { tags });
+          } catch (e) {
+            console.error("Failed to update tags for", id, e);
+          }
+        }),
       );
     });
   };
@@ -465,7 +446,6 @@ export default function MobileDashboard({
                 hand={h}
                 selected={selected.has(h.id)}
                 inSelectMode={inSelectMode}
-                isSample={sampleIds.has(h.id)}
                 onTap={() => {
                   if (inSelectMode) {
                     toggleSel(h.id);
@@ -791,7 +771,6 @@ function HandCard({
   hand,
   selected,
   inSelectMode,
-  isSample,
   onTap,
   onLongPress,
   onToggleFav,
@@ -799,7 +778,6 @@ function HandCard({
   hand: SavedHand;
   selected: boolean;
   inSelectMode: boolean;
-  isSample: boolean;
   onTap: () => void;
   onLongPress: () => void;
   onToggleFav: () => void;
@@ -920,24 +898,6 @@ function HandCard({
             >
               {hand.name}
             </div>
-            {isSample && (
-              <span
-                className="shrink-0"
-                style={{
-                  fontSize: 9,
-                  fontWeight: 700,
-                  letterSpacing: "0.14em",
-                  textTransform: "uppercase",
-                  padding: "1px 5px",
-                  borderRadius: 4,
-                  background: "oklch(1 0 0 / 0.04)",
-                  border: "1px solid oklch(1 0 0 / 0.10)",
-                  color: "oklch(0.65 0 0)",
-                }}
-              >
-                sample
-              </span>
-            )}
           </div>
         </div>
         <button

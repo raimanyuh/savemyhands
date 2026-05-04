@@ -28,7 +28,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Header, Shell } from "@/components/Shell";
+import { useIsSideLayout } from "@/lib/use-is-side-layout";
 import { POSITION_NAMES, seatXY } from "./lib";
+import { scaled } from "./scale";
 import {
   BetBubble,
   DealerButtonChip,
@@ -308,10 +310,16 @@ function ActionBar({
   state,
   derived,
   dispatch,
+  orientation = "horizontal",
 }: {
   state: RecorderState;
   derived: NonNullable<ReturnType<typeof deriveStreet>>;
   dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
+  // "horizontal" (default) — the wide bar that lives below the felt in
+  // stacked mode. "vertical" — sidebar variant for the side-by-side
+  // layout, ~380px wide column. Both branches share state, refs,
+  // handlers, and keyboard shortcuts.
+  orientation?: "horizontal" | "vertical";
 }) {
   const { activeSeat, toCall, canCheck, minRaise, totalPot: tp, lastBet, committed, bets } =
     derived;
@@ -323,9 +331,6 @@ function ActionBar({
   // The ActionBar is keyed by phase/seat/minRaise from the parent, so a fresh
   // mount seeds `amount` to the current minRaise without an effect.
   const [amount, setAmount] = useState(String(minRaise));
-  // Sizing drawer collapses for screen real estate; opens by default on every
-  // new acting turn (the parent re-keys, so this also resets across turns).
-  const [drawerOpen, setDrawerOpen] = useState(true);
   const amountInputRef = useRef<HTMLInputElement | null>(null);
 
   // Keyboard shortcuts. Declared before the early return so hook order is
@@ -371,12 +376,8 @@ function ActionBar({
         });
       } else if (k === "r" || k === "b") {
         e.preventDefault();
-        setDrawerOpen(true);
-        // Defer focus until the drawer's input is rendered.
-        setTimeout(() => {
-          amountInputRef.current?.focus();
-          amountInputRef.current?.select();
-        }, 0);
+        amountInputRef.current?.focus();
+        amountInputRef.current?.select();
       } else if (k === "1") {
         e.preventDefault();
         setAmount(String(sizeFromFrac(0.5)));
@@ -496,67 +497,90 @@ function ActionBar({
     ? amt <= 0 || amt > maxAllowed
     : amt > maxAllowed || (amt < minRaise && amt !== maxAllowed);
 
-  // Bet button is "open the drawer" while collapsed, "commit" while open. The
-  // chevron flips to telegraph which mode it's in.
-  const onBetClick = () => {
-    if (!drawerOpen) {
-      setDrawerOpen(true);
-      return;
-    }
-    placeBet();
-  };
-
   // Slider range: from minRaise (or street's call amount when betting from $0)
   // up to whichever cap the game enforces (all-in for NLHE, pot for PLO).
   const sliderMin = isBetMode ? Math.max(state.bb, 1) : Math.max(minRaise, 1);
   const sliderMax = Math.max(sliderMin, maxAllowed);
   const sliderVal = Math.min(sliderMax, Math.max(sliderMin, Number.isFinite(amt) ? amt : sliderMin));
 
-  return (
-    <div
-      className="rounded-2xl border border-white/10 w-full max-w-[1100px] overflow-hidden"
-      style={{
-        background: "rgba(15,15,18,0.88)",
-        backdropFilter: "blur(10px)",
-        boxShadow: "0 16px 40px rgba(0,0,0,0.5)",
-      }}
-    >
-      {drawerOpen && (
+  // Vertical sidebar layout — used when the page is in side-by-side mode.
+  // Same state, handlers, and keyboard shortcuts as the horizontal bar
+  // below; only the JSX differs. Sizing chips wrap to a 2-col grid (last
+  // chip spans both cols), slider + amount input stack full-width, action
+  // buttons stack vertically. Fixed pixel sizes — the panel lives in a
+  // ~380px column and doesn't need felt-relative scaling.
+  if (orientation === "vertical") {
+    return (
+      <div
+        className="rounded-2xl border border-white/10 w-full overflow-hidden flex flex-col"
+        style={{
+          background: "rgba(15,15,18,0.88)",
+          backdropFilter: "blur(10px)",
+          boxShadow: "0 16px 40px rgba(0,0,0,0.5)",
+        }}
+      >
+        {/* Position info row */}
         <div
-          className="px-[18px] py-[14px] border-b border-white/8 flex flex-col gap-2.5"
+          className="flex items-center gap-2 border-b border-white/8 px-4 py-2"
+          style={{ background: "rgba(255,255,255,0.02)" }}
+        >
+          <span
+            className="text-[10px] font-bold uppercase tracking-[0.16em] px-1.5 h-5 inline-flex items-center rounded"
+            style={{
+              background: "oklch(0.696 0.205 155 / 0.18)",
+              color: "oklch(0.795 0.184 155)",
+              border: "1px solid oklch(0.696 0.205 155 / 0.4)",
+            }}
+          >
+            {posName}
+          </span>
+          <span className="text-[13px] font-medium text-zinc-100">
+            {seat.name || `Seat ${activeSeat + 1}`}
+          </span>
+          <div className="flex-1" />
+          <span className="text-[12px] text-zinc-400 tabular-nums">
+            ${liveStack.toLocaleString()}
+          </span>
+        </div>
+
+        {/* Bet sizing */}
+        <div
+          className="px-4 py-2.5 flex flex-col gap-2.5 border-b border-white/8"
           style={{ background: "oklch(0.165 0 0)" }}
         >
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-400">
               Bet sizing
             </span>
-            <div className="flex-1" />
-            <button
-              type="button"
-              onClick={() => setDrawerOpen(false)}
-              className="text-[11px] text-zinc-500 hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer"
-              aria-label="Collapse bet sizing"
-            >
-              <ChevronDown size={12} /> Collapse
-            </button>
+            <span className="text-[11px] text-zinc-500 tabular-nums">
+              pot ${tp}
+            </span>
           </div>
-          <div className="flex gap-1.5">
-            {chips.map((c) => {
+          {/* 2-col chip grid; last chip spans both cols */}
+          <div className="grid grid-cols-2 gap-1.5">
+            {chips.map((c, i) => {
+              const isLast = i === chips.length - 1;
               const active = String(c.amount) === amount;
               return (
                 <button
                   key={c.id}
                   type="button"
                   onClick={() => setAmount(String(c.amount))}
-                  className="flex-1 h-[50px] rounded-lg flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors"
+                  className="rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors"
                   style={
                     active
                       ? {
+                          gridColumn: isLast ? "span 2" : undefined,
+                          height: 44,
+                          gap: 2,
                           background: "oklch(0.696 0.205 155 / 0.18)",
                           border: "1px solid oklch(0.696 0.205 155 / 0.5)",
                           color: "oklch(0.85 0.184 155)",
                         }
                       : {
+                          gridColumn: isLast ? "span 2" : undefined,
+                          height: 44,
+                          gap: 2,
                           background: "oklch(1 0 0 / 0.04)",
                           border: "1px solid oklch(1 0 0 / 0.10)",
                           color: "#e4e4e7",
@@ -574,10 +598,11 @@ function ActionBar({
               );
             })}
           </div>
-          <div className="flex items-center gap-3">
+          {/* Slider */}
+          <div className="flex items-center gap-2">
             <span
               className="text-[11px] text-zinc-500 tabular-nums"
-              style={{ minWidth: 36 }}
+              style={{ minWidth: 32 }}
             >
               ${sliderMin.toLocaleString()}
             </span>
@@ -591,7 +616,197 @@ function ActionBar({
             />
             <span
               className="text-[11px] text-zinc-500 tabular-nums text-right"
-              style={{ minWidth: 56 }}
+              style={{ minWidth: 48 }}
+            >
+              ${sliderMax.toLocaleString()}
+            </span>
+          </div>
+          {/* Amount input — full column-width */}
+          <Input
+            ref={amountInputRef}
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                placeBet();
+              }
+            }}
+            className="w-full h-9 text-[14px] text-center tabular-nums"
+          />
+        </div>
+
+        {/* Action buttons — stacked vertical */}
+        <div className="px-4 py-2.5 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={fold}
+            className="w-full h-11 rounded-lg cursor-pointer flex items-center justify-center gap-2 transition-colors"
+            style={{
+              background: "oklch(0.704 0.191 22.216 / 0.12)",
+              border: "1px solid oklch(0.704 0.191 22.216 / 0.4)",
+              color: "oklch(0.78 0.191 22.216)",
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            Fold <Kbd tone="rose">F</Kbd>
+          </button>
+          {canCheck ? (
+            <button
+              type="button"
+              onClick={check}
+              className="w-full h-11 rounded-lg cursor-pointer flex items-center justify-center gap-2 transition-colors"
+              style={{
+                background: "oklch(1 0 0 / 0.06)",
+                border: "1px solid oklch(1 0 0 / 0.15)",
+                color: "#f4f4f5",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Check <Kbd>C</Kbd>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={call}
+              className="w-full h-11 rounded-lg cursor-pointer flex items-center justify-center gap-2 transition-colors tabular-nums"
+              style={{
+                background: "oklch(1 0 0 / 0.06)",
+                border: "1px solid oklch(1 0 0 / 0.15)",
+                color: "#f4f4f5",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Call ${Math.min(toCall, liveStack).toLocaleString()}
+              {toCall > liveStack ? (
+                <span className="text-[10px] text-zinc-400">all-in</span>
+              ) : null}
+              <Kbd>C</Kbd>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={placeBet}
+            disabled={cannotBet}
+            className="w-full h-11 rounded-lg cursor-pointer flex items-center justify-center gap-2 transition-colors tabular-nums disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              background: EMERALD,
+              border: "none",
+              color: BG,
+              fontSize: 14,
+              fontWeight: 700,
+              boxShadow: "0 6px 18px oklch(0.696 0.205 155 / 0.3)",
+            }}
+          >
+            {`${isBetMode ? "Bet" : "Raise to"} $${(Number.isFinite(amt) ? amt : 0).toLocaleString()}`}
+            <Kbd tone="dark">R</Kbd>
+          </button>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: "undoAction" })}
+            disabled={state.actions.length === 0}
+            className="text-center text-[12px] text-zinc-500 hover:text-zinc-200 transition-colors py-1.5 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5"
+            title="Undo last action (Cmd/Ctrl-Z)"
+          >
+            <RotateCcw size={12} /> Undo last action
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-2xl border border-white/10 w-full overflow-hidden"
+      style={{
+        maxWidth: scaled(1100),
+        background: "rgba(15,15,18,0.88)",
+        backdropFilter: "blur(10px)",
+        boxShadow: "0 16px 40px rgba(0,0,0,0.5)",
+      }}
+    >
+      <div
+        className="border-b border-white/8 flex flex-col"
+        style={{
+          paddingInline: scaled(18),
+          paddingBlock: scaled(14),
+          gap: scaled(10),
+          background: "oklch(0.165 0 0)",
+        }}
+      >
+          <div className="flex items-center" style={{ gap: scaled(10) }}>
+            <span
+              className="font-semibold uppercase tracking-[0.22em] text-zinc-400"
+              style={{ fontSize: scaled(10) }}
+            >
+              Bet sizing
+            </span>
+          </div>
+          <div className="flex" style={{ gap: scaled(6) }}>
+            {chips.map((c) => {
+              const active = String(c.amount) === amount;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setAmount(String(c.amount))}
+                  className="flex-1 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors"
+                  style={
+                    active
+                      ? {
+                          height: scaled(50),
+                          gap: scaled(2),
+                          background: "oklch(0.696 0.205 155 / 0.18)",
+                          border: "1px solid oklch(0.696 0.205 155 / 0.5)",
+                          color: "oklch(0.85 0.184 155)",
+                        }
+                      : {
+                          height: scaled(50),
+                          gap: scaled(2),
+                          background: "oklch(1 0 0 / 0.04)",
+                          border: "1px solid oklch(1 0 0 / 0.10)",
+                          color: "#e4e4e7",
+                        }
+                  }
+                >
+                  <span
+                    className="font-semibold"
+                    style={{ fontSize: scaled(12) }}
+                  >
+                    {c.label}
+                  </span>
+                  <span
+                    className="tabular-nums"
+                    style={{ fontSize: scaled(11), opacity: 0.75 }}
+                  >
+                    ${c.amount.toLocaleString()}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center" style={{ gap: scaled(12) }}>
+            <span
+              className="text-zinc-500 tabular-nums"
+              style={{ fontSize: scaled(11), minWidth: scaled(36) }}
+            >
+              ${sliderMin.toLocaleString()}
+            </span>
+            <input
+              type="range"
+              min={sliderMin}
+              max={sliderMax}
+              value={sliderVal}
+              onChange={(e) => setAmount(e.target.value)}
+              className="flex-1 accent-[oklch(0.696_0.205_155)]"
+            />
+            <span
+              className="text-zinc-500 tabular-nums text-right"
+              style={{ fontSize: scaled(11), minWidth: scaled(56) }}
             >
               ${sliderMax.toLocaleString()}
             </span>
@@ -606,16 +821,30 @@ function ActionBar({
                   placeBet();
                 }
               }}
-              className="w-24 h-8 text-sm text-center tabular-nums"
+              className="text-center tabular-nums"
+              style={{
+                width: scaled(96),
+                height: scaled(32),
+                fontSize: scaled(14),
+              }}
             />
           </div>
-        </div>
-      )}
-      <div className="px-[18px] py-3 flex items-center gap-2.5">
-        <div className="flex items-center gap-2">
+      </div>
+      <div
+        className="flex items-center"
+        style={{
+          paddingInline: scaled(18),
+          paddingBlock: scaled(12),
+          gap: scaled(10),
+        }}
+      >
+        <div className="flex items-center" style={{ gap: scaled(8) }}>
           <span
-            className="text-[10px] font-bold uppercase tracking-[0.16em] px-1.5 h-5 inline-flex items-center rounded"
+            className="font-bold uppercase tracking-[0.16em] inline-flex items-center rounded"
             style={{
+              fontSize: scaled(10),
+              paddingInline: scaled(6),
+              height: scaled(20),
               background: "oklch(0.696 0.205 155 / 0.18)",
               color: "oklch(0.795 0.184 155)",
               border: "1px solid oklch(0.696 0.205 155 / 0.4)",
@@ -623,25 +852,35 @@ function ActionBar({
           >
             {posName}
           </span>
-          <span className="text-[13px] font-medium text-zinc-100">
+          <span
+            className="font-medium text-zinc-100"
+            style={{ fontSize: scaled(13) }}
+          >
             {seat.name || `Seat ${activeSeat + 1}`}
           </span>
-          <span className="text-[11px] text-zinc-500 tabular-nums">
+          <span
+            className="text-zinc-500 tabular-nums"
+            style={{ fontSize: scaled(11) }}
+          >
             ${liveStack.toLocaleString()}
           </span>
         </div>
-        <div className="flex-1 flex justify-center gap-2">
+        <div
+          className="flex-1 flex justify-center"
+          style={{ gap: scaled(8) }}
+        >
           <button
             type="button"
             onClick={fold}
-            className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors"
+            className="rounded-lg cursor-pointer inline-flex items-center justify-center transition-colors"
             style={{
-              width: 130,
-              height: 48,
+              width: scaled(130),
+              height: scaled(48),
+              gap: scaled(8),
               background: "oklch(0.704 0.191 22.216 / 0.12)",
               border: "1px solid oklch(0.704 0.191 22.216 / 0.4)",
               color: "oklch(0.78 0.191 22.216)",
-              fontSize: 14,
+              fontSize: scaled(14),
               fontWeight: 600,
             }}
           >
@@ -651,14 +890,15 @@ function ActionBar({
             <button
               type="button"
               onClick={check}
-              className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors"
+              className="rounded-lg cursor-pointer inline-flex items-center justify-center transition-colors"
               style={{
-                width: 130,
-                height: 48,
+                width: scaled(130),
+                height: scaled(48),
+                gap: scaled(8),
                 background: "oklch(1 0 0 / 0.06)",
                 border: "1px solid oklch(1 0 0 / 0.15)",
                 color: "#f4f4f5",
-                fontSize: 14,
+                fontSize: scaled(14),
                 fontWeight: 500,
               }}
             >
@@ -668,44 +908,48 @@ function ActionBar({
             <button
               type="button"
               onClick={call}
-              className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors tabular-nums"
+              className="rounded-lg cursor-pointer inline-flex items-center justify-center transition-colors tabular-nums"
               style={{
-                width: 130,
-                height: 48,
+                width: scaled(130),
+                height: scaled(48),
+                gap: scaled(8),
                 background: "oklch(1 0 0 / 0.06)",
                 border: "1px solid oklch(1 0 0 / 0.15)",
                 color: "#f4f4f5",
-                fontSize: 14,
+                fontSize: scaled(14),
                 fontWeight: 500,
               }}
             >
               Call ${Math.min(toCall, liveStack).toLocaleString()}
-              {toCall > liveStack ? <span className="text-[10px] text-zinc-400">all-in</span> : null}
+              {toCall > liveStack ? (
+                <span
+                  className="text-zinc-400"
+                  style={{ fontSize: scaled(10) }}
+                >
+                  all-in
+                </span>
+              ) : null}
               <Kbd>C</Kbd>
             </button>
           )}
           <button
             type="button"
-            onClick={onBetClick}
-            disabled={drawerOpen && cannotBet}
-            className="rounded-lg cursor-pointer inline-flex items-center justify-center gap-2 transition-colors tabular-nums disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={placeBet}
+            disabled={cannotBet}
+            className="rounded-lg cursor-pointer inline-flex items-center justify-center transition-colors tabular-nums disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
-              width: 200,
-              height: 48,
+              width: scaled(200),
+              height: scaled(48),
+              gap: scaled(8),
               background: EMERALD,
               border: "none",
               color: BG,
-              fontSize: 14,
+              fontSize: scaled(14),
               fontWeight: 700,
               boxShadow: "0 6px 18px oklch(0.696 0.205 155 / 0.3)",
             }}
           >
-            {drawerOpen
-              ? `${isBetMode ? "Bet" : "Raise to"} $${(Number.isFinite(amt) ? amt : 0).toLocaleString()}`
-              : isBetMode
-                ? "Bet"
-                : "Raise"}
-            {drawerOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            {`${isBetMode ? "Bet" : "Raise to"} $${(Number.isFinite(amt) ? amt : 0).toLocaleString()}`}
             <Kbd tone="dark">R</Kbd>
           </button>
         </div>
@@ -1791,6 +2035,10 @@ export default function Recorder() {
   // Stakes & seats popover open state — lifted here so the table can dim
   // (per the handoff) while the popover is in front of it.
   const [setupPopoverOpen, setSetupPopoverOpen] = useState(false);
+  // Wide+landscape viewports get the side-by-side layout (felt left,
+  // action panel + notes stacked right). Anything narrower or portrait
+  // falls back to the stacked layout (felt on top, action bar below).
+  const useSide = useIsSideLayout();
   // Action-log popover; lifted so the inline log below the table can be
   // removed entirely (the popover replaces it).
   const [logOpen, setLogOpen] = useState(false);
@@ -2179,22 +2427,36 @@ export default function Recorder() {
           setLogOpen={setLogOpen}
         />
 
-        {/* Table — dims to 55% while the setup popover is open so focus
-            stays on the controls. The inner cap keeps the table from
-            outgrowing the available vertical space; the 440px chrome
-            estimate reserves room for the header + meta strip + the
-            below-table row (action bar with drawer open ≈ 217, including
-            the Fold/Call/Raise row that the user must always see) +
-            paddings. Felt is `aspect-ratio: 2/1` so the height follows.
-            On shorter viewports the table shrinks proportionally so the
-            action bar never gets pushed off-screen. */}
+        {/* Layout container — wraps the felt and the action+notes region.
+            Side mode (wide+landscape, ≥1280×16:10) puts them in a flex-row
+            so the action panel and notes stack to the right of the felt;
+            otherwise they stack vertically as before. The chrome
+            reservation in the felt's max-width formula differs between
+            modes — side mode only reserves header + meta + paddings (~200)
+            since nothing sits below the felt; stacked mode reserves enough
+            for the action bar (440). */}
         <div
-          className="self-stretch flex justify-center transition-opacity"
+          className={
+            useSide
+              ? "self-stretch flex flex-row gap-6 items-start min-w-0"
+              : "self-stretch flex flex-col gap-3"
+          }
+        >
+        <div
+          className={
+            useSide
+              ? "flex-1 flex justify-center transition-opacity min-w-0"
+              : "self-stretch flex justify-center transition-opacity"
+          }
           style={{ opacity: setupPopoverOpen ? 0.55 : 1 }}
         >
         <div
           className="w-full flex flex-col items-center"
-          style={{ maxWidth: "calc((100vh - 440px) * 2)" }}
+          style={{
+            maxWidth: useSide
+              ? "calc((100vh - 200px) * 2)"
+              : "calc((100vh - 440px) * 2)",
+          }}
         >
         <TableSurface>
           {/* Pot + board(s). The translateY nudge shifts the stack up to
@@ -2202,14 +2464,18 @@ export default function Recorder() {
               nudge further when a second board is present so both boards
               sit visually above the hero. */}
           <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10"
+            className="absolute inset-0 flex flex-col items-center justify-center z-10"
             style={{
-              transform: `translateY(${state.doubleBoardOn ? -56 : -34}px)`,
+              transform: `translateY(calc(${state.doubleBoardOn ? -56 : -34}px * var(--smh-u, 1)))`,
+              gap: scaled(8),
             }}
           >
             <span
-              className="px-3 h-8 inline-flex items-center rounded-lg text-[18px] font-semibold tabular-nums text-white pointer-events-none"
+              className="inline-flex items-center rounded-lg font-semibold tabular-nums text-white pointer-events-none"
               style={{
+                paddingInline: scaled(12),
+                height: scaled(32),
+                fontSize: scaled(18),
                 background: "rgba(9,9,11,0.85)",
                 border: "1px solid rgba(255,255,255,0.18)",
                 boxShadow: "0 6px 16px rgba(0,0,0,0.6)",
@@ -2276,7 +2542,10 @@ export default function Recorder() {
                 onClear={(card) => dispatch({ type: "clearCard", card })}
               />
             )}
-            <span className="text-white/15 font-medium tracking-[0.28em] uppercase text-[10px] pointer-events-none">
+            <span
+              className="text-white/15 font-medium tracking-[0.28em] uppercase pointer-events-none"
+              style={{ fontSize: scaled(10) }}
+            >
               savemyhands
             </span>
           </div>
@@ -2384,13 +2653,16 @@ export default function Recorder() {
                 }}
               >
                 <div
-                  className={`flex flex-col items-center gap-1.5 rounded-xl px-4 py-2.5 text-center border transition-all ${
+                  className={`flex flex-col items-center rounded-xl text-center border transition-all ${
                     isActive
                       ? "border-[oklch(0.696_0.205_155_/_0.6)]"
                       : "border-white/10"
                   }`}
                   style={{
-                    minWidth: 100,
+                    minWidth: scaled(100),
+                    paddingInline: scaled(16),
+                    paddingBlock: scaled(10),
+                    gap: scaled(6),
                     opacity: dimmed ? 0.32 : 1,
                     filter: dimmed ? "grayscale(0.6)" : "none",
                     background: isActive
@@ -2402,7 +2674,10 @@ export default function Recorder() {
                       : "0 8px 20px rgba(0,0,0,0.55)",
                   }}
                 >
-                  <span className="text-[12px] font-semibold text-zinc-300 leading-none tracking-[0.14em] uppercase">
+                  <span
+                    className="font-semibold text-zinc-300 leading-none tracking-[0.14em] uppercase"
+                    style={{ fontSize: scaled(12) }}
+                  >
                     {posNames[cycleIdx]}
                   </span>
                   <NameDisplay
@@ -2427,7 +2702,10 @@ export default function Recorder() {
                     }
                   />
                   {(isFolded || isMucked) && (
-                    <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[oklch(0.55_0.005_60)] leading-none">
+                    <span
+                      className="font-semibold uppercase tracking-[0.18em] text-[oklch(0.55_0.005_60)] leading-none"
+                      style={{ fontSize: scaled(9) }}
+                    >
                       {isMucked ? "Mucked" : "Folded"}
                     </span>
                   )}
@@ -2435,8 +2713,11 @@ export default function Recorder() {
                 {/* Hole cards */}
                 {isHero ? (
                   <div
-                    className="absolute left-1/2 -translate-x-1/2 -top-24"
-                    style={{ opacity: isFolded ? 0.3 : 1 }}
+                    className="absolute left-1/2 -translate-x-1/2"
+                    style={{
+                      top: scaled(-96),
+                      opacity: isFolded ? 0.3 : 1,
+                    }}
                   >
                     <CardRow
                       // Re-key on hole-card count so toggling NLHE → PLO
@@ -2483,8 +2764,11 @@ export default function Recorder() {
                     if (villainEditable) {
                       return (
                         <div
-                          className="absolute left-1/2 -translate-x-1/2 -top-14"
-                          style={{ opacity: isFolded ? 0.3 : 1 }}
+                          className="absolute left-1/2 -translate-x-1/2"
+                          style={{
+                            top: scaled(-56),
+                            opacity: isFolded ? 0.3 : 1,
+                          }}
                         >
                           <CardRow
                             key={`villain-${cycleIdx}-${heroHoleCount}`}
@@ -2521,8 +2805,11 @@ export default function Recorder() {
                     }
                     return (
                       <div
-                        className="absolute left-1/2 -translate-x-1/2 -top-14"
-                        style={{ opacity: isFolded ? 0.3 : 1 }}
+                        className="absolute left-1/2 -translate-x-1/2"
+                        style={{
+                          top: scaled(-56),
+                          opacity: isFolded ? 0.3 : 1,
+                        }}
                       >
                         <HandFan
                           cards={Array.from(
@@ -2544,9 +2831,30 @@ export default function Recorder() {
         </div>
         </div>
 
-        {/* Below-table area: action stuff on the left, notes on the right. */}
-        <div className="self-stretch flex flex-col lg:flex-row gap-3 items-stretch">
-          <div className="flex-1 flex flex-col gap-4 min-w-0">
+        {/* Action + notes region — below the felt in stacked mode, beside
+            the felt as a fixed-width right column in side mode. Side mode
+            caps the column's height to the available viewport so the
+            page can't overflow; notes flexes into the remaining space
+            inside the column. */}
+        <div
+          className={
+            useSide
+              ? "shrink-0 flex flex-col gap-3"
+              : "self-stretch flex flex-col lg:flex-row gap-3 items-stretch"
+          }
+          style={
+            useSide
+              ? { width: 380, maxHeight: "calc(100vh - 200px)" }
+              : undefined
+          }
+        >
+          <div
+            className={
+              useSide
+                ? "flex flex-col gap-4 min-w-0"
+                : "flex-1 flex flex-col gap-4 min-w-0"
+            }
+          >
 
         {/* The inline action-log card moved into the meta strip's Log popover
             so the bet-sizing drawer can fit above the fold. Trigger lives in
@@ -2554,8 +2862,25 @@ export default function Recorder() {
 
         {/* Bottom controls — Setup config moved into the meta strip + popover
             above the table. Only the action bar / deal CTA / showdown panel
-            render below the table now. */}
-
+            render below the table now.
+            Wrapped in a fixed-height slot so the buttons never shift when the
+            phase changes (ActionBar → DealCTA → ShowdownPanel have different
+            natural heights).
+            `--smh-u` here is computed from viewport height to match the
+            felt's container-query value at the same screen size — keeps the
+            action bar in scale with the table on small laptops without
+            growing too much on very tall monitors. */}
+        <div
+          style={
+            useSide
+              ? { minHeight: 220 }
+              : ({
+                  minHeight: scaled(220),
+                  "--smh-u":
+                    "clamp(0.65, calc((100vh - 440px) / 640px), 1.0)",
+                } as React.CSSProperties)
+          }
+        >
         {state.phase !== "setup" &&
           state.phase !== "showdown" &&
           state.phase !== "done" &&
@@ -2567,6 +2892,7 @@ export default function Recorder() {
                   derived={derived}
                   state={state}
                   dispatch={dispatch}
+                  orientation={useSide ? "vertical" : "horizontal"}
                 />
               ) : (
                 dealCTA && (
@@ -2939,11 +3265,20 @@ export default function Recorder() {
             </div>
           );
         })()}
+        </div>
           </div>
 
-          {/* Notes — side column on wide viewports, stacked below otherwise. */}
-          <div className="w-full lg:w-[320px] flex flex-col gap-1.5 lg:flex-shrink-0">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+          {/* Notes — side mode fills the rest of the right column's
+              height (capped above on the parent), stacked mode is a
+              fixed-width side panel below the felt at lg+. */}
+          <div
+            className={
+              useSide
+                ? "flex-1 min-h-0 flex flex-col gap-1.5"
+                : "w-full lg:w-[320px] flex flex-col gap-1.5 lg:flex-shrink-0"
+            }
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground shrink-0">
               Notes
             </span>
             <textarea
@@ -2952,9 +3287,14 @@ export default function Recorder() {
               onChange={(e) =>
                 dispatch({ type: "setNotes", notes: e.target.value })
               }
-              className="flex w-full min-w-0 rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none flex-1 min-h-[80px]"
+              className={
+                useSide
+                  ? "flex w-full min-w-0 rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none flex-1 min-h-[60px]"
+                  : "flex w-full min-w-0 rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none flex-1 min-h-[80px]"
+              }
             />
           </div>
+        </div>
         </div>
       </div>
       {annotateIdx !== null && state.actions[annotateIdx] && (

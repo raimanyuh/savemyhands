@@ -7,6 +7,7 @@
 // this component.
 
 import { suitColor } from "./PlayingCard";
+import { scaled } from "./scale";
 
 type Size = "sm" | "md";
 
@@ -49,9 +50,9 @@ export default function FannedPlayingCard({
       <div
         className="rounded-md flex items-center justify-center font-medium"
         style={{
-          width: d.w,
-          height: d.h,
-          fontSize: d.centerSuit * 0.7,
+          width: scaled(d.w),
+          height: scaled(d.h),
+          fontSize: scaled(d.centerSuit * 0.7),
           background: "oklch(0.205 0 0)",
           color: "oklch(0.45 0 0)",
           border: "2px dashed oklch(1 0 0 / 0.18)",
@@ -67,8 +68,8 @@ export default function FannedPlayingCard({
     <div
       className="rounded-md font-bold relative"
       style={{
-        width: d.w,
-        height: d.h,
+        width: scaled(d.w),
+        height: scaled(d.h),
         background: "#fafafa",
         color,
         boxShadow: "0 4px 10px rgba(0,0,0,0.5)",
@@ -81,9 +82,9 @@ export default function FannedPlayingCard({
       <div
         style={{
           position: "absolute",
-          top: d.cornerOffset,
-          left: d.cornerOffset + 1,
-          fontSize: d.rank,
+          top: scaled(d.cornerOffset),
+          left: scaled(d.cornerOffset + 1),
+          fontSize: scaled(d.rank),
           lineHeight: 1,
           fontVariantNumeric: "tabular-nums",
         }}
@@ -93,9 +94,9 @@ export default function FannedPlayingCard({
       <div
         style={{
           position: "absolute",
-          top: d.cornerOffset + d.rank + 1,
-          left: d.cornerOffset + 1,
-          fontSize: d.suit,
+          top: scaled(d.cornerOffset + d.rank + 1),
+          left: scaled(d.cornerOffset + 1),
+          fontSize: scaled(d.suit),
           lineHeight: 1,
         }}
       >
@@ -110,7 +111,7 @@ export default function FannedPlayingCard({
           top: "50%",
           left: "55%",
           transform: "translate(-50%, -50%)",
-          fontSize: d.centerSuit,
+          fontSize: scaled(d.centerSuit),
           lineHeight: 1,
           opacity: 0.5,
         }}

@@ -35,7 +35,6 @@ import { potTypeOf, type SavedHand } from "./hand";
 import {
   GAME_LABEL,
   MiniCard,
-  SAMPLE_HANDS,
   doubleBoardOf,
   gameTypeOf,
   heroPositionOf,
@@ -708,7 +707,6 @@ function HandListRow({
   onRename,
   onAddTag,
   onRemoveTag,
-  isSample,
   onEditDetails,
   onDelete,
 }: {
@@ -723,7 +721,6 @@ function HandListRow({
   onRename: (name: string) => void;
   onAddTag: (tag: string) => void;
   onRemoveTag: (tag: string) => void;
-  isSample: boolean;
   onEditDetails: () => void;
   onDelete: () => void;
 }) {
@@ -760,19 +757,6 @@ function HandListRow({
       </button>
       <div className="flex items-center gap-1.5 min-w-0">
         <EditableName value={hand.name} onChange={onRename} />
-        {isSample && (
-          <span
-            className="inline-flex items-center h-4 px-1 rounded text-[9px] font-semibold uppercase tracking-[0.16em] shrink-0"
-            style={{
-              background: "oklch(1 0 0 / 0.04)",
-              border: "1px solid oklch(1 0 0 / 0.10)",
-              color: "oklch(0.65 0 0)",
-            }}
-            title="This is a built-in demo hand. Record one to see it replaced by your own."
-          >
-            sample
-          </span>
-        )}
       </div>
       <span className="text-[12px] text-muted-foreground tabular-nums">
         {hand.date}
@@ -922,13 +906,50 @@ function HandListRow({
         className="flex items-center justify-center"
         onClick={(e) => e.stopPropagation()}
       >
-        {!isSample && (
-          <RowActionsMenu
-            onEditDetails={onEditDetails}
-            onDelete={onDelete}
-          />
-        )}
+        <RowActionsMenu
+          onEditDetails={onEditDetails}
+          onDelete={onDelete}
+        />
       </div>
+    </div>
+  );
+}
+
+// Empty-state panel rendered when the user has zero saved hands.
+function EmptyDashboard({ onRecord }: { onRecord: () => void }) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center text-center py-20 px-6">
+      <div
+        style={{
+          width: 56,
+          height: 56,
+          borderRadius: 14,
+          background:
+            "radial-gradient(ellipse at 50% 30%, #1f7a47 0%, #0e3d22 65%, #082818 100%)",
+          boxShadow:
+            "inset 0 0 16px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08)",
+          marginBottom: 28,
+        }}
+      />
+      <h3 className="text-2xl font-semibold tracking-tight mb-3">
+        You haven&apos;t recorded a hand yet.
+      </h3>
+      <p className="text-sm text-muted-foreground max-w-md mb-8 leading-relaxed">
+        Visual recorder, share-link replay. Roughly a minute per hand once
+        you&apos;ve done a couple.
+      </p>
+      <Button
+        onClick={onRecord}
+        size="lg"
+        style={{
+          background: "oklch(0.696 0.205 155)",
+          color: "oklch(0.145 0 0)",
+          fontWeight: 600,
+        }}
+        className="hover:!bg-[oklch(0.745_0.198_155)]"
+      >
+        <Plus /> Record your first hand
+      </Button>
     </div>
   );
 }
@@ -937,29 +958,19 @@ export default function Dashboard({
   initialUsername,
   signOutAction,
   initialHands,
-  showSamples,
 }: {
   // The signed-in user's @username, or null if they haven't picked one yet.
   initialUsername: string | null;
   signOutAction?: () => void | Promise<void>;
   // Hands fetched on the server for the signed-in user.
   initialHands: SavedHand[];
-  // True when the user has no hands of their own; renders SAMPLE_HANDS as a
-  // first-run demo. Hidden once they have any saved hand.
-  showSamples: boolean;
-  // `?demo=N` URL param is accepted by the page wrapper but not yet wired
-  // through to the Dashboard — the side-branch sample-hands-gen integration
-  // wasn't part of the agreed forward-port scope.
-  demoCount?: number;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
 
   // Local mirror of the server-fetched hands. Optimistic updates land here
   // immediately; server actions persist + revalidate behind the scenes.
-  const [hands, setHands] = useState<SavedHand[]>(() =>
-    showSamples ? [...initialHands, ...SAMPLE_HANDS] : initialHands,
-  );
+  const [hands, setHands] = useState<SavedHand[]>(() => initialHands);
   const [, startMutation] = useTransition();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -1139,17 +1150,10 @@ export default function Dashboard({
   const toggleAll = () =>
     setSelected(allSelected ? new Set() : new Set(sorted.map((h) => h.id)));
 
-  // Sample IDs aren't backed by Postgres — mutations on them stay local-only
-  // (they live in this component's state, but no server action fires).
-  const sampleIds = useMemo(
-    () => new Set(SAMPLE_HANDS.map((h) => h.id)),
-    [],
-  );
-
-  // Optimistic-update helper. Updates the local mirror immediately; for
-  // non-sample rows it also persists via a server action and reverts on
-  // failure. Patch is restricted to the set of fields the dashboard ever
-  // edits — name / venue / notes / date / tags / fav / _full.
+  // Optimistic-update helper. Updates the local mirror immediately and
+  // persists via a server action; reverts on failure. Patch is restricted
+  // to the set of fields the dashboard ever edits — name / venue / notes /
+  // date / tags / fav / _full.
   type DashboardPatch = Partial<
     Pick<
       SavedHand,
@@ -1162,7 +1166,6 @@ export default function Dashboard({
       prev = hs.find((h) => h.id === id);
       return hs.map((h) => (h.id === id ? { ...h, ...patch } : h));
     });
-    if (sampleIds.has(id)) return;
     startMutation(async () => {
       try {
         await updateHandDetailsAction(id, patch);
@@ -1191,7 +1194,6 @@ export default function Dashboard({
       n.delete(h.id);
       return n;
     });
-    if (sampleIds.has(h.id)) return;
     startMutation(async () => {
       try {
         await deleteHandAction(h.id);
@@ -1216,11 +1218,9 @@ export default function Dashboard({
     const targetSet = new Set(targets);
     setHands((hs) => hs.filter((h) => !targetSet.has(h.id)));
     setSelected(new Set());
-    const persistable = targets.filter((id) => !sampleIds.has(id));
-    if (persistable.length === 0) return;
     startMutation(async () => {
       try {
-        await deleteHandsAction(persistable);
+        await deleteHandsAction(targets);
       } catch (e) {
         console.error("Failed to delete hands", e);
         window.alert(
@@ -1232,25 +1232,20 @@ export default function Dashboard({
   };
 
   // Bulk share: prompt → mark all selected hands public → copy newline-
-  // separated "Name — URL" lines to clipboard. Sample hands are excluded
-  // (their ids don't exist on the server, so the link would 404). Each
-  // selected hand that's already public is left as-is.
+  // separated "Name — URL" lines to clipboard. Each selected hand that's
+  // already public is left as-is.
   const shareSelected = async () => {
     const targets = [...selected];
     if (targets.length === 0) return;
     const targetSet = new Set(targets);
     const targetHands = hands.filter((h) => targetSet.has(h.id));
-    const persistable = targetHands.filter((h) => !sampleIds.has(h.id));
-    if (persistable.length === 0) {
-      window.alert("Sample hands can't be shared. Save your own first.");
-      return;
-    }
+    if (targetHands.length === 0) return;
     const ok = await confirm({
-      title: `Share ${persistable.length} hand${persistable.length === 1 ? "" : "s"}?`,
+      title: `Share ${targetHands.length} hand${targetHands.length === 1 ? "" : "s"}?`,
       message: (
         <>
           Anyone with the link will be able to view{" "}
-          {persistable.length === 1 ? "this hand" : "these hands"}. The links
+          {targetHands.length === 1 ? "this hand" : "these hands"}. The links
           will be copied to your clipboard.
         </>
       ),
@@ -1260,7 +1255,7 @@ export default function Dashboard({
 
     const origin =
       typeof window !== "undefined" ? window.location.origin : "";
-    const lines = persistable.map((h) => `${h.name} — ${origin}/hand/${h.id}`);
+    const lines = targetHands.map((h) => `${h.name} — ${origin}/hand/${h.id}`);
     const text = lines.join("\n");
 
     // Best-effort clipboard. The promise can reject when the page isn't
@@ -1278,7 +1273,7 @@ export default function Dashboard({
       hs.map((h) => (targetSet.has(h.id) ? { ...h, isPublic: true } : h)),
     );
 
-    const ids = persistable.map((h) => h.id);
+    const ids = targetHands.map((h) => h.id);
     startMutation(async () => {
       try {
         await setHandsPublicAction(ids, true);
@@ -1318,15 +1313,13 @@ export default function Dashboard({
     );
     startMutation(async () => {
       await Promise.all(
-        [...patches.entries()]
-          .filter(([id]) => !sampleIds.has(id))
-          .map(async ([id, tags]) => {
-            try {
-              await updateHandDetailsAction(id, { tags });
-            } catch (e) {
-              console.error("Failed to update tags for", id, e);
-            }
-          }),
+        [...patches.entries()].map(async ([id, tags]) => {
+          try {
+            await updateHandDetailsAction(id, { tags });
+          } catch (e) {
+            console.error("Failed to update tags for", id, e);
+          }
+        }),
       );
     });
   };
@@ -1407,6 +1400,10 @@ export default function Dashboard({
           </Button>
         </div>
 
+        {hands.length === 0 ? (
+          <EmptyDashboard onRecord={() => router.push("/record")} />
+        ) : (
+          <>
         {/* Filter bar */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
@@ -1564,7 +1561,6 @@ export default function Dashboard({
                   update(h.id, { tags: h.tags.filter((x) => x !== t) })
                 }
                 onOpen={() => router.push(`/hand/${h.id}`)}
-                isSample={sampleIds.has(h.id)}
                 onEditDetails={() => setEditing(h)}
                 onDelete={() => deleteHand(h)}
               />
@@ -1583,6 +1579,8 @@ export default function Dashboard({
             </span>
           </div>
         </div>
+          </>
+        )}
 
         {selected.size > 0 && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-card shadow-2xl">

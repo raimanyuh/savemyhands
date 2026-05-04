@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SeatPos } from "./lib";
+import { scaled } from "./scale";
 
 // Bet bubble: chip token + dollar pill, sitting between a seat and the pot.
 // Default placement is snug against the plate (t=0.22). Only the hero seat
@@ -27,6 +28,7 @@ export function BetBubble({
   label,
   onClick,
   hasAnnotation = false,
+  t: tOverride,
 }: {
   seatPos: SeatPos;
   amount?: number;
@@ -34,8 +36,12 @@ export function BetBubble({
   label?: string;
   onClick?: () => void;
   hasAnnotation?: boolean;
+  // Optional placement override: 0 = at the seat, 1 = at the pot. Defaults
+  // to the production-felt values (0.62 hero, 0.22 villain) — embedded /
+  // smaller felts can pass a custom value to clear tight layouts.
+  t?: number;
 }) {
-  const t = isHero ? 0.62 : 0.22;
+  const t = tOverride ?? (isHero ? 0.62 : 0.22);
   const left = seatPos.left + t * (50 - seatPos.left);
   const top = seatPos.top + t * (50 - seatPos.top);
   const interactive = onClick !== undefined;
@@ -63,8 +69,8 @@ export function BetBubble({
         <div
           className="rounded-full"
           style={{
-            width: 22,
-            height: 22,
+            width: scaled(22),
+            height: scaled(22),
             background: "linear-gradient(180deg, #fafaf9 0%, #d6d3d1 100%)",
             border: "1.5px dashed #57534e",
             boxShadow: "0 3px 8px rgba(0,0,0,0.55), inset 0 0 0 2px #ffffff",
@@ -72,8 +78,13 @@ export function BetBubble({
         />
       )}
       <span
-        className="px-2 h-6 inline-flex items-center rounded-md text-[12px] font-semibold tabular-nums text-white"
-        style={pillStyle}
+        className="inline-flex items-center rounded-md font-semibold tabular-nums text-white"
+        style={{
+          ...pillStyle,
+          paddingInline: scaled(8),
+          height: scaled(24),
+          fontSize: scaled(12),
+        }}
       >
         {label ?? `$${amount}`}
       </span>
@@ -144,12 +155,12 @@ export function DealerButtonChip({ seatPos }: { seatPos: SeatPos }) {
         left: `${left}%`,
         top: `${top}%`,
         transform: "translate(-50%,-50%)",
-        width: 28,
-        height: 28,
+        width: scaled(28),
+        height: scaled(28),
         background: "radial-gradient(circle at 32% 28%, #ffffff 0%, #f1f0ee 60%, #c2bfbb 100%)",
         color: "#0a0a0a",
         fontWeight: 900,
-        fontSize: 14,
+        fontSize: scaled(14),
         boxShadow:
           "0 4px 10px rgba(0,0,0,0.6), inset 0 -2px 0 rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.9)",
         border: "1px solid rgba(0,0,0,0.2)",
@@ -201,7 +212,8 @@ export function NameDisplay({
             setEditing(false);
           }
         }}
-        className="w-20 bg-transparent text-zinc-100 text-[14px] font-medium leading-none text-center outline-none border-b border-white/30"
+        className="w-20 bg-transparent text-zinc-100 font-medium leading-none text-center outline-none border-b border-white/30"
+        style={{ fontSize: scaled(14) }}
       />
     );
   }
@@ -212,9 +224,10 @@ export function NameDisplay({
         setDraft(value || "");
         setEditing(true);
       }}
-      className={`text-[14px] font-medium leading-none cursor-text outline-none ${
+      className={`font-medium leading-none cursor-text outline-none ${
         value ? "text-zinc-100" : "text-zinc-500 italic"
       }`}
+      style={{ fontSize: scaled(14) }}
     >
       {value || placeholder}
     </button>
@@ -262,7 +275,8 @@ export function StackDisplay({
             setEditing(false);
           }
         }}
-        className="w-20 bg-transparent text-[oklch(0.745_0.198_155)] text-[15px] font-semibold leading-none text-center outline-none border-b border-[oklch(0.745_0.198_155_/_0.6)] tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        className="w-20 bg-transparent text-[oklch(0.745_0.198_155)] font-semibold leading-none text-center outline-none border-b border-[oklch(0.745_0.198_155_/_0.6)] tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        style={{ fontSize: scaled(15) }}
       />
     );
   }
@@ -273,7 +287,8 @@ export function StackDisplay({
         setDraft(String(value));
         setEditing(true);
       }}
-      className="text-[oklch(0.745_0.198_155)] hover:text-[oklch(0.795_0.184_155)] text-[15px] font-semibold leading-none tabular-nums cursor-text outline-none"
+      className="text-[oklch(0.745_0.198_155)] hover:text-[oklch(0.795_0.184_155)] font-semibold leading-none tabular-nums cursor-text outline-none"
+      style={{ fontSize: scaled(15) }}
     >
       ${value.toLocaleString()}
     </button>
@@ -281,9 +296,24 @@ export function StackDisplay({
 }
 
 // Felt + wood rail container — drop the contents inside to render on the table.
+//
+// Doubles as a CSS container so children can scale relative to the felt's
+// own width via `var(--smh-u)`. The unit is unitless: at design width
+// (1280px) it resolves to 1.0; smaller felts scale down, larger felts up,
+// clamped so things stay legible at extremes. See `scale.ts` for the
+// helper used by callers.
 export function TableSurface({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative w-full" style={{ aspectRatio: "2 / 1" }}>
+    <div
+      className="relative w-full"
+      style={
+        {
+          aspectRatio: "2 / 1",
+          containerType: "inline-size",
+          "--smh-u": "clamp(0.65, calc(100cqi / 1280px), 1.5)",
+        } as React.CSSProperties
+      }
+    >
       <div
         className="absolute inset-0 rounded-[50%]"
         style={{

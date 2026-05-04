@@ -1,5 +1,7 @@
 // Four-color deck primitive used by the table, recorder, and replayer felts.
 
+import { scaled } from "./scale";
+
 const SUIT_COLORS: Record<string, string> = {
   "♠": "#0a0a0a", // black
   "♣": "oklch(0.5 0.16 145)", // green
@@ -10,6 +12,10 @@ const SUIT_COLORS: Record<string, string> = {
 type Size = "sm" | "md";
 type BackColor = "brown" | "darkRed";
 
+// Pixel dimensions are the design baseline; rendered values are scaled
+// via `--smh-u` when the card sits inside a TableSurface. Outside the
+// felt the var falls back to 1 so dashboard MiniCards / pickers stay at
+// design size.
 const DIMS: Record<Size, { w: number; h: number; rank: number; suit: number; back: number; placeholder: number }> = {
   sm: { w: 44, h: 62, rank: 18, suit: 16, back: 10, placeholder: 20 },
   md: { w: 56, h: 80, rank: 22, suit: 20, back: 12, placeholder: 26 },
@@ -45,9 +51,9 @@ export default function PlayingCard({
       <div
         className="rounded-md flex items-center justify-center font-medium uppercase tracking-[0.28em]"
         style={{
-          width: d.w,
-          height: d.h,
-          fontSize: d.back,
+          width: scaled(d.w),
+          height: scaled(d.h),
+          fontSize: scaled(d.back),
           background: back,
           color: "rgba(255,255,255,0.18)",
           border: "1px solid rgba(255,255,255,0.1)",
@@ -64,9 +70,9 @@ export default function PlayingCard({
       <div
         className="rounded-md flex items-center justify-center font-medium"
         style={{
-          width: d.w,
-          height: d.h,
-          fontSize: d.placeholder,
+          width: scaled(d.w),
+          height: scaled(d.h),
+          fontSize: scaled(d.placeholder),
           background: "oklch(0.205 0 0)",
           color: "oklch(0.45 0 0)",
           border: "2px dashed oklch(1 0 0 / 0.18)",
@@ -81,8 +87,8 @@ export default function PlayingCard({
     <div
       className="rounded-md flex flex-col items-center justify-center font-bold"
       style={{
-        width: d.w,
-        height: d.h,
+        width: scaled(d.w),
+        height: scaled(d.h),
         gap: 2,
         background: "#fafafa",
         color: suit ? suitColor(suit) : "#0a0a0a",
@@ -90,8 +96,8 @@ export default function PlayingCard({
         border: "1px solid rgba(0,0,0,0.1)",
       }}
     >
-      <div style={{ fontSize: d.rank, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{rank}</div>
-      <div style={{ fontSize: d.suit, lineHeight: 1 }}>{suit}</div>
+      <div style={{ fontSize: scaled(d.rank), lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{rank}</div>
+      <div style={{ fontSize: scaled(d.suit), lineHeight: 1 }}>{suit}</div>
     </div>
   );
 }

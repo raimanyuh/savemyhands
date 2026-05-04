@@ -31,6 +31,7 @@ import { computeEquity } from "./equity";
 import PlayingCard from "./PlayingCard";
 import HandFan from "./HandFan";
 import { seatXY } from "./lib";
+import { scaled } from "./scale";
 import { BetBubble, DealerButtonChip, TableSurface } from "./table-pieces";
 import {
   committedThroughStep,
@@ -548,14 +549,18 @@ function ReplayerInner({
               board hand and shift the whole stack up so hero cards still
               get clearance, mirroring the recorder. */}
           <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10 pointer-events-none"
+            className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none"
             style={{
-              transform: `translateY(${HAND.doubleBoardOn ? -56 : -34}px)`,
+              transform: `translateY(calc(${HAND.doubleBoardOn ? -56 : -34}px * var(--smh-u, 1)))`,
+              gap: scaled(8),
             }}
           >
             <span
-              className="px-3 h-8 inline-flex items-center rounded-lg text-[18px] font-semibold tabular-nums text-white"
+              className="inline-flex items-center rounded-lg font-semibold tabular-nums text-white"
               style={{
+                paddingInline: scaled(12),
+                height: scaled(32),
+                fontSize: scaled(18),
                 background: "rgba(9,9,11,0.85)",
                 border: "1px solid rgba(255,255,255,0.18)",
                 boxShadow: "0 6px 16px rgba(0,0,0,0.6)",
@@ -563,10 +568,16 @@ function ReplayerInner({
             >
               ${pot}
             </span>
-            <div className="flex gap-1.5">
+            <div className="flex" style={{ gap: scaled(6) }}>
               {[0, 1, 2, 3, 4].map((i) => {
                 const c = board[i];
-                if (!c) return <div key={i} style={{ width: 56, height: 80 }} />;
+                if (!c)
+                  return (
+                    <div
+                      key={i}
+                      style={{ width: scaled(56), height: scaled(80) }}
+                    />
+                  );
                 return (
                   <PlayingCard
                     key={i}
@@ -577,11 +588,16 @@ function ReplayerInner({
               })}
             </div>
             {HAND.doubleBoardOn && (
-              <div className="flex gap-1.5">
+              <div className="flex" style={{ gap: scaled(6) }}>
                 {[0, 1, 2, 3, 4].map((i) => {
                   const c = board2[i];
                   if (!c)
-                    return <div key={i} style={{ width: 56, height: 80 }} />;
+                    return (
+                      <div
+                        key={i}
+                        style={{ width: scaled(56), height: scaled(80) }}
+                      />
+                    );
                   return (
                     <PlayingCard
                       key={i}
@@ -592,7 +608,10 @@ function ReplayerInner({
                 })}
               </div>
             )}
-            <span className="text-white/15 font-medium tracking-[0.28em] uppercase text-[10px]">
+            <span
+              className="text-white/15 font-medium tracking-[0.28em] uppercase"
+              style={{ fontSize: scaled(10) }}
+            >
               savemyhands
             </span>
           </div>
@@ -636,13 +655,16 @@ function ReplayerInner({
                 }}
               >
                 <div
-                  className={`flex flex-col items-center gap-1.5 rounded-xl px-4 py-2.5 text-center border transition-all ${
+                  className={`flex flex-col items-center rounded-xl text-center border transition-all ${
                     isActive
                       ? "border-[oklch(0.696_0.205_155_/_0.6)]"
                       : "border-white/10"
                   }`}
                   style={{
-                    minWidth: 100,
+                    minWidth: scaled(100),
+                    paddingInline: scaled(16),
+                    paddingBlock: scaled(10),
+                    gap: scaled(6),
                     opacity: isFolded || isMucked ? 0.32 : 1,
                     filter:
                       isFolded || isMucked ? "grayscale(0.6)" : "none",
@@ -655,18 +677,25 @@ function ReplayerInner({
                       : "0 8px 20px rgba(0,0,0,0.55)",
                   }}
                 >
-                  <span className="text-[12px] font-semibold text-zinc-300 leading-none tracking-[0.14em] uppercase">
+                  <span
+                    className="font-semibold text-zinc-300 leading-none tracking-[0.14em] uppercase"
+                    style={{ fontSize: scaled(12) }}
+                  >
                     {p.pos}
                   </span>
-                  <span className="text-[14px] font-medium leading-none">
+                  <span
+                    className="font-medium leading-none"
+                    style={{ fontSize: scaled(14) }}
+                  >
                     {p.name}
                   </span>
                   <span
-                    className={`text-[15px] font-semibold leading-none tabular-nums ${
+                    className={`font-semibold leading-none tabular-nums ${
                       isFolded || isMucked
                         ? "text-[oklch(0.715_0.012_60)]"
                         : "text-[oklch(0.745_0.198_155)]"
                     }`}
+                    style={{ fontSize: scaled(15) }}
                   >
                     ${Math.max(0, p.stack - (committed[i] || 0)).toLocaleString()}
                   </span>
@@ -713,7 +742,10 @@ function ReplayerInner({
                     )
                   )}
                   {(isFolded || isMucked) && (
-                    <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[oklch(0.55_0.005_60)] leading-none">
+                    <span
+                      className="font-semibold uppercase tracking-[0.18em] text-[oklch(0.55_0.005_60)] leading-none"
+                      style={{ fontSize: scaled(9) }}
+                    >
                       {isMucked ? "Mucked" : "Folded"}
                     </span>
                   )}
@@ -721,8 +753,9 @@ function ReplayerInner({
                 {/* Hero hole cards — always face up. */}
                 {p.cards && isHero && (
                   <div
-                    className="absolute left-1/2 -translate-x-1/2 -top-24"
+                    className="absolute left-1/2 -translate-x-1/2"
                     style={{
+                      top: scaled(-96),
                       opacity: isFolded ? 0.3 : 1,
                       filter: isFolded ? "grayscale(0.7)" : "none",
                     }}
@@ -737,7 +770,10 @@ function ReplayerInner({
                 )}
                 {/* Villain cards revealed at showdown. */}
                 {villainShown && p.cards && (
-                  <div className="absolute left-1/2 -translate-x-1/2 -top-14">
+                  <div
+                    className="absolute left-1/2 -translate-x-1/2"
+                    style={{ top: scaled(-56) }}
+                  >
                     <HandFan
                       cards={p.cards}
                       size="sm"
@@ -748,7 +784,10 @@ function ReplayerInner({
                 )}
                 {/* Card backs — non-hero, not folded, not mucked, not yet revealed. */}
                 {!isHero && !isFolded && !isMucked && !villainShown && (
-                  <div className="absolute left-1/2 -translate-x-1/2 -top-14">
+                  <div
+                    className="absolute left-1/2 -translate-x-1/2"
+                    style={{ top: scaled(-56) }}
+                  >
                     <HandFan
                       cards={Array.from({ length: holeCount }, () => null)}
                       size="sm"

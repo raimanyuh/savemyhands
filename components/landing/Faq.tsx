@@ -7,27 +7,19 @@ type Item = { q: string; a: string };
 const FAQ_ITEMS: Item[] = [
   {
     q: "Is it free?",
-    a: "Yes, free while we're in early access. A paid tier may come later for power features (deeper stats, larger hand databases) but the core recorder, replayer, and share links will stay free.",
+    a: "Yes — free for now. We'll figure out a paid tier eventually, but the core recorder, replayer, and share links aren't going behind a paywall.",
   },
   {
-    q: "Do viewers need an account to watch a hand?",
-    a: "No. Public hand URLs work for anyone — no signup, no login, no app. Viewers just open the link and watch the replay.",
+    q: "What kind of games do you support?",
+    a: "No-limit hold'em, PLO4, and PLO5. You can flag a hand as a bomb pot or run it twice (double board). All of those compose — a PLO5 bomb-pot double-board hand records and replays correctly.",
   },
   {
-    q: "Are my hands private by default?",
-    a: "Yes. Every hand you save is private until you toggle it public. Only you can see private hands; public hands are visible to anyone with the URL.",
+    q: "Are my hands public?",
+    a: "Only if you want them to be. Hands save private by default. Flip the lock icon on a hand to make it public, then anyone with the URL can watch it back — no signup needed for viewers.",
   },
   {
-    q: "How long does it take to enter a hand?",
-    a: "About as long as it takes to tell the story. The recorder uses a visual table — set up players, pick cards, click actions. No typing notation, no spreadsheets.",
-  },
-  {
-    q: "Does it work on my phone?",
-    a: "Yes. The replayer is fully mobile-friendly so anyone can watch a shared hand from their phone. The recorder works on phones too, though entry is smoother on a tablet or laptop where the visual table has more room to breathe.",
-  },
-  {
-    q: "Can I import hands from PokerNow or PokerStars?",
-    a: "Not yet. Hand-history import is on the wishlist — for now, savemyhands is for live (in-person) hands you record yourself.",
+    q: "Does this work for online sites?",
+    a: "No. Online rooms already give you a hand-history file. savemyhands is built for the live game — where there's no log, no replayer, and the only record is whatever you remember on the drive home.",
   },
 ];
 
@@ -153,7 +145,7 @@ export function Faq() {
             color: "#fafaf9",
           }}
         >
-          Questions, answered.
+          The quick version.
         </h2>
       </div>
       <div style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>

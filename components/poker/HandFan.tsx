@@ -6,6 +6,7 @@
 
 import PlayingCard from "./PlayingCard";
 import FannedPlayingCard from "./FannedPlayingCard";
+import { scaled } from "./scale";
 
 export default function HandFan({
   cards,
@@ -48,7 +49,10 @@ export default function HandFan({
   return (
     <div
       className="relative"
-      style={{ width: w + (n - 1) * offsetStep, height: h + 12 }}
+      style={{
+        width: scaled(w + (n - 1) * offsetStep),
+        height: scaled(h + 12),
+      }}
     >
       {cards.map((c, i) => {
         const angle = (i - center) * angleStep;
@@ -57,7 +61,7 @@ export default function HandFan({
           position: "absolute",
           left: "50%",
           top: "50%",
-          transform: `translate(-50%, -50%) translate(${tx}px, 0) rotate(${angle}deg)`,
+          transform: `translate(-50%, -50%) translate(calc(${tx}px * var(--smh-u, 1)), 0) rotate(${angle}deg)`,
           transformOrigin: "center",
           zIndex: i,
         };

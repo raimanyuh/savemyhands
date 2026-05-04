@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import PlayingCard from "./PlayingCard";
 import FannedPlayingCard from "./FannedPlayingCard";
+import { scaled } from "./scale";
 
 const RANKS = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"];
 const SUITS = ["♠", "♥", "♦", "♣"];
@@ -47,6 +48,26 @@ export function CardPicker({
       return null;
     },
   );
+
+  // Layout decision — picker is ~432px tall in its default vertical
+  // layout (4 suit columns × 13 rank rows) and that doesn't fit in
+  // viewports / anchor positions where neither above nor below the
+  // anchor has enough room. When that happens we transpose to a
+  // horizontal layout (~188px tall, 13 rank columns × 4 suit rows) so
+  // every card stays visible and clickable. Computed once at mount
+  // from the anchor's position; the picker remounts on every fresh
+  // open so this is fine to memoize on the anchor element.
+  const layout = useMemo<"vertical" | "horizontal">(() => {
+    if (!anchor || typeof window === "undefined") return "vertical";
+    const rect = anchor.getBoundingClientRect();
+    const VERT_H_TOTAL = 440; // body grid + header chrome
+    const M = 8;
+    const roomBelow = window.innerHeight - rect.bottom - M;
+    const roomAbove = rect.top - M;
+    if (roomBelow >= VERT_H_TOTAL || roomAbove >= VERT_H_TOTAL)
+      return "vertical";
+    return "horizontal";
+  }, [anchor]);
 
   // Outside-click → close.
   useEffect(() => {
@@ -98,13 +119,26 @@ export function CardPicker({
         e.stopPropagation();
         setFocused((f) => {
           const cur = f ?? { r: 0, s: 0 };
+          // Arrows map to data movement based on visual layout. In
+          // vertical (suit columns × rank rows) ArrowDown advances rank;
+          // in horizontal (rank columns × suit rows) ArrowDown advances
+          // suit. Keep keys aligned with what the user sees.
+          if (layout === "vertical") {
+            if (e.key === "ArrowDown")
+              return { r: Math.min(RANKS.length - 1, cur.r + 1), s: cur.s };
+            if (e.key === "ArrowUp")
+              return { r: Math.max(0, cur.r - 1), s: cur.s };
+            if (e.key === "ArrowRight")
+              return { r: cur.r, s: Math.min(SUITS.length - 1, cur.s + 1) };
+            return { r: cur.r, s: Math.max(0, cur.s - 1) };
+          }
           if (e.key === "ArrowDown")
-            return { r: Math.min(RANKS.length - 1, cur.r + 1), s: cur.s };
-          if (e.key === "ArrowUp")
-            return { r: Math.max(0, cur.r - 1), s: cur.s };
-          if (e.key === "ArrowRight")
             return { r: cur.r, s: Math.min(SUITS.length - 1, cur.s + 1) };
-          return { r: cur.r, s: Math.max(0, cur.s - 1) };
+          if (e.key === "ArrowUp")
+            return { r: cur.r, s: Math.max(0, cur.s - 1) };
+          if (e.key === "ArrowRight")
+            return { r: Math.min(RANKS.length - 1, cur.r + 1), s: cur.s };
+          return { r: Math.max(0, cur.r - 1), s: cur.s };
         });
         return;
       }
@@ -139,17 +173,26 @@ export function CardPicker({
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [anchor, used, onClose]);
+  }, [anchor, used, onClose, layout]);
 
   if (!anchor) return null;
 
   const rect = anchor.getBoundingClientRect();
-  const W = 264;
-  const H = 248;
+  // Picker dimensions depend on layout. Vertical: compact horizontally
+  // (~264) but ~440 tall — preferred when there's room. Horizontal: wider
+  // (~380) but only ~188 tall — used when the vertical layout wouldn't
+  // fit above or below the anchor.
+  const W = layout === "vertical" ? 264 : 380;
+  const H = layout === "vertical" ? 440 : 188;
+  const M = 8; // viewport margin
   let left = rect.left + rect.width / 2 - W / 2;
-  let top = rect.bottom + 8;
-  left = Math.max(8, Math.min(window.innerWidth - W - 8, left));
-  if (top + H > window.innerHeight - 8) top = rect.top - H - 8;
+  let top = rect.bottom + M;
+  left = Math.max(M, Math.min(window.innerWidth - W - M, left));
+  // First-choice: below the anchor. If that doesn't fit, flip above.
+  // Final clamp pins the picker to the viewport so it never renders
+  // off-screen even when neither above nor below clears the picker.
+  if (top + H > window.innerHeight - M) top = rect.top - H - M;
+  top = Math.max(M, Math.min(window.innerHeight - H - M, top));
 
   return createPortal(
     <div
@@ -176,54 +219,111 @@ export function CardPicker({
           <X size={12} />
         </button>
       </div>
-      <div className="p-2 grid grid-cols-4 gap-1">
-        {SUITS.map((s, sIdx) => (
-          <div key={s} className="flex flex-col gap-1">
-            <div
-              className="text-center text-[14px] leading-none py-1"
-              style={{ color: pickerSuitColor(s) }}
-            >
-              {s}
+      {layout === "vertical" ? (
+        <div className="p-2 grid grid-cols-4 gap-1">
+          {SUITS.map((s, sIdx) => (
+            <div key={s} className="flex flex-col gap-1">
+              <div
+                className="text-center text-[14px] leading-none py-1"
+                style={{ color: pickerSuitColor(s) }}
+              >
+                {s}
+              </div>
+              {RANKS.map((r, rIdx) => {
+                const id = r + s;
+                const taken = used.has(id);
+                const isFocused =
+                  focused?.r === rIdx && focused?.s === sIdx;
+                return (
+                  <button
+                    key={id}
+                    ref={(el) => {
+                      if (!buttonRefs.current[rIdx])
+                        buttonRefs.current[rIdx] = [];
+                      buttonRefs.current[rIdx][sIdx] = el;
+                    }}
+                    disabled={taken}
+                    onClick={() => onPick(id)}
+                    className={`h-6 rounded text-[12px] font-bold tabular-nums leading-none transition-colors outline-none ${
+                      taken
+                        ? "opacity-25 cursor-not-allowed"
+                        : "hover:bg-white/10 cursor-pointer"
+                    }`}
+                    style={{
+                      color: pickerSuitColor(s),
+                      background: isFocused
+                        ? "oklch(0.696 0.205 155 / 0.18)"
+                        : taken
+                          ? "rgba(255,255,255,0.04)"
+                          : "transparent",
+                      boxShadow: isFocused
+                        ? "inset 0 0 0 1.5px oklch(0.696 0.205 155 / 0.7)"
+                        : undefined,
+                    }}
+                  >
+                    {r}
+                  </button>
+                );
+              })}
             </div>
-            {RANKS.map((r, rIdx) => {
-              const id = r + s;
-              const taken = used.has(id);
-              const isFocused =
-                focused?.r === rIdx && focused?.s === sIdx;
-              return (
-                <button
-                  key={id}
-                  ref={(el) => {
-                    if (!buttonRefs.current[rIdx])
-                      buttonRefs.current[rIdx] = [];
-                    buttonRefs.current[rIdx][sIdx] = el;
-                  }}
-                  disabled={taken}
-                  onClick={() => onPick(id)}
-                  className={`h-6 rounded text-[12px] font-bold tabular-nums leading-none transition-colors outline-none ${
-                    taken
-                      ? "opacity-25 cursor-not-allowed"
-                      : "hover:bg-white/10 cursor-pointer"
-                  }`}
-                  style={{
-                    color: pickerSuitColor(s),
-                    background: isFocused
-                      ? "oklch(0.696 0.205 155 / 0.18)"
-                      : taken
-                        ? "rgba(255,255,255,0.04)"
-                        : "transparent",
-                    boxShadow: isFocused
-                      ? "inset 0 0 0 1.5px oklch(0.696 0.205 155 / 0.7)"
-                      : undefined,
-                  }}
-                >
-                  {r}
-                </button>
-              );
-            })}
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        // Horizontal layout — used when neither above nor below the
+        // anchor has room for the taller vertical layout. Each suit is a
+        // row; ranks span the row left-to-right. Same data model as
+        // vertical (focused.r = rank index, focused.s = suit index) so
+        // the existing keyboard nav still works after the arrow-key
+        // remap above.
+        <div className="p-2 flex flex-col gap-1">
+          {SUITS.map((s, sIdx) => (
+            <div key={s} className="flex gap-1 items-center">
+              <div
+                className="shrink-0 text-center text-[14px] leading-none"
+                style={{ width: 22, color: pickerSuitColor(s) }}
+              >
+                {s}
+              </div>
+              {RANKS.map((r, rIdx) => {
+                const id = r + s;
+                const taken = used.has(id);
+                const isFocused =
+                  focused?.r === rIdx && focused?.s === sIdx;
+                return (
+                  <button
+                    key={id}
+                    ref={(el) => {
+                      if (!buttonRefs.current[rIdx])
+                        buttonRefs.current[rIdx] = [];
+                      buttonRefs.current[rIdx][sIdx] = el;
+                    }}
+                    disabled={taken}
+                    onClick={() => onPick(id)}
+                    className={`flex-1 h-7 rounded text-[12px] font-bold tabular-nums leading-none transition-colors outline-none ${
+                      taken
+                        ? "opacity-25 cursor-not-allowed"
+                        : "hover:bg-white/10 cursor-pointer"
+                    }`}
+                    style={{
+                      color: pickerSuitColor(s),
+                      background: isFocused
+                        ? "oklch(0.696 0.205 155 / 0.18)"
+                        : taken
+                          ? "rgba(255,255,255,0.04)"
+                          : "transparent",
+                      boxShadow: isFocused
+                        ? "inset 0 0 0 1.5px oklch(0.696 0.205 155 / 0.7)"
+                        : undefined,
+                    }}
+                  >
+                    {r}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
     </div>,
     document.body,
   );
@@ -497,13 +597,6 @@ export function CardRow({
   const fanCount = cards.length;
   const fanRowWidth = fanW + (fanCount - 1) * fanOffsetStep;
   const fanRowHeight = fanH + 12; // slack for the rotation tilt
-  const fanTransform = (i: number): string => {
-    const center = (fanCount - 1) / 2;
-    const angle = (i - center) * fanAngleStep;
-    const tx = (i - center) * fanOffsetStep;
-    return `translate(-50%, -50%) translate(${tx}px, 0) rotate(${angle}deg)`;
-  };
-
   // Whether the row should respond to a "fill the rest" click. When
   // every slot is filled we no-op (X first to edit). Disabled rows
   // also no-op.
@@ -550,16 +643,18 @@ export function CardRow({
             }
           }}
           className={`relative ${containerCursor} select-none`}
-          style={{ width: fanRowWidth, height: fanRowHeight }}
+          style={{ width: scaled(fanRowWidth), height: scaled(fanRowHeight) }}
         >
           {cards.map((c, i) => {
             const { isActive, showHighlight } = decorate(i, c);
+            const center = (fanCount - 1) / 2;
+            const angle = (i - center) * fanAngleStep;
+            const tx = (i - center) * fanOffsetStep;
             const slotStyle: React.CSSProperties = {
               position: "absolute",
               left: "50%",
               top: "50%",
-              transform:
-                fanTransform(i) + (isActive ? " scale(1.06)" : ""),
+              transform: `translate(-50%, -50%) translate(calc(${tx}px * var(--smh-u, 1)), 0) rotate(${angle}deg)${isActive ? " scale(1.06)" : ""}`,
               transformOrigin: "center",
               zIndex: i + (isActive ? 100 : 0),
               transition: "transform 120ms ease",
@@ -568,15 +663,20 @@ export function CardRow({
             if (!c) {
               return (
                 <div
-                  key={i}
+                  // Key includes openIdx + highlight so all empty slots
+                  // remount in sync when the picker opens / closes — keeps
+                  // every animate-pulse phase aligned (otherwise the slot
+                  // that was active runs a different beat than its siblings
+                  // after the picker dismisses).
+                  key={`${i}-${openIdx ?? "x"}-${highlight ? "h" : "n"}`}
                   aria-label={`${ariaLabelPrefix} ${i + 1}`}
                   className={`rounded-md flex items-center justify-center ${
                     isActive || showHighlight ? "animate-pulse" : ""
                   }`}
                   style={{
                     ...slotStyle,
-                    width: fanW,
-                    height: fanH,
+                    width: scaled(fanW),
+                    height: scaled(fanH),
                     background: isActive
                       ? "oklch(0.696 0.205 155 / 0.20)"
                       : showHighlight
@@ -591,7 +691,7 @@ export function CardRow({
                       isActive || showHighlight
                         ? "oklch(0.795 0.184 155)"
                         : "oklch(0.5 0 0)",
-                    fontSize: placeholderFontSize,
+                    fontSize: scaled(placeholderFontSize),
                     boxShadow: isActive
                       ? "0 0 0 4px oklch(0.696 0.205 155 / 0.25), 0 6px 14px rgba(0,0,0,0.4)"
                       : showHighlight
@@ -669,14 +769,17 @@ export function CardRow({
           if (!c) {
             return (
               <div
-                key={i}
+                // Key includes openIdx + highlight so all empty slots
+                // remount in sync when the picker opens / closes —
+                // keeps every animate-pulse phase aligned.
+                key={`${i}-${openIdx ?? "x"}-${highlight ? "h" : "n"}`}
                 aria-label={`${ariaLabelPrefix} ${i + 1}`}
                 className={`rounded-md flex items-center justify-center transition-all pointer-events-none ${
                   isActive || showHighlight ? "animate-pulse" : ""
                 }`}
                 style={{
-                  width: w,
-                  height: h,
+                  width: scaled(w),
+                  height: scaled(h),
                   background: isActive
                     ? "oklch(0.696 0.205 155 / 0.20)"
                     : showHighlight
@@ -691,7 +794,7 @@ export function CardRow({
                     isActive || showHighlight
                       ? "oklch(0.795 0.184 155)"
                       : "oklch(0.5 0 0)",
-                  fontSize: placeholderFontSize,
+                  fontSize: scaled(placeholderFontSize),
                   boxShadow: isActive
                     ? "0 0 0 4px oklch(0.696 0.205 155 / 0.25), 0 6px 14px rgba(0,0,0,0.4)"
                     : showHighlight

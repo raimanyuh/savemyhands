@@ -15,14 +15,10 @@ export default function DashboardShell({
   initialUsername,
   signOutAction,
   initialHands,
-  showSamples,
-  demoCount,
 }: {
   initialUsername: string | null;
   signOutAction?: () => void | Promise<void>;
   initialHands: SavedHand[];
-  showSamples: boolean;
-  demoCount?: number;
 }) {
   const { isMobile } = useIsMobile();
   if (isMobile) {
@@ -31,7 +27,6 @@ export default function DashboardShell({
         initialUsername={initialUsername}
         signOutAction={signOutAction}
         initialHands={initialHands}
-        showSamples={showSamples}
       />
     );
   }
@@ -40,8 +35,6 @@ export default function DashboardShell({
       initialUsername={initialUsername}
       signOutAction={signOutAction}
       initialHands={initialHands}
-      showSamples={showSamples}
-      demoCount={demoCount}
     />
   );
 }
