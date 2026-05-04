@@ -875,11 +875,65 @@ function ReplayerInner({
             const onLeft = pos.left < 50;
             const note = annotationOf(cur);
             const isEditing = editingAnnoStep === step;
+            const canAdd = isOwner && cur.actionIndex !== undefined;
             // Render the balloon when there's a note OR while owner
-            // is mid-edit. Action steps with no note + non-edit state
-            // render no balloon.
-            if (!note && !isEditing) return null;
+            // is mid-edit OR when the owner could add one to this
+            // action step (compact "+ Add note" affordance shown in
+            // place of the full balloon).
+            if (!note && !isEditing && !canAdd) return null;
             const balloonWidth = 280;
+            // Empty-state path — owner can add but there's no note yet
+            // and we're not in edit mode. Render a compact pill anchored
+            // to the active seat (same connector dashes as the full
+            // balloon) so owners can drop a note without going back to
+            // the recorder.
+            if (!note && !isEditing) {
+              return (
+                <>
+                  <div
+                    className="absolute z-20 pointer-events-none"
+                    style={{
+                      left: `${pos.left}%`,
+                      top: `${pos.top}%`,
+                      transform: onLeft
+                        ? "translate(-100%,-50%)"
+                        : "translate(0,-50%)",
+                      width: 56,
+                      height: 0,
+                      borderTop:
+                        "1.5px dashed oklch(0.696 0.205 155 / 0.30)",
+                    }}
+                  />
+                  <div
+                    className="absolute z-30"
+                    style={{
+                      left: `${pos.left}%`,
+                      top: `${pos.top}%`,
+                      transform: onLeft
+                        ? "translate(calc(-100% - 56px),-50%)"
+                        : "translate(56px,-50%)",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => beginEditAnno("")}
+                      className="inline-flex items-center gap-1.5 rounded-full text-[11px] font-medium cursor-pointer transition-colors"
+                      style={{
+                        padding: "5px 10px",
+                        background: "oklch(0.196 0.030 155 / 0.85)",
+                        border:
+                          "1px solid oklch(0.696 0.205 155 / 0.40)",
+                        color: "oklch(0.795 0.184 155)",
+                        boxShadow: "0 6px 16px rgba(0,0,0,0.4)",
+                      }}
+                    >
+                      <Pencil size={11} />
+                      Add note
+                    </button>
+                  </div>
+                </>
+              );
+            }
             return (
               <>
                 {/* Connector — short dashed line from seat-side balloon edge

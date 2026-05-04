@@ -11,7 +11,7 @@
 // the scrubber. The second row is the transport + scrubber + step
 // counter.
 
-import { ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pause, Play, Pencil } from "lucide-react";
 import type { ReplayStep } from "@/components/poker/hand";
 
 const EMERALD = "oklch(0.696 0.205 155)";
@@ -27,6 +27,7 @@ export function ReplayDock({
   annotatedSteps,
   onStepChange,
   onPlayPause,
+  onAddNote,
 }: {
   step: number;
   totalSteps: number;
@@ -38,6 +39,12 @@ export function ReplayDock({
   annotatedSteps: number[];
   onStepChange: (next: number) => void;
   onPlayPause: () => void;
+  // Owner-only "Add note" affordance — shown in the action summary row
+  // when the current step is annotatable but doesn't yet have a note.
+  // Undefined for non-owners, non-action steps, or steps that already
+  // have an annotation (the AnnotationBalloon hosts the Edit pencil in
+  // that case instead).
+  onAddNote?: () => void;
 }) {
   const atFirst = step === 0;
   const atLast = step === totalSteps - 1;
@@ -77,6 +84,29 @@ export function ReplayDock({
         >
           {actionLabel}
         </span>
+        {onAddNote && (
+          <button
+            type="button"
+            onClick={onAddNote}
+            aria-label="Add note to this action"
+            className="inline-flex items-center"
+            style={{
+              gap: 4,
+              padding: "3px 8px",
+              borderRadius: 999,
+              background: "oklch(0.196 0.030 155 / 0.85)",
+              border: "1px solid oklch(0.696 0.205 155 / 0.40)",
+              color: EMERALD_BRIGHT,
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: "0.06em",
+              flexShrink: 0,
+            }}
+          >
+            <Pencil size={10} />
+            Add note
+          </button>
+        )}
       </div>
 
       {/* Transport + scrubber row */}

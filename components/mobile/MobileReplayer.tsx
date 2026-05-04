@@ -516,6 +516,9 @@ function MobileReplayerInner({
         annotatedSteps={annotatedSteps}
         onStepChange={setStep}
         onPlayPause={() => setPlaying((p) => !p)}
+        onAddNote={
+          canEditAnno && !annotation ? beginEditAnno : undefined
+        }
       />
 
       {/* Share sheet — copy + (owner-only) public toggle */}
