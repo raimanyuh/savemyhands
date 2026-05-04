@@ -94,7 +94,26 @@ export function useAnnotationEdit({
         };
         return mergedEdits;
       });
-      if (!handId || !livePayload) return;
+      // Without a handId or _full to merge into, we can't construct a
+      // safe patch (sending just the new annotation would clobber the
+      // rest of the saved hand state). Surface this so the user knows
+      // their note didn't actually persist, and roll back the
+      // optimistic local edit so the UI matches reality.
+      if (!handId || !livePayload) {
+        console.error(
+          "[saveAnnotation] cannot persist — missing handId or livePayload",
+          { handId: !!handId, livePayload: !!livePayload },
+        );
+        setEdits((m) => {
+          const next = { ...m };
+          delete next[actionIndex];
+          return next;
+        });
+        window.alert(
+          "Couldn't save the note — please refresh the page and try again.",
+        );
+        return;
+      }
       try {
         const nextAnnotations: Record<number, string> = {
           ...(livePayload.annotations ?? {}),
@@ -123,7 +142,11 @@ export function useAnnotationEdit({
           delete next[actionIndex];
           return next;
         });
-        window.alert("Couldn't save the note — try again.");
+        const message =
+          e instanceof Error && e.message
+            ? `Couldn't save the note — ${e.message}`
+            : "Couldn't save the note — try again.";
+        window.alert(message);
       }
     },
     [handId, livePayload, setLivePayload],

@@ -211,8 +211,23 @@ export async function updateHandDetails(
     if (patch._full?.date !== undefined) update.date_iso = patch._full.date;
   }
   if (Object.keys(update).length === 0) return;
-  const { error } = await supabase.from("hands").update(update).eq("id", id);
+  // Use `select()` after update so we can check whether RLS allowed any
+  // rows through. Supabase returns `error: null` even when the policy
+  // matched zero rows, which would silently no-op our write — the user
+  // sees an optimistic update locally and then loses it on refresh
+  // because the DB never changed. Throwing on zero rows lets the client
+  // catch / alert / roll back the optimistic edit.
+  const { data, error } = await supabase
+    .from("hands")
+    .update(update)
+    .eq("id", id)
+    .select("id");
   if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error(
+      "Hand update affected 0 rows — RLS likely rejected the write (session expired?). Sign out and back in, then retry.",
+    );
+  }
 }
 
 // Toggle whether a hand is viewable by non-owners. RLS enforces that only
