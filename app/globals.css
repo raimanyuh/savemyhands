@@ -147,3 +147,17 @@
     appearance: textfield;
   }
 }
+
+/* Toast slide-in. Used by components/ui/toast.tsx. Exits the stack via
+   React unmount, no exit animation needed (the gap-2 reflow handles it
+   cleanly). */
+@keyframes smh-toast-in {
+  from {
+    transform: translateY(8px) translateX(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) translateX(0);
+    opacity: 1;
+  }
+}

@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { Header, Shell } from "@/components/Shell";
 import { UsernamePicker } from "@/components/auth/UsernamePicker";
 import { potTypeOf, type SavedHand } from "./hand";
@@ -967,6 +968,7 @@ export default function Dashboard({
 }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const toast = useToast();
 
   // Local mirror of the server-fetched hands. Optimistic updates land here
   // immediately; server actions persist + revalidate behind the scenes.
@@ -1175,7 +1177,7 @@ export default function Dashboard({
           const restore = prev;
           setHands((hs) => hs.map((h) => (h.id === id ? restore : h)));
         }
-        window.alert("Couldn't save those changes — try again.");
+        toast.error("Couldn't save those changes — try again.");
       }
     });
   };
@@ -1199,7 +1201,7 @@ export default function Dashboard({
         await deleteHandAction(h.id);
       } catch (e) {
         console.error("Failed to delete hand", e);
-        window.alert("Couldn't delete that hand — refresh and try again.");
+        toast.error("Couldn't delete that hand — refresh and try again.");
         router.refresh();
       }
     });
@@ -1223,7 +1225,7 @@ export default function Dashboard({
         await deleteHandsAction(targets);
       } catch (e) {
         console.error("Failed to delete hands", e);
-        window.alert(
+        toast.error(
           "Some hands couldn't be deleted — refresh to see the current state.",
         );
         router.refresh();
@@ -1279,7 +1281,7 @@ export default function Dashboard({
         await setHandsPublicAction(ids, true);
       } catch (e) {
         console.error("Failed to mark hands public", e);
-        window.alert(
+        toast.error(
           "The links were copied, but we couldn't update sharing for some hands. Refresh to see the current state.",
         );
         router.refresh();

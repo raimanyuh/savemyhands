@@ -260,6 +260,28 @@ export async function setHandsPublic(
   if (error) throw error;
 }
 
+// Public-hand listing for the sitemap. Returns id + updated_at for every
+// row where `is_public = true`. RLS naturally limits the SELECT to public
+// rows for an anonymous client (the `is_public OR auth.uid() = user_id`
+// policy), but we add the explicit `.eq("is_public", true)` filter so the
+// query plan is clear and the result is deterministic regardless of who
+// happens to be signed in when the sitemap regenerates.
+export async function listPublicHandIds(): Promise<
+  { id: string; updatedAt: string }[]
+> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("hands")
+    .select("id, updated_at")
+    .eq("is_public", true)
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return (data as { id: string; updated_at: string }[]).map((r) => ({
+    id: r.id,
+    updatedAt: r.updated_at,
+  }));
+}
+
 export async function deleteHand(id: string): Promise<void> {
   const supabase = await createClient();
   const { error } = await supabase.from("hands").delete().eq("id", id);

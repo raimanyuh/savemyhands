@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import ReplayerShell from "@/components/poker/ReplayerShell";
@@ -5,6 +6,24 @@ import { recordedToHand } from "@/components/poker/hand";
 import { getHandForViewing } from "@/lib/hands/db";
 import { createClient } from "@/lib/supabase/server";
 import { SAMPLE_HAND_ID, getSampleHand } from "@/lib/sample-hand";
+
+// Per-hand tab title. Combines with the root template "%s — savemyhands"
+// to render e.g. "AAxx vs JJ — savemyhands" in the browser tab and
+// social-card title slot. Falls back to a generic title when the hand
+// can't be loaded (private + non-owner, or 404).
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  if (id === SAMPLE_HAND_ID) {
+    return { title: "Sample hand" };
+  }
+  const fromDb = await getHandForViewing(id);
+  if (!fromDb) return { title: "Hand" };
+  return { title: fromDb.hand.name || "Untitled hand" };
+}
 
 export default async function HandPage({
   params,

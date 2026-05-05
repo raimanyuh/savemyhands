@@ -22,6 +22,7 @@ import {
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Settings } from "lucide-react";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { POSITION_NAMES } from "@/components/poker/lib";
 import {
   committedBySeat,
@@ -51,6 +52,7 @@ const BG = "oklch(0.145 0 0)";
 export default function MobileRecorder() {
   const router = useRouter();
   const confirm = useConfirm();
+  const toast = useToast();
   const [state, dispatch] = useReducer(
     reducer,
     undefined,
@@ -280,7 +282,7 @@ export default function MobileRecorder() {
         });
       } catch (e) {
         console.error("Failed to save hand", e);
-        window.alert(
+        toast.error(
           "Couldn't save the hand — check your connection and try again.",
         );
         return;

@@ -27,6 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { Header, Shell } from "@/components/Shell";
 import { useIsSideLayout } from "@/lib/use-is-side-layout";
 import { POSITION_NAMES, seatXY } from "./lib";
@@ -1939,7 +1940,7 @@ function ActionLog({
                         type="button"
                         onClick={() => startEdit(i)}
                         title={note ? "Edit thought" : "Add a thought"}
-                        className={`inline-flex items-center justify-center w-5 h-5 rounded text-[oklch(0.55_0.005_60)] hover:text-[oklch(0.795_0.184_155)] hover:bg-white/5 cursor-pointer transition-opacity ${
+                        className={`inline-flex items-center justify-center w-5 h-5 rounded text-[oklch(0.55_0_0)] hover:text-[oklch(0.795_0.184_155)] hover:bg-white/5 cursor-pointer transition-opacity ${
                           note ? "opacity-100 text-[oklch(0.795_0.184_155)]" : "opacity-0 group-hover:opacity-100"
                         }`}
                         aria-label={note ? "Edit annotation" : "Add annotation"}
@@ -2025,6 +2026,7 @@ function ActionLog({
 export default function Recorder() {
   const router = useRouter();
   const confirm = useConfirm();
+  const toast = useToast();
   const [state, dispatch] = useReducer(reducer, undefined, () =>
     initialStateFromDefaults(),
   );
@@ -2323,7 +2325,7 @@ export default function Recorder() {
         });
       } catch (e) {
         console.error("Failed to save hand", e);
-        window.alert(
+        toast.error(
           "Couldn't save the hand — check your connection and try again.",
         );
         return;
@@ -2703,7 +2705,7 @@ export default function Recorder() {
                   />
                   {(isFolded || isMucked) && (
                     <span
-                      className="font-semibold uppercase tracking-[0.18em] text-[oklch(0.55_0.005_60)] leading-none"
+                      className="font-semibold uppercase tracking-[0.18em] text-[oklch(0.55_0_0)] leading-none"
                       style={{ fontSize: scaled(9) }}
                     >
                       {isMucked ? "Mucked" : "Folded"}

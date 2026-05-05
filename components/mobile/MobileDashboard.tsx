@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { UsernamePicker } from "@/components/auth/UsernamePicker";
 import {
   deleteHandsAction,
@@ -73,6 +74,7 @@ export default function MobileDashboard({
 }) {
   const router = useRouter();
   const confirm = useConfirm();
+  const toast = useToast();
 
   const [hands, setHands] = useState<SavedHand[]>(() => initialHands);
   const [, startMutation] = useTransition();
@@ -161,7 +163,7 @@ export default function MobileDashboard({
           const restore = prev;
           setHands((hs) => hs.map((h) => (h.id === id ? restore : h)));
         }
-        window.alert("Couldn't save those changes — try again.");
+        toast.error("Couldn't save those changes — try again.");
       }
     });
   };
@@ -185,7 +187,7 @@ export default function MobileDashboard({
         await deleteHandsAction(targets);
       } catch (e) {
         console.error("Failed to delete hands", e);
-        window.alert(
+        toast.error(
           "Some hands couldn't be deleted — refresh to see the current state.",
         );
         router.refresh();
@@ -235,7 +237,7 @@ export default function MobileDashboard({
         await setHandsPublicAction(ids, true);
       } catch (e) {
         console.error("Failed to mark hands public", e);
-        window.alert(
+        toast.error(
           "The links were copied, but we couldn't update sharing for some hands. Refresh to see the current state.",
         );
         router.refresh();

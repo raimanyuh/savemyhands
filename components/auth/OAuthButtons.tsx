@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useToast } from "@/components/ui/toast";
 
 function GoogleGlyph() {
   return (
@@ -61,6 +62,7 @@ const buttonBase: CSSProperties = {
 };
 
 export function OAuthButtons({ label = "Continue with" }: { label?: string }) {
+  const toast = useToast();
   const [pending, setPending] = useState<"google" | "discord" | null>(null);
   const [hovered, setHovered] = useState<"google" | "discord" | null>(null);
 
@@ -75,7 +77,7 @@ export function OAuthButtons({ label = "Continue with" }: { label?: string }) {
     });
     if (error) {
       console.error("OAuth error", error);
-      window.alert(`Couldn't start ${provider} sign-in. ${error.message}`);
+      toast.error(`Couldn't start ${provider} sign-in. ${error.message}`);
       setPending(null);
     }
   };

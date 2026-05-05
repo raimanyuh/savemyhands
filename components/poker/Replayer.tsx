@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { Header, Shell } from "@/components/Shell";
 import {
   setHandPublicAction,
@@ -120,6 +121,7 @@ function ReplayerInner({
   ownerUsername: string | null;
   fullPayload?: SavedHand["_full"];
 }) {
+  const toast = useToast();
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -390,7 +392,7 @@ function ReplayerInner({
       } catch (e) {
         console.error("Failed to toggle share state", e);
         setOptimisticPublic(!next);
-        window.alert("Couldn't update sharing — try again.");
+        toast.error("Couldn't update sharing — try again.");
       }
     });
   };
@@ -436,7 +438,7 @@ function ReplayerInner({
       } catch (e) {
         console.error("Failed to save notes", e);
         setNotesValue(previous);
-        window.alert("Couldn't save those notes — try again.");
+        toast.error("Couldn't save those notes — try again.");
       }
     });
   };
@@ -693,7 +695,7 @@ function ReplayerInner({
                   <span
                     className={`font-semibold leading-none tabular-nums ${
                       isFolded || isMucked
-                        ? "text-[oklch(0.715_0.012_60)]"
+                        ? "text-[oklch(0.715_0_0)]"
                         : "text-[oklch(0.745_0.198_155)]"
                     }`}
                     style={{ fontSize: scaled(15) }}
@@ -744,7 +746,7 @@ function ReplayerInner({
                   )}
                   {(isFolded || isMucked) && (
                     <span
-                      className="font-semibold uppercase tracking-[0.18em] text-[oklch(0.55_0.005_60)] leading-none"
+                      className="font-semibold uppercase tracking-[0.18em] text-[oklch(0.55_0_0)] leading-none"
                       style={{ fontSize: scaled(9) }}
                     >
                       {isMucked ? "Mucked" : "Folded"}

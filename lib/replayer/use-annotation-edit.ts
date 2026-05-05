@@ -21,6 +21,7 @@
 
 import { useCallback, useState } from "react";
 import { updateHandDetailsAction } from "@/lib/hands/actions";
+import { useToast } from "@/components/ui/toast";
 import type { ReplayStep, SavedHand } from "@/components/poker/hand";
 
 export type AnnotationEdit = {
@@ -50,6 +51,7 @@ export function useAnnotationEdit({
   // mirror stays in lockstep with the database.
   setLivePayload?: (next: SavedHand["_full"]) => void;
 }): AnnotationEdit {
+  const toast = useToast();
   // Map of action index → override. `null` = explicitly deleted; a
   // string = replacement text. Absence = use original from the step.
   // Stored as a Record for shallow-equal comparison stability across
@@ -111,7 +113,7 @@ export function useAnnotationEdit({
           delete next[actionIndex];
           return next;
         });
-        window.alert(
+        toast.error(
           "Couldn't save the note — please refresh the page and try again.",
         );
         return;
@@ -148,10 +150,10 @@ export function useAnnotationEdit({
           e instanceof Error && e.message
             ? `Couldn't save the note — ${e.message}`
             : "Couldn't save the note — try again.";
-        window.alert(message);
+        toast.error(message);
       }
     },
-    [edits, handId, livePayload, setLivePayload],
+    [edits, handId, livePayload, setLivePayload, toast],
   );
 
   return { annotationOf, isStepAnnotated, saveAnnotation };

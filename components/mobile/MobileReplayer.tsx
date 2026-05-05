@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
+import { useToast } from "@/components/ui/toast";
 import {
   setHandPublicAction,
 } from "@/lib/hands/actions";
@@ -110,6 +111,7 @@ function MobileReplayerInner({
   fullPayload?: SavedHand["_full"];
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -309,7 +311,7 @@ function MobileReplayerInner({
       } catch (e) {
         console.error("Failed to toggle share state", e);
         setOptimisticPublic(!next);
-        window.alert("Couldn't update sharing — try again.");
+        toast.error("Couldn't update sharing — try again.");
       }
     });
   };
