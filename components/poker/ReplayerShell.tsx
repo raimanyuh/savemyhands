@@ -25,8 +25,8 @@ export default function ReplayerShell({
   hand: ReplayHand;
   shareUrl?: string;
   handId?: string;
-  // Display name for the mobile header. Desktop replayer doesn't
-  // surface it in the header, so it's mobile-only.
+  // Display name shown as the title in both desktop and mobile
+  // replayer headers.
   handName?: string;
   isOwner?: boolean;
   isPublic?: boolean;
@@ -55,6 +55,7 @@ export default function ReplayerShell({
       hand={hand}
       shareUrl={shareUrl}
       handId={handId}
+      handName={handName}
       isOwner={isOwner}
       isPublic={isPublic}
       isAuthenticated={isAuthenticated}

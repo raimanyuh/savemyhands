@@ -29,7 +29,28 @@
       "Bash(curl -sS -o /dev/null -w \"/signup %{http_code}\\\\n\" http://localhost:3000/signup)",
       "Bash(curl -sS -o /dev/null -w \"/dashboard %{http_code}\\\\n\" http://localhost:3000/dashboard)",
       "Bash(curl -sS -o /dev/null -w \"/record %{http_code}\\\\n\" http://localhost:3000/record)",
-      "Bash(grep -n \"^import {.*ChevronUp\\\\|^import {$\\\\|ChevronLeft\" /c/Users/Administrator/Desktop/savemyhands/components/poker/Dashboard.tsx)"
+      "Bash(grep -n \"^import {.*ChevronUp\\\\|^import {$\\\\|ChevronLeft\" /c/Users/Administrator/Desktop/savemyhands/components/poker/Dashboard.tsx)",
+      "Bash(echo \"started pid=$!\")",
+      "Bash(curl -s -o /dev/null -w \"login: %{http_code}\\\\n\" http://localhost:3000/login)",
+      "Bash(curl -s -o /dev/null -w \"signup: %{http_code}\\\\n\" http://localhost:3000/signup)",
+      "Bash(curl -s http://localhost:3000/login)",
+      "Bash(curl -s http://localhost:3000/signup)",
+      "Bash(curl -s -o /dev/null -w \"/: %{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(grep -oE \"Friday \\\\$1/\\\\$2 PLO|k7q2nx|Blinds posted|AAKQ double-suited|savemyhands.app/hand\")",
+      "Bash(awk 'NR>=1320 && NR<=1620 && /<\\\\/div>|<div / {print NR\": \"$0}' components/poker/Dashboard.tsx)",
+      "Bash(awk 'NR>=2890 && NR<=3000 {print NR\": \"$0}' components/poker/Recorder.tsx)",
+      "Bash(curl -s -o /dev/null -w \"/: %{http_code}\\\\n/dashboard: %{http_code}\\\\n/record: %{http_code}\\\\n\" http://localhost:3000/ -H \"Accept: text/html\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/dashboard)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/record)",
+      "Bash(curl *)",
+      "Bash(awk 'NR>=2400 && NR<=2440' components/poker/Recorder.tsx)",
+      "Bash(git fetch *)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git merge *)"
     ]
   }
 }

@@ -106,6 +106,12 @@ export function precomputeEquityByStep(
     for (let i = 0; i < holeCount; i++) if (!cards[i]) return false;
     return true;
   };
+  // Cache equity by (board + alive-seats). Equity only changes when the
+  // board reveals a card or a contestant folds — a street with several
+  // bet/call/check actions runs the same enum many times otherwise.
+  // Hole cards are fixed per seat for a given hand so the seat list
+  // alone identifies the contestant set.
+  const cache = new Map<string, Record<number, number>>();
   for (let s = 0; s < hand.steps.length; s++) {
     let stepBoard: string[] = [];
     for (let i = 0; i <= s; i++) {
@@ -120,7 +126,12 @@ export function precomputeEquityByStep(
         seat: p.seat,
         cards: (p.cards as string[]).slice(0, holeCount),
       }));
-    const equity = computeEquity(contestants, stepBoard, gameType);
+    const key = `${stepBoard.join(",")}|${contestants.map((c) => c.seat).join(",")}`;
+    let equity = cache.get(key);
+    if (equity === undefined) {
+      equity = computeEquity(contestants, stepBoard, gameType);
+      cache.set(key, equity);
+    }
     if (Object.keys(equity).length > 0) {
       result[s] = equity;
     }

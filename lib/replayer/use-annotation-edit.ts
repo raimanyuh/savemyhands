@@ -81,19 +81,21 @@ export function useAnnotationEdit({
   const saveAnnotation = useCallback(
     async (actionIndex: number, text: string) => {
       const trimmed = text.trim();
-      // Optimistic local update. Capture the current edits so we can
-      // build a merged patch that includes prior in-session edits —
-      // without this, saving annotation B after annotation A already
-      // saved would send a patch derived from the *original* server
-      // `_full.annotations` and clobber A.
-      let mergedEdits: Record<number, string | null> = {};
-      setEdits((m) => {
-        mergedEdits = {
-          ...m,
-          [actionIndex]: trimmed === "" ? null : trimmed,
-        };
-        return mergedEdits;
-      });
+      const newOverride = trimmed === "" ? null : trimmed;
+      // Build the merged edits synchronously from the current `edits`
+      // state. We can't write into a shared variable from inside a
+      // setState updater and read it on the next line — React 18+
+      // doesn't guarantee the updater runs before setEdits returns, so
+      // the read can see the pre-update value (an empty object on the
+      // first save), which then sends an unchanged payload to the
+      // server. The prior-edits merge is still needed so saving B
+      // after A doesn't clobber A — we get that by spreading `edits`,
+      // which is in this callback's deps.
+      const mergedEdits: Record<number, string | null> = {
+        ...edits,
+        [actionIndex]: newOverride,
+      };
+      setEdits(mergedEdits);
       // Without a handId or _full to merge into, we can't construct a
       // safe patch (sending just the new annotation would clobber the
       // rest of the saved hand state). Surface this so the user knows
@@ -149,7 +151,7 @@ export function useAnnotationEdit({
         window.alert(message);
       }
     },
-    [handId, livePayload, setLivePayload],
+    [edits, handId, livePayload, setLivePayload],
   );
 
   return { annotationOf, isStepAnnotated, saveAnnotation };

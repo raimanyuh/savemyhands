@@ -19,6 +19,27 @@ function pickerSuitColor(s: string): string {
   return "#fafafa";
 }
 
+// Step from `cur` in direction (dr, ds) until landing on a non-taken
+// cell. Skips over already-picked cards so arrow-key nav doesn't park
+// the focus ring on a card the user can't pick. Stops (returns the
+// caller's current position) when it walks off the grid without finding
+// one.
+function nextNonTaken(
+  cur: { r: number; s: number },
+  dr: number,
+  ds: number,
+  used: Set<string>,
+): { r: number; s: number } {
+  let r = cur.r + dr;
+  let s = cur.s + ds;
+  while (r >= 0 && r < RANKS.length && s >= 0 && s < SUITS.length) {
+    if (!used.has(RANKS[r] + SUITS[s])) return { r, s };
+    r += dr;
+    s += ds;
+  }
+  return cur;
+}
+
 export function CardPicker({
   anchor,
   used,
@@ -122,23 +143,19 @@ export function CardPicker({
           // Arrows map to data movement based on visual layout. In
           // vertical (suit columns × rank rows) ArrowDown advances rank;
           // in horizontal (rank columns × suit rows) ArrowDown advances
-          // suit. Keep keys aligned with what the user sees.
+          // suit. Keep keys aligned with what the user sees. Each step
+          // jumps over taken cards so the focus ring never parks on a
+          // disabled cell.
           if (layout === "vertical") {
-            if (e.key === "ArrowDown")
-              return { r: Math.min(RANKS.length - 1, cur.r + 1), s: cur.s };
-            if (e.key === "ArrowUp")
-              return { r: Math.max(0, cur.r - 1), s: cur.s };
-            if (e.key === "ArrowRight")
-              return { r: cur.r, s: Math.min(SUITS.length - 1, cur.s + 1) };
-            return { r: cur.r, s: Math.max(0, cur.s - 1) };
+            if (e.key === "ArrowDown") return nextNonTaken(cur, 1, 0, used);
+            if (e.key === "ArrowUp") return nextNonTaken(cur, -1, 0, used);
+            if (e.key === "ArrowRight") return nextNonTaken(cur, 0, 1, used);
+            return nextNonTaken(cur, 0, -1, used);
           }
-          if (e.key === "ArrowDown")
-            return { r: cur.r, s: Math.min(SUITS.length - 1, cur.s + 1) };
-          if (e.key === "ArrowUp")
-            return { r: cur.r, s: Math.max(0, cur.s - 1) };
-          if (e.key === "ArrowRight")
-            return { r: Math.min(RANKS.length - 1, cur.r + 1), s: cur.s };
-          return { r: Math.max(0, cur.r - 1), s: cur.s };
+          if (e.key === "ArrowDown") return nextNonTaken(cur, 0, 1, used);
+          if (e.key === "ArrowUp") return nextNonTaken(cur, 0, -1, used);
+          if (e.key === "ArrowRight") return nextNonTaken(cur, 1, 0, used);
+          return nextNonTaken(cur, -1, 0, used);
         });
         return;
       }

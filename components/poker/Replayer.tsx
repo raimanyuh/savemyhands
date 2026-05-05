@@ -55,6 +55,7 @@ export default function Replayer({
   hand,
   shareUrl,
   handId,
+  handName,
   isOwner = false,
   isPublic = false,
   isAuthenticated = true,
@@ -65,6 +66,8 @@ export default function Replayer({
   shareUrl?: string;
   // The DB id of the hand. Required for the Share toggle.
   handId?: string;
+  // Display name shown as the title in the header.
+  handName?: string;
   isOwner?: boolean;
   isPublic?: boolean;
   // Drives both the "Dashboard ←" back link and (inversely) the anon
@@ -86,6 +89,7 @@ export default function Replayer({
       hand={hand}
       shareUrl={shareUrl}
       handId={handId}
+      handName={handName}
       isOwner={isOwner}
       isPublic={isPublic}
       isAuthenticated={isAuthenticated}
@@ -99,6 +103,7 @@ function ReplayerInner({
   hand: HAND,
   shareUrl,
   handId,
+  handName,
   isOwner,
   isPublic,
   isAuthenticated,
@@ -108,6 +113,7 @@ function ReplayerInner({
   hand: ReplayHand;
   shareUrl?: string;
   handId?: string;
+  handName?: string;
   isOwner: boolean;
   isPublic: boolean;
   isAuthenticated: boolean;
@@ -528,13 +534,8 @@ function ReplayerInner({
       <div className="flex-1 flex flex-col items-center px-6 py-5 gap-4 max-w-[1600px] w-full mx-auto">
         <div className="flex items-center gap-3 self-start">
           <h2 className="text-xl font-semibold tracking-tight">
-            {HAND.bombPotOn
-              ? `Bomb pot $${HAND.bombPotAmt} NLHE`
-              : `$${HAND.stakes.sb}/$${HAND.stakes.bb} NLHE`}
+            {handName || "Untitled hand"}
           </h2>
-          <span className="text-sm text-muted-foreground">
-            · {playerCount}-handed
-          </span>
         </div>
 
         {/* Table — capped by viewport height so the floating dock at the
