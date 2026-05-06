@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { CSSProperties } from "react";
+import { Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/toast";
 
@@ -104,7 +105,12 @@ export function OAuthButtons({ label = "Continue with" }: { label?: string }) {
         onPointerLeave={() => setHovered(null)}
         style={styleFor("google")}
       >
-        <GoogleGlyph /> {label} Google
+        {pending === "google" ? (
+          <Loader2 size={16} className="smh-spin" aria-label="Loading" />
+        ) : (
+          <GoogleGlyph />
+        )}{" "}
+        {label} Google
       </button>
       <button
         type="button"
@@ -114,7 +120,12 @@ export function OAuthButtons({ label = "Continue with" }: { label?: string }) {
         onPointerLeave={() => setHovered(null)}
         style={styleFor("discord")}
       >
-        <DiscordGlyph /> {label} Discord
+        {pending === "discord" ? (
+          <Loader2 size={16} className="smh-spin" aria-label="Loading" />
+        ) : (
+          <DiscordGlyph />
+        )}{" "}
+        {label} Discord
       </button>
     </div>
   );

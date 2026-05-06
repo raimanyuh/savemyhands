@@ -70,9 +70,15 @@ export async function checkUsernameAvailableAction(
   }
 }
 
-// Sets a new password on the signed-in user's auth record. Works for both
-// password-auth and OAuth users (Supabase lets OAuth users add a password).
+// Sets a new password on the signed-in user's auth record. For users who
+// already have an email/password identity, the current password must be
+// supplied and is verified via signInWithPassword before the update —
+// closes the "stolen session can lock out the owner" gap. OAuth-only
+// users (no email-password identity yet) can set an initial password
+// without verification, which is the standard Supabase pattern for
+// adding a password to a Google/Discord-only account.
 export async function changePasswordAction(
+  currentPassword: string | null,
   newPassword: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (newPassword.length < 8) {
@@ -83,6 +89,29 @@ export async function changePasswordAction(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not authenticated." };
+
+  const hasEmailIdentity =
+    user.identities?.some((i) => i.provider === "email") ?? false;
+
+  if (hasEmailIdentity) {
+    if (!currentPassword) {
+      return { ok: false, error: "Current password is required." };
+    }
+    if (!user.email) {
+      // Defensive: an email identity without an email shouldn't happen,
+      // but if it does we can't verify, so refuse rather than fall
+      // through to the unverified update path.
+      return { ok: false, error: "Could not verify current password." };
+    }
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password: currentPassword,
+    });
+    if (verifyError) {
+      return { ok: false, error: "Current password is incorrect." };
+    }
+  }
+
   const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) return { ok: false, error: error.message };
   return { ok: true };

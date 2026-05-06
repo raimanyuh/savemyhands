@@ -217,3 +217,18 @@
     opacity: 1;
   }
 }
+
+/* Generic 360°-rotation utility for inline lucide spinners (OAuth
+   pending state, password-change saving, etc). Tailwind ships
+   `animate-spin` but our spinners sometimes live inside inline-styled
+   buttons where adding a className still requires a defined keyframe;
+   this is the explicit fallback. */
+@keyframes smh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.smh-spin {
+  animation: smh-spin 1s linear infinite;
+}

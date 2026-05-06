@@ -1,44 +1,50 @@
 "use client";
 
+// CTA card at the bottom of the landing page. Originally rendered a
+// fully-styled email/password form whose submit just navigated to /login,
+// which lost what the user had typed (a real UX trap). The form was
+// removed; the card now hosts two clear buttons that route to the actual
+// auth pages.
+
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { CSSProperties } from "react";
-import { startRouteProgress } from "@/lib/route-progress";
 
 const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
 const MUTED = "oklch(0.715 0 0)";
-const SUBTLE = "oklch(0.556 0 0)";
 
-const labelStyle: CSSProperties = {
-  fontSize: 13,
-  fontWeight: 500,
-  color: "#fafaf9",
-};
-
-const inputStyle: CSSProperties = {
-  height: 40,
-  padding: "0 12px",
-  background: "rgba(9,9,11,0.5)",
-  color: "#fafaf9",
-  border: "1px solid rgba(255,255,255,0.10)",
+const buttonBase: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 6,
+  width: "100%",
+  height: 44,
   borderRadius: 10,
   fontSize: 14,
-  fontFamily: "inherit",
-  outline: "none",
-  transition: "border-color 150ms ease",
+  fontWeight: 600,
+  letterSpacing: "-0.005em",
+  border: "1px solid transparent",
+  textDecoration: "none",
+  cursor: "pointer",
+  transition: "background 150ms ease, border-color 150ms ease",
+};
+
+const primaryButton: CSSProperties = {
+  ...buttonBase,
+  background: EMERALD,
+  color: "oklch(0.145 0 0)",
+};
+
+const ghostButton: CSSProperties = {
+  ...buttonBase,
+  background: "rgba(9,9,11,0.5)",
+  color: "#fafaf9",
+  borderColor: "rgba(255,255,255,0.10)",
+  fontWeight: 500,
 };
 
 export function SignInCard() {
-  const router = useRouter();
-  // The card is a fast-path entry — any submit just routes to the real
-  // /login flow. We don't want password text traveling through a GET, so
-  // we cancel the native submit and navigate.
-  const handoff = () => {
-    startRouteProgress();
-    router.push("/login");
-  };
-
   return (
     <section
       className="smh-signin"
@@ -80,7 +86,7 @@ export function SignInCard() {
             position: "relative",
             zIndex: 1,
             textAlign: "center",
-            marginBottom: 24,
+            marginBottom: 22,
           }}
         >
           <span
@@ -92,7 +98,7 @@ export function SignInCard() {
               color: EMERALD_BRIGHT,
             }}
           >
-            sign in
+            ready when you are
           </span>
           <h2
             style={{
@@ -106,98 +112,27 @@ export function SignInCard() {
             Pick up where you left off.
           </h2>
           <p style={{ margin: 0, fontSize: 13, color: MUTED }}>
-            Use the email you signed up with.
+            Sign in to your account or start a new one — it&apos;s free during
+            early access.
           </p>
         </div>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handoff();
-          }}
+        <div
           style={{
             position: "relative",
             zIndex: 1,
             display: "flex",
             flexDirection: "column",
-            gap: 14,
+            gap: 10,
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label htmlFor="signin-card-email" style={labelStyle}>
-              Email
-            </label>
-            <input
-              id="signin-card-email"
-              type="email"
-              placeholder="you@example.com"
-              autoComplete="email"
-              style={inputStyle}
-              onFocus={(e) => (e.currentTarget.style.borderColor = EMERALD)}
-              onBlur={(e) =>
-                (e.currentTarget.style.borderColor =
-                  "rgba(255,255,255,0.10)")
-              }
-            />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label htmlFor="signin-card-password" style={labelStyle}>
-              Password
-            </label>
-            <input
-              id="signin-card-password"
-              type="password"
-              placeholder="••••••••"
-              autoComplete="current-password"
-              style={inputStyle}
-              onFocus={(e) => (e.currentTarget.style.borderColor = EMERALD)}
-              onBlur={(e) =>
-                (e.currentTarget.style.borderColor =
-                  "rgba(255,255,255,0.10)")
-              }
-            />
-          </div>
-          <button
-            type="submit"
-            style={{
-              width: "100%",
-              height: 42,
-              borderRadius: 10,
-              background: EMERALD,
-              color: "oklch(0.145 0 0)",
-              fontWeight: 600,
-              fontSize: 14,
-              border: "none",
-              cursor: "pointer",
-              transition: "filter 150ms ease",
-            }}
-          >
+          <Link href="/login" style={primaryButton}>
             Sign in
-          </button>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              fontSize: 12,
-            }}
-          >
-            <span style={{ color: SUBTLE }}>New here?</span>
-            <Link
-              href="/signup"
-              style={{
-                color: MUTED,
-                textDecoration: "none",
-              }}
-              onPointerEnter={(e) =>
-                (e.currentTarget.style.color = EMERALD_BRIGHT)
-              }
-              onPointerLeave={(e) => (e.currentTarget.style.color = MUTED)}
-            >
-              Create account →
-            </Link>
-          </div>
-        </form>
+          </Link>
+          <Link href="/signup" style={ghostButton}>
+            Create account
+          </Link>
+        </div>
       </div>
     </section>
   );

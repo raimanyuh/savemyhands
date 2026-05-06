@@ -18,6 +18,7 @@ import { Header, Shell } from "@/components/Shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ContactInline } from "@/components/Contact";
+import { PasswordToggle } from "@/components/auth/PasswordToggle";
 import { UsernamePicker } from "@/components/auth/UsernamePicker";
 import {
   changePasswordAction,
@@ -51,11 +52,13 @@ export default function Settings({
   initialUsername,
   provider,
   providers,
+  hasPasswordIdentity,
 }: {
   email: string;
   initialUsername: string | null;
   provider: string;
   providers: string[];
+  hasPasswordIdentity: boolean;
 }) {
   const [username, setUsername] = useState<string | null>(initialUsername);
   const [usernameOpen, setUsernameOpen] = useState(false);
@@ -111,8 +114,8 @@ export default function Settings({
               )}
             </span>
           </Row>
-          <Row label="Password">
-            <PasswordForm />
+          <Row label={hasPasswordIdentity ? "Password" : "Set a password"}>
+            <PasswordForm hasPasswordIdentity={hasPasswordIdentity} />
           </Row>
         </SectionCard>
 
@@ -207,7 +210,44 @@ function Row({
   );
 }
 
-function PasswordForm() {
+function PasswordField({
+  value,
+  onChange,
+  placeholder,
+  autoComplete,
+  onEnter,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  autoComplete: string;
+  onEnter?: () => void;
+}) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="relative flex-1">
+      <Input
+        type={shown ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && onEnter) onEnter();
+        }}
+        placeholder={placeholder}
+        className="h-11 sm:h-9 text-sm pr-9"
+        autoComplete={autoComplete}
+      />
+      <PasswordToggle shown={shown} onToggle={() => setShown((v) => !v)} />
+    </div>
+  );
+}
+
+function PasswordForm({
+  hasPasswordIdentity,
+}: {
+  hasPasswordIdentity: boolean;
+}) {
+  const [current, setCurrent] = useState("");
   const [pw1, setPw1] = useState("");
   const [pw2, setPw2] = useState("");
   const [status, setStatus] = useState<
@@ -219,48 +259,65 @@ function PasswordForm() {
 
   const mismatch = pw2.length > 0 && pw1 !== pw2;
   const canSubmit =
-    !pending && pw1.length >= 8 && pw2.length >= 8 && pw1 === pw2;
+    !pending &&
+    pw1.length >= 8 &&
+    pw2.length >= 8 &&
+    pw1 === pw2 &&
+    (!hasPasswordIdentity || current.length > 0);
 
   const submit = () => {
     if (!canSubmit) return;
     startTransition(async () => {
-      const res = await changePasswordAction(pw1);
+      const res = await changePasswordAction(
+        hasPasswordIdentity ? current : null,
+        pw1,
+      );
       if (!res.ok) {
         setStatus({ kind: "error", message: res.error });
         return;
       }
       setStatus({ kind: "success" });
+      setCurrent("");
       setPw1("");
       setPw2("");
     });
   };
 
+  const resetStatus = () => {
+    if (status.kind !== "idle") setStatus({ kind: "idle" });
+  };
+
   return (
     <div className="flex flex-col gap-2.5">
+      {hasPasswordIdentity && (
+        <PasswordField
+          value={current}
+          onChange={(v) => {
+            resetStatus();
+            setCurrent(v);
+          }}
+          placeholder="Current password"
+          autoComplete="current-password"
+        />
+      )}
       <div className="flex flex-col sm:flex-row gap-2.5">
-        <Input
-          type="password"
+        <PasswordField
           value={pw1}
-          onChange={(e) => {
-            setStatus({ kind: "idle" });
-            setPw1(e.target.value);
+          onChange={(v) => {
+            resetStatus();
+            setPw1(v);
           }}
           placeholder="New password"
-          className="h-11 sm:h-9 text-sm flex-1"
           autoComplete="new-password"
         />
-        <Input
-          type="password"
+        <PasswordField
           value={pw2}
-          onChange={(e) => {
-            setStatus({ kind: "idle" });
-            setPw2(e.target.value);
+          onChange={(v) => {
+            resetStatus();
+            setPw2(v);
           }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && canSubmit) submit();
-          }}
+          onEnter={submit}
           placeholder="Confirm new password"
-          className="h-11 sm:h-9 text-sm flex-1"
           autoComplete="new-password"
         />
         <Button

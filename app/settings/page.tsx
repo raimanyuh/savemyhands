@@ -24,12 +24,20 @@ export default async function SettingsPage() {
     ? (providersRaw as string[])
     : [provider];
 
+  // Whether the user already has an email/password identity. Drives the
+  // settings password form: if true, the form requires the current
+  // password before changing; if false (OAuth-only), the user is setting
+  // an initial password and current-password is omitted.
+  const hasPasswordIdentity =
+    user.identities?.some((i) => i.provider === "email") ?? false;
+
   return (
     <Settings
       email={user.email ?? ""}
       initialUsername={profile?.username ?? null}
       provider={provider}
       providers={providers}
+      hasPasswordIdentity={hasPasswordIdentity}
     />
   );
 }

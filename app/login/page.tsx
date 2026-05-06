@@ -1,11 +1,12 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { login } from "@/app/actions/auth";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { OAuthButtons } from "@/components/auth/OAuthButtons";
+import { PasswordToggle } from "@/components/auth/PasswordToggle";
 
 const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
@@ -46,6 +47,7 @@ const submitStyle: CSSProperties = {
 
 export default function LoginPage() {
   const [state, action, pending] = useActionState(login, { error: null });
+  const [showPassword, setShowPassword] = useState(false);
 
   return (
     <AuthShell
@@ -104,19 +106,25 @@ export default function LoginPage() {
           <label htmlFor="password" style={labelStyle}>
             Password
           </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            placeholder="••••••••"
-            required
-            autoComplete="current-password"
-            style={inputStyle}
-            onFocus={(e) => (e.currentTarget.style.borderColor = EMERALD)}
-            onBlur={(e) =>
-              (e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)")
-            }
-          />
+          <div style={{ position: "relative" }}>
+            <input
+              id="password"
+              name="password"
+              type={showPassword ? "text" : "password"}
+              placeholder="••••••••"
+              required
+              autoComplete="current-password"
+              style={{ ...inputStyle, paddingRight: 36, width: "100%" }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = EMERALD)}
+              onBlur={(e) =>
+                (e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)")
+              }
+            />
+            <PasswordToggle
+              shown={showPassword}
+              onToggle={() => setShowPassword((v) => !v)}
+            />
+          </div>
         </div>
         {state.error && (
           <p
