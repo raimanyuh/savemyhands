@@ -20,6 +20,7 @@ import {
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
+import { startRouteProgress } from "@/lib/route-progress";
 import { ChevronLeft, Settings } from "lucide-react";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
@@ -259,6 +260,7 @@ export default function MobileRecorder() {
 
   const handleBack = async () => {
     if (!isDirty()) {
+      startRouteProgress();
       router.push("/dashboard");
       return;
     }
@@ -268,7 +270,10 @@ export default function MobileRecorder() {
       confirmLabel: "Leave",
       destructive: true,
     });
-    if (ok) router.push("/dashboard");
+    if (ok) {
+      startRouteProgress();
+      router.push("/dashboard");
+    }
   };
 
   const saveHand = () => {
@@ -287,6 +292,7 @@ export default function MobileRecorder() {
         );
         return;
       }
+      startRouteProgress();
       router.push("/dashboard");
     });
   };

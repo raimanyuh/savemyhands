@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CSSProperties } from "react";
+import { startRouteProgress } from "@/lib/route-progress";
 
 const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
@@ -33,7 +34,10 @@ export function SignInCard() {
   // The card is a fast-path entry — any submit just routes to the real
   // /login flow. We don't want password text traveling through a GET, so
   // we cancel the native submit and navigate.
-  const handoff = () => router.push("/login");
+  const handoff = () => {
+    startRouteProgress();
+    router.push("/login");
+  };
 
   return (
     <section

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { startRouteProgress } from "@/lib/route-progress";
 import {
   deleteHandAction,
   deleteHandsAction,
@@ -1389,7 +1390,10 @@ export default function Dashboard({
             </p>
           </div>
           <Button
-            onClick={() => router.push("/record")}
+            onClick={() => {
+              startRouteProgress();
+              router.push("/record");
+            }}
             size="lg"
             style={{
               background: "oklch(0.696 0.205 155)",
@@ -1403,7 +1407,12 @@ export default function Dashboard({
         </div>
 
         {hands.length === 0 ? (
-          <EmptyDashboard onRecord={() => router.push("/record")} />
+          <EmptyDashboard
+            onRecord={() => {
+              startRouteProgress();
+              router.push("/record");
+            }}
+          />
         ) : (
           <>
         {/* Filter bar */}
@@ -1562,7 +1571,10 @@ export default function Dashboard({
                 onRemoveTag={(t) =>
                   update(h.id, { tags: h.tags.filter((x) => x !== t) })
                 }
-                onOpen={() => router.push(`/hand/${h.id}`)}
+                onOpen={() => {
+                  startRouteProgress();
+                  router.push(`/hand/${h.id}`);
+                }}
                 onEditDetails={() => setEditing(h)}
                 onDelete={() => deleteHand(h)}
               />

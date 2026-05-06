@@ -18,6 +18,7 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { startRouteProgress } from "@/lib/route-progress";
 import {
   ChevronRight,
   LogOut,
@@ -452,6 +453,7 @@ export default function MobileDashboard({
                   if (inSelectMode) {
                     toggleSel(h.id);
                   } else {
+                    startRouteProgress();
                     router.push(`/hand/${h.id}`);
                   }
                 }}
@@ -573,6 +575,7 @@ export default function MobileDashboard({
             label="Settings"
             onClick={() => {
               setOverflowOpen(false);
+              startRouteProgress();
               router.push("/settings");
             }}
           />

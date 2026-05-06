@@ -161,3 +161,59 @@
     opacity: 1;
   }
 }
+
+/* Route-loading splash. Used by components/ui/RouteSplash.tsx (which is
+   the body of every loading.tsx). A face-down card breathes while an
+   emerald shimmer sweeps across — same card-back motif used inside the
+   recorder/replayer for face-down villain cards, so it ties to the
+   existing brand language. */
+@keyframes smh-splash-shimmer {
+  0% {
+    transform: translateX(-120%) skewX(-12deg);
+  }
+  100% {
+    transform: translateX(220%) skewX(-12deg);
+  }
+}
+
+@keyframes smh-splash-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.018);
+  }
+}
+
+@keyframes smh-splash-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes smh-splash-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Top route-progress bar. Used by components/ui/RouteProgress.tsx. The
+   bar's width is driven by inline style (React state); the keyframes
+   here only handle the indeterminate trickle while it climbs. */
+@keyframes smh-progress-pulse {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 1;
+  }
+}

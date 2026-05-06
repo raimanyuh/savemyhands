@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { startRouteProgress } from "@/lib/route-progress";
 import { buildAndSaveHand } from "@/lib/recorder/save-hand";
 import {
   Check,
@@ -2330,6 +2331,7 @@ export default function Recorder() {
         );
         return;
       }
+      startRouteProgress();
       router.push("/dashboard");
     });
   };

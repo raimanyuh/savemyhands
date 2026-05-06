@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { startRouteProgress } from "@/lib/route-progress";
 
 export function Shell({
   children,
@@ -49,7 +50,10 @@ export function Header({
                 // then push manually so the dialog has a chance to cancel.
                 e.preventDefault();
                 result.then((ok) => {
-                  if (ok !== false) router.push(backHref);
+                  if (ok !== false) {
+                    startRouteProgress();
+                    router.push(backHref);
+                  }
                 });
                 return;
               }

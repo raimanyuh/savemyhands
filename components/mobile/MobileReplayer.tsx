@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { startRouteProgress } from "@/lib/route-progress";
 import {
   Check,
   ChevronLeft,
@@ -365,6 +366,7 @@ function MobileReplayerInner({
           type="button"
           aria-label="Back"
           onClick={() => {
+            startRouteProgress();
             if (isAuthenticated) router.push("/dashboard");
             else router.back();
           }}
