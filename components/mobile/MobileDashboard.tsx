@@ -62,7 +62,11 @@ const BG = "oklch(0.10 0 0)";
 const BG_ELEVATED = "oklch(0.16 0 0)";
 
 const LONG_PRESS_MS = 500;
-const LONG_PRESS_MOVE_PX = 10;
+// Movement (in CSS px) past which we suppress both the long-press and
+// the tap. Sized at the upper end of the standard mobile tap radius so
+// the card is still easy to tap deliberately, but a real finger drag
+// (the start of a scroll) reliably reads as "not a tap".
+const TAP_MOVE_PX = 12;
 
 export default function MobileDashboard({
   initialUsername,
@@ -787,12 +791,17 @@ function HandCard({
   onLongPress: () => void;
   onToggleFav: () => void;
 }) {
-  // Long-press detection. Pointer events handle both touch and mouse;
-  // we cancel the timer on movement above the threshold so a vertical
-  // scroll doesn't trigger select.
+  // Long-press + tap detection via pointer events (both touch and mouse).
+  // The threshold serves two purposes: cancel an in-progress long-press,
+  // AND suppress the tap when the finger drifts (so vertical scrolls
+  // don't fire onTap on release). The `moved` flag is the second half —
+  // without it, any pointermove past the threshold cancels the timer
+  // but onPointerUp still fires onTap, which is the accidental-tap-while-
+  // scrolling bug.
   const timer = useRef<number | null>(null);
   const startXY = useRef<{ x: number; y: number } | null>(null);
   const longPressed = useRef(false);
+  const moved = useRef(false);
 
   const cancel = () => {
     if (timer.current != null) {
@@ -804,6 +813,7 @@ function HandCard({
 
   const onPointerDown = (e: React.PointerEvent) => {
     longPressed.current = false;
+    moved.current = false;
     startXY.current = { x: e.clientX, y: e.clientY };
     timer.current = window.setTimeout(() => {
       longPressed.current = true;
@@ -815,18 +825,27 @@ function HandCard({
     if (!startXY.current) return;
     const dx = e.clientX - startXY.current.x;
     const dy = e.clientY - startXY.current.y;
-    if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_PX) cancel();
+    if (Math.hypot(dx, dy) > TAP_MOVE_PX) {
+      moved.current = true;
+      cancel();
+    }
   };
   const onPointerUp = () => {
-    if (longPressed.current) {
-      // Long-press already handled — don't also fire onTap.
+    if (longPressed.current || moved.current) {
+      // Long-press fired, or finger drifted past the tap threshold —
+      // either way, don't treat the release as a tap.
       cancel();
       return;
     }
     cancel();
     onTap();
   };
-  const onPointerCancel = () => cancel();
+  const onPointerCancel = () => {
+    // The browser cancels pointer capture when a scroll claims the
+    // gesture. Mark moved so a stray onPointerUp afterward can't tap.
+    moved.current = true;
+    cancel();
+  };
 
   const heroPos = hand._full?.heroPosition ?? 0;
   const heroCards = hand._full?.players?.[heroPos]?.cards;

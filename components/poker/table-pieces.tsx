@@ -297,20 +297,44 @@ export function StackDisplay({
 
 // Felt + wood rail container — drop the contents inside to render on the table.
 //
-// Doubles as a CSS container so children can scale relative to the felt's
-// own width via `var(--smh-u)`. The unit is unitless: at design width
-// (1280px) it resolves to 1.0; smaller felts scale down, larger felts up,
-// clamped so things stay legible at extremes. See `scale.ts` for the
-// helper used by callers.
+// Sets `--smh-u` so children can scale relative to the felt's own width.
+// Computed in JS via ResizeObserver instead of CSS `clamp(0.65, calc(100cqi
+// / 1280px), 1.5)` — the length-by-length calc division requires CSS Values
+// 4 type-checking, which Firefox only supports from v116. On older Firefox
+// the calc parses as invalid, every `calc(56px * var(--smh-u, 1))` width
+// becomes invalid, and cards collapse to content size. The JS path produces
+// the same value with no calc-types dependency, so it works everywhere.
+//
+// Initial inline `--smh-u: 1` covers SSR and the brief window before the
+// effect runs — components render at design size on first paint, then
+// rescale to the actual felt width.
 export function TableSurface({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const apply = (width: number) => {
+      const u = Math.max(0.65, Math.min(1.5, width / 1280));
+      el.style.setProperty("--smh-u", String(u));
+    };
+    apply(el.clientWidth);
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) apply(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <div
+      ref={ref}
       className="relative w-full"
       style={
         {
           aspectRatio: "2 / 1",
-          containerType: "inline-size",
-          "--smh-u": "clamp(0.65, calc(100cqi / 1280px), 1.5)",
+          "--smh-u": "1",
         } as React.CSSProperties
       }
     >

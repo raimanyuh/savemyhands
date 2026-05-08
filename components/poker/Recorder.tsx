@@ -2045,6 +2045,25 @@ export default function Recorder() {
   // Action-log popover; lifted so the inline log below the table can be
   // removed entirely (the popover replaces it).
   const [logOpen, setLogOpen] = useState(false);
+  // Action-bar `--smh-u`. Computed in JS instead of via CSS
+  // `clamp(0.65, calc((100vh - 440px) / 640px), 1.0)` because the
+  // length-by-length calc requires CSS Values 4 type-checking, which
+  // Firefox only supports from v116. On older Firefox the calc parses as
+  // invalid, every `calc(220px * var(--smh-u, 1))` becomes invalid, and
+  // the action bar collapses. SSR / first paint uses 1.0 (design size).
+  const [actionBarSmhU, setActionBarSmhU] = useState(1);
+  useEffect(() => {
+    const apply = () => {
+      const u = Math.max(
+        0.65,
+        Math.min(1.0, (window.innerHeight - 440) / 640),
+      );
+      setActionBarSmhU(u);
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
+  }, []);
   // Annotation editor modal — `null` = closed, otherwise the index in
   // state.actions whose annotation is being edited. Opens when the user
   // clicks a bet/check bubble on the felt.
@@ -2870,7 +2889,8 @@ export default function Recorder() {
             Wrapped in a fixed-height slot so the buttons never shift when the
             phase changes (ActionBar → DealCTA → ShowdownPanel have different
             natural heights).
-            `--smh-u` here is computed from viewport height to match the
+            `--smh-u` here is computed from viewport height (see the
+            actionBarSmhU effect at the top of this component) to match the
             felt's container-query value at the same screen size — keeps the
             action bar in scale with the table on small laptops without
             growing too much on very tall monitors. */}
@@ -2880,8 +2900,7 @@ export default function Recorder() {
               ? { minHeight: 220 }
               : ({
                   minHeight: scaled(220),
-                  "--smh-u":
-                    "clamp(0.65, calc((100vh - 440px) / 640px), 1.0)",
+                  "--smh-u": String(actionBarSmhU),
                 } as React.CSSProperties)
           }
         >

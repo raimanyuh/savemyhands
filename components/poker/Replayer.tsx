@@ -1188,8 +1188,10 @@ function ReplayerInner({
           width: "calc(100% - 48px)",
         }}
       >
-        {/* Action summary — quiet, no card chrome. */}
-        <div className="flex items-center gap-2 min-w-0 max-w-[260px]">
+        {/* Action summary — quiet, no card chrome. Fixed width so the
+            transport buttons sit at the same x position regardless of
+            label length. */}
+        <div className="flex items-center gap-2 min-w-0 shrink-0 w-[260px]">
           <StreetPill street={street} />
           <span className="text-[13px] text-zinc-200 truncate">
             {cur.label}
