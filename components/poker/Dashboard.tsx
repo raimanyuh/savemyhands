@@ -1131,6 +1131,13 @@ export default function Dashboard({
     const arr = [...filtered];
     arr.sort((a, b) => {
       const k = sort.key;
+      // `h.date` is a localized display string ("May 5, 2026") — not sortable.
+      // Use the ISO date from _full (set at save time) for correct chronological order.
+      if (k === "date") {
+        const va = a._full?.date ?? "";
+        const vb = b._full?.date ?? "";
+        return va.localeCompare(vb) * (sort.dir === "asc" ? 1 : -1);
+      }
       const va: unknown = (a as Record<string, unknown>)[k];
       const vb: unknown = (b as Record<string, unknown>)[k];
       if (typeof va === "string" && typeof vb === "string") {
