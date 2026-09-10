@@ -2244,10 +2244,14 @@ export default function Recorder() {
       : null;
     const pots = computeSidePots(state);
     const survivors = state.players.filter((p) => !folded.has(p.seat));
+    const heroFolded = folded.has(heroPos);
     const villainSurvivors = survivors.filter((p) => p.seat !== heroPos);
+    // A folded hero can never win uncontested — guard prevents muck+fold
+    // from incorrectly awarding the pot to hero.
     const heroAlone =
-      villainSurvivors.length === 0 ||
-      villainSurvivors.every((v) => muckedSet.has(v.seat));
+      !heroFolded &&
+      (villainSurvivors.length === 0 ||
+        villainSurvivors.every((v) => muckedSet.has(v.seat)));
     if (heroAlone) {
       return pots.map((p) => [{ amount: p.amount, winners: [heroPos] }]);
     }
@@ -2263,15 +2267,20 @@ export default function Recorder() {
       (v) => !muckedSet.has(v.seat) && !isShown(v),
     );
     if (villainsAwaiting.length > 0) return null;
-    if (board1.length < 5) return null;
-    if (board2 !== null && board2.length < 5) return null;
     const hero = state.players[heroPos];
-    if (!isShown(hero)) return null;
+    const heroShowing = !heroFolded && isShown(hero);
+    const shownVillains = villainSurvivors.filter(
+      (v) => !muckedSet.has(v.seat) && isShown(v),
+    );
+    // Board is only required when two or more contestants need hand evaluation.
+    const contestantCount = (heroShowing ? 1 : 0) + shownVillains.length;
+    if (contestantCount > 1 && board1.length < 5) return null;
+    if (contestantCount > 1 && board2 !== null && board2.length < 5) return null;
+    // Hero's cards must be present unless they folded.
+    if (!heroFolded && !heroShowing) return null;
     const contestants = [
-      hero,
-      ...villainSurvivors.filter(
-        (v) => !muckedSet.has(v.seat) && isShown(v),
-      ),
+      ...(heroFolded ? [] : [hero]),
+      ...shownVillains,
     ].map((p) => ({
       seat: p.seat,
       cards: (p.cards as string[]).slice(0, holeCount),
