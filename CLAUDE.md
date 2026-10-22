@@ -28,6 +28,13 @@ Live at savemyhands.app with real users. Six route surfaces all ship in producti
 
 Vercel preview is attached to `dev`.
 
+### Draw / stud expansion — in progress on `draw-games` (2026-10-22)
+- Added a Vitest unit-test harness (`npm test`) before introducing new game-family state machines.
+- Added optional schema-v2 payload metadata: `schemaVersion`, a discriminated `game` descriptor (`community` / `draw` / `stud`), and a stable-id event `timeline`. Existing rows without these fields normalize to their legacy NLHE/PLO community format.
+- New community-hand saves now write schema-v2 game metadata while retaining the existing `gameType`, `actions`, and board fields for compatibility.
+- Added a tested Deuce-to-Seven five-card evaluator plus draw-exchange primitives for ordered opponent count-only draws, exact hero discard/replacement history, pat decisions, impossible-card rejection, and replay-event conversion.
+- No draw option is visible in the product yet. The next slice is the complete 2-7 Single Draw recorder state machine and save/replay adapter; keep the feature hidden until that vertical path works on desktop and mobile.
+
 ### What's working
 - **Landing page** (`/`) — anon visitors get a marketing page: nav (How it works · Sample hand · FAQ · Sign in · Sign up) → centered hero (eyebrow · h1 · lede · two CTAs) → embedded `<SampleReplay>` glass card playing through a hardcoded 4-handed PLO4 double-board hand with annotations on hero's key decisions → How it works (3 text-only step cards) → FAQ (4 items, first open) → CTA card (`SignInCard`) with two stacked buttons routing to `/login` and `/signup` → footer with `<ContactPopover>`. Signed-in visitors redirect to `/dashboard`. Lives in `components/landing/` (`LandingPage.tsx`, `Faq.tsx`, `SampleReplay.tsx`, `sample-hand.ts`, `SignInCard.tsx`). The earlier `SignInCard` rendered a fully-styled email/password form whose submit just navigated to `/login` and lost the typed credentials — replaced 2026-05-06 with the two-button design.
 - **Branding / metadata** — `app/icon.svg`, `app/apple-icon.tsx`, `app/opengraph-image.tsx`, `app/twitter-image.tsx`, `app/manifest.ts`, theme color + OG defaults in `app/layout.tsx`. `metadataBase = https://savemyhands.app` (localhost links never unfurl — push to Vercel preview to test).

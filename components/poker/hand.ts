@@ -4,6 +4,12 @@ import { POSITION_NAMES } from "./lib";
 import { computeSidePots, totalPotFinal } from "./engine";
 import type { Action, Player, Street } from "./engine";
 import { awardPots, determineWinner } from "./hand-eval";
+import {
+  gameDefinitionOf,
+  type GameDefinition,
+  type HandSchemaVersion,
+  type HandTimelineEvent,
+} from "./game-format";
 
 // Pot type, derived from the count of voluntary preflop raises:
 // 0 raises → LP (limped), 1 → SRP, 2 → 3BP, 3 → 4BP, 4+ → 5BP (capped).
@@ -56,6 +62,13 @@ export type SavedHand = {
   // become viewable by non-owners only when the owner toggles this on.
   isPublic?: boolean;
   _full?: {
+    // Versioned metadata for game-family-aware payloads. Optional so all
+    // existing rows continue to load as schema-v1 community-card hands.
+    schemaVersion?: HandSchemaVersion;
+    game?: GameDefinition;
+    // New draw/stud recorders write their variant-native replay history here.
+    // Community hands continue using `actions` until their adapter is added.
+    timeline?: HandTimelineEvent[];
     players: Player[];
     actions: Action[];
     board: (string | null)[];
@@ -141,6 +154,8 @@ export type ReplayStep = {
 
 export type ReplayHand = {
   id: string;
+  schemaVersion: HandSchemaVersion;
+  game: GameDefinition;
   stakes: { sb: number; bb: number };
   straddleOn?: boolean;
   straddleAmt?: number;
@@ -540,6 +555,8 @@ export function recordedToHand(rec: SavedHand): ReplayHand | null {
 
   return {
     id: rec.id,
+    schemaVersion: f.schemaVersion ?? 1,
+    game: gameDefinitionOf(f),
     stakes: { sb: f.sb, bb: f.bb },
     straddleOn: f.straddleOn,
     straddleAmt: f.straddleAmt,

@@ -24,6 +24,10 @@ import { precomputeEquityByStep } from "@/components/poker/equity";
 import { committedBySeatFinal } from "@/components/poker/engine";
 import type { RecorderState } from "@/components/poker/engine";
 import {
+  CURRENT_HAND_SCHEMA_VERSION,
+  communityGameDefinition,
+} from "@/components/poker/game-format";
+import {
   seatWinnings,
   type PotAward,
 } from "@/components/poker/hand-eval";
@@ -93,6 +97,8 @@ export async function buildAndSaveHand(
     fav: false,
     notes: state.notes.trim() || undefined,
     _full: {
+      schemaVersion: CURRENT_HAND_SCHEMA_VERSION,
+      game: communityGameDefinition(state.gameType),
       players: state.players,
       actions: state.actions,
       board: state.board,
