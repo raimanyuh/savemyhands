@@ -32,6 +32,8 @@ import {
 } from "@/lib/hands/actions";
 import { useAnnotationEdit } from "@/lib/replayer/use-annotation-edit";
 import { VerticalFelt, type FeltViewState } from "./VerticalFelt";
+import VerticalDrawFelt from "./VerticalDrawFelt";
+import { drawRoundLabel } from "@/components/poker/single-draw-ui";
 import { ReplayDock } from "./ReplayDock";
 import { AnnotationBalloon } from "./AnnotationBalloon";
 import {
@@ -134,7 +136,10 @@ function MobileReplayerInner({
     readAnonDismissedCookie(),
   );
 
-  // Auto-advance — same 1.1s/step cadence as the desktop replayer.
+  const cur = HAND.steps[step];
+
+  // Draw exchanges use the desktop cadence: fast deal, a pause for
+  // discards, then replacements. Ordinary actions remain at 1.1s.
   useEffect(() => {
     if (!playing) return;
     const t = setTimeout(() => {
@@ -145,11 +150,10 @@ function MobileReplayerInner({
         }
         return s + 1;
       });
-    }, 1100);
+    }, cur.draw?.kind === "deal" ? 140 : cur.draw?.stage === "discard" ? 750 : 1100);
     return () => clearTimeout(t);
-  }, [playing, step, HAND]);
+  }, [playing, step, HAND, cur.draw]);
 
-  const cur = HAND.steps[step];
   const atShowdown = cur.street === "showdown";
   const heroPos = HAND.heroPosition ?? 0;
   const N = HAND.playerCount || HAND.players.length;
@@ -349,7 +353,7 @@ function MobileReplayerInner({
   return (
     <div
       className="flex flex-col h-[100dvh] w-full"
-      style={{ background: BG, color: "oklch(0.92 0 0)" }}
+      style={{ background: BG, color: "oklch(0.92 0 0)", minHeight: HAND.game.family === "draw" && N >= 6 ? 620 : undefined }}
     >
       {/* Header */}
       <header
@@ -410,6 +414,7 @@ function MobileReplayerInner({
               ? `Bomb $${HAND.bombPotAmt}`
               : `$${HAND.stakes.sb}/$${HAND.stakes.bb}`}
             {` · ${N}-handed`}
+            {HAND.game.family === "draw" ? " · 2–7 SD" : ""}
             {HAND.gameType && HAND.gameType !== "NLHE"
               ? ` · ${HAND.gameType}`
               : ""}
@@ -489,7 +494,13 @@ function MobileReplayerInner({
         className="flex-1 min-h-0 relative"
         style={{ padding: "8px 8px 0" }}
       >
-        <VerticalFelt
+        {cur.draw ? <div className="absolute inset-x-2 top-2 bottom-[112px] min-h-[360px]">
+          <VerticalDrawFelt players={HAND.players} heroSeat={heroPos} cards={cur.draw.cards}
+            previousCards={HAND.steps[step - 1]?.draw?.cards} pot={cur.pot} round={drawRoundLabel(cur.street)}
+            active={cur.active} committed={committed} bets={streetBets}
+            folded={cur.draw.foldedSeats} mucked={cur.draw.muckedSeats} winnings={cur.draw.winnings}
+            labels={cur.draw.kind === "draw" && cur.active != null ? { [cur.active]: cur.draw.count ? `Draw ${cur.draw.count}` : "Pat" } : Object.fromEntries([...checkedSeats].map((seat) => [seat, "check"]))} />
+        </div> : <VerticalFelt
           state={feltState}
           committed={committed}
           activeSeat={activeSeat}
@@ -498,7 +509,7 @@ function MobileReplayerInner({
           checkedSeats={checkedSeats}
           streetClosed={false}
           bottomInset={96}
-        />
+        />}
 
         {/* Annotation balloon — absolute layer above the dock */}
         <AnnotationBalloon
@@ -518,8 +529,8 @@ function MobileReplayerInner({
         actionLabel={cur.label}
         playing={playing}
         annotatedSteps={annotatedSteps}
-        onStepChange={setStep}
-        onPlayPause={() => setPlaying((p) => !p)}
+        onStepChange={(next) => { setPlaying(false); setStep(next); }}
+        onPlayPause={() => { if (step === HAND.steps.length - 1) setStep(0); setPlaying((p) => !p); }}
         onAddNote={
           canEditAnno && !annotation ? beginEditAnno : undefined
         }

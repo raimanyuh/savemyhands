@@ -1,17 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { ArrowLeft, ChevronRight, RotateCcw, Save, Settings, X } from "lucide-react";
 import { Header, Shell } from "@/components/Shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { useToast } from "@/components/ui/toast";
-import { buildAndSaveSingleDrawHand } from "@/lib/recorder/save-hand";
-import { buildSingleDrawHand, type BuildSingleDrawHandArgs } from "@/lib/recorder/single-draw-hand";
-import { startRouteProgress } from "@/lib/route-progress";
 import { useIsSideLayout } from "@/lib/use-is-side-layout";
+import { useIsMobile } from "@/lib/use-is-mobile";
+import MobileSingleDrawRecorder from "@/components/mobile/MobileSingleDrawRecorder";
 import type { ActionType } from "./engine";
 import { CardRow } from "./CardPicker";
 import DrawTable from "./DrawTable";
@@ -20,11 +17,10 @@ import { POSITION_NAMES } from "./lib";
 import {
   advanceSingleDrawPhase, deriveSingleDrawBetting, recordSingleDrawAction,
   recordSingleDrawDecision, setSingleDrawMucked, setSingleDrawShownCards,
-  setSingleDrawStartingCards, singleDrawCommittedBySeat, singleDrawCommittedBySeatFinal,
-  startSingleDrawHand, undoSingleDraw, updateSingleDrawPlayer, type SingleDrawState,
+  setSingleDrawStartingCards, startSingleDrawHand, updateSingleDrawPlayer, type SingleDrawState,
 } from "./single-draw-engine";
-import type { DrawReplayCard } from "./single-draw-replay";
 import { changeSingleDrawSetup, drawRoundLabel, knownSingleDrawCards, singleDrawSizing, type SingleDrawDraft } from "./single-draw-ui";
+import { useSingleDrawRecorder, type SingleDrawSaveOptions } from "./use-single-draw-recorder";
 
 const emptyHand = () => Array<string | null>(5).fill(null);
 const primary = "bg-emerald-500 text-zinc-950 hover:bg-emerald-400 font-semibold";
@@ -107,84 +103,35 @@ function ShowHandEditor({ state, seat, onShow, onCancel }: { state: SingleDrawSt
   </div>;
 }
 
-export default function SingleDrawRecorder({ initialDraft, onSwitchGame, onSaveAction = buildAndSaveSingleDrawHand, onSavedAction }: {
+export default function SingleDrawRecorder({ initialDraft, onSwitchGame, onSaveAction, onSavedAction }: {
   initialDraft: SingleDrawDraft; onSwitchGame: () => void;
-  onSaveAction?: (args: BuildSingleDrawHandArgs) => Promise<{ id: string }>;
-  onSavedAction?: (id: string) => void;
+} & SingleDrawSaveOptions) {
+  const recorder = useSingleDrawRecorder(initialDraft, { onSaveAction, onSavedAction });
+  const { isMobile } = useIsMobile();
+  return isMobile ? <MobileSingleDrawRecorder recorder={recorder} onSwitchGame={onSwitchGame} />
+    : <DesktopSingleDrawRecorder recorder={recorder} onSwitchGame={onSwitchGame} />;
+}
+
+function DesktopSingleDrawRecorder({ recorder, onSwitchGame }: {
+  recorder: ReturnType<typeof useSingleDrawRecorder>; onSwitchGame: () => void;
 }) {
-  const router = useRouter();
   const confirm = useConfirm();
-  const toast = useToast();
   const side = useIsSideLayout();
-  const [state, setState] = useState(initialDraft.state);
-  const [name, setName] = useState(initialDraft.name);
-  const [notes, setNotes] = useState(initialDraft.notes);
-  const [venue, setVenue] = useState(initialDraft.venue);
-  const [date, setDate] = useState(initialDraft.date);
   const [setupOpen, setSetupOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
-  const [selected, setSelected] = useState<number[]>([]);
-  const [editingSeat, setEditingSeat] = useState<number | null>(null);
-  const [saving, startSave] = useTransition();
-  const betting = deriveSingleDrawBetting(state);
-  const drawSeat = state.exchange?.order[state.exchange.cursor] ?? null;
-  const activeSeat = betting?.activeSeat ?? drawSeat;
-  const setup = state.phase === "setup";
-  const finished = state.phase === "showdown" || state.phase === "done";
-  const folded = state.actions.filter((action) => action.action === "fold").map((action) => action.seat);
-  const committed = setup ? {} : betting ? singleDrawCommittedBySeat(state) : singleDrawCommittedBySeatFinal(state);
-  const pot = Object.values(committed).reduce((sum, amount) => sum + amount, 0);
+  const {
+    state, name, setName, notes, setNotes, venue, setVenue, date, setDate, selected, setSelected,
+    editingSeat, setEditingSeat, saving, betting, drawSeat, activeSeat, setup, finished,
+    folded, committed, pot, resolution, apply, undo, cards, labels, save,
+  } = recorder;
   const positions = POSITION_NAMES[state.playerCount];
-  const args = useMemo(() => ({ state, name, notes, venue, date }), [state, name, notes, venue, date]);
-  const resolution = useMemo(() => {
-    if (!finished) return { payload: null, reason: "Finish the hand before saving." };
-    try { return { payload: buildSingleDrawHand(args), reason: "" }; }
-    catch (error) { return { payload: null, reason: error instanceof Error ? error.message : "Resolve all hands." }; }
-  }, [finished, args]);
-  const apply = (update: (current: SingleDrawState) => SingleDrawState) => {
-    if (saving) return false;
-    try {
-      // Compute before setting state so domain errors stay inside this catch.
-      const next = update(state);
-      setState(next); setSelected([]); setEditingSeat(null);
-      return true;
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Couldn't record that action."); return false; }
-  };
-  const undo = () => apply(undoSingleDraw);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" &&
-          !(event.target as HTMLElement | null)?.closest("input, textarea, [contenteditable='true']")) {
-        event.preventDefault();
-        if (!saving) { setState((current) => undoSingleDraw(current)); setSelected([]); setEditingSeat(null); }
-      }
       if (event.key === "Escape") setSetupOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [saving]);
-  const cards: Record<number, DrawReplayCard[]> = Object.fromEntries(state.players.map((player) => [player.seat,
-    Array.from({ length: 5 }, (_, index) => {
-      const known = (player.seat === state.heroSeat || finished) ? player.cards?.[index] : undefined;
-      return { present: !!known || player.seat !== state.heroSeat, visibility: known ? "up" : "down", ...(known ? { card: known } : {}) };
-    }),
-  ]));
-  const labels: Record<number, string> = {};
-  if (state.phase === "draw") for (const draw of state.draws) labels[draw.seat] = draw.count ? `Draw ${draw.count}` : "Pat";
-  if (betting) for (const action of state.actions.filter((action) => action.round === betting.round)) {
-    if (action.action === "check") labels[action.seat] = "check";
-    else delete labels[action.seat];
-  }
-  const save = () => {
-    if (!resolution.payload || editingSeat !== null || saving) return;
-    startSave(async () => {
-      try {
-        const saved = await onSaveAction(args);
-        if (onSavedAction) onSavedAction(saved.id);
-        else { startRouteProgress(); router.push(`/hand/${saved.id}`); }
-      } catch (error) { toast.error(error instanceof Error ? error.message : "Couldn't save the hand. Try again."); }
-    });
-  };
+  }, []);
   const heroCards = state.players[state.heroSeat].cards ?? emptyHand();
   const changeSetup = (patch: Parameters<typeof changeSingleDrawSetup>[1]) => apply((current) => changeSingleDrawSetup(current, patch));
   return <Shell header={<Header title="" back="Dashboard" backHref="/dashboard" onBack={() =>

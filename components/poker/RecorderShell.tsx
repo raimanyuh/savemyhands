@@ -14,15 +14,15 @@ import Recorder from "./Recorder";
 import MobileRecorder from "@/components/mobile/MobileRecorder";
 
 export default function RecorderShell() {
-  const { isMobile, isDesktop } = useIsMobile();
+  const { isMobile } = useIsMobile();
   const [communityDraft, setCommunityDraft] = useState<RecorderState>();
   const [drawDraft, setDrawDraft] = useState<SingleDrawDraft>();
-  // Preserve an in-progress draw when resizing; mobile's own recorder
-  // does not offer the format until its adaptation is complete.
+  // SingleDrawRecorder owns one controller across responsive layouts.
   if (drawDraft) return <SingleDrawRecorder initialDraft={drawDraft} onSwitchGame={() => setDrawDraft(undefined)} />;
-  if (isMobile) return <MobileRecorder />;
-  return <Recorder initialSetup={communityDraft} onSelectSingleDraw={isDesktop ? (state) => {
+  const selectSingleDraw = (state: RecorderState) => {
     setCommunityDraft(state);
     setDrawDraft(singleDrawDraftFromCommunity(state));
-  } : undefined} />;
+  };
+  if (isMobile) return <MobileRecorder initialSetup={communityDraft} onSelectSingleDraw={selectSingleDraw} />;
+  return <Recorder initialSetup={communityDraft} onSelectSingleDraw={selectSingleDraw} />;
 }

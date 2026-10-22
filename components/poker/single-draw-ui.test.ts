@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { initialState } from "./engine";
@@ -7,6 +7,7 @@ import { deriveSingleDrawBetting, initialSingleDrawState, setSingleDrawStartingC
 import { gameTypeOf, holeCountOf } from "./dashboard-shared";
 import { getSampleHand } from "@/lib/sample-hand";
 import DrawTable from "./DrawTable";
+import VerticalDrawFelt from "@/components/mobile/VerticalDrawFelt";
 import type { DrawReplayCard } from "./single-draw-replay";
 
 const holding = ["A♠", "7♥", "5♦", "4♣", "2♠"];
@@ -67,14 +68,18 @@ describe("Single Draw UI derivations", () => {
   });
 });
 
-describe("draw felt rendering", () => {
+function MobileTable(props: ComponentProps<typeof DrawTable>) {
+  return createElement(VerticalDrawFelt, { ...props, onHeroCardSlot: props.onToggleHero, discarding: !!props.onToggleHero });
+}
+
+describe.each([{ name: "desktop", Table: DrawTable }, { name: "mobile", Table: MobileTable }])("$name draw felt rendering", ({ Table }) => {
   const players = [{ seat: 0, name: "Hero", stack: 200 }, { seat: 1, name: "Opponent", stack: 200 }];
   const hero: DrawReplayCard[] = holding.map((card) => ({ present: true, visibility: "up", card }));
   const hidden: DrawReplayCard[] = Array.from({ length: 5 }, () => ({ present: true, visibility: "down" }));
 
   it("renders actual empty slots instead of backs during the hero exchange", () => {
     const slots = hero.map((slot, index) => [0, 3].includes(index) ? { present: false, visibility: "down" as const } : slot);
-    const html = renderToStaticMarkup(createElement(DrawTable, { players, heroSeat: 0, cards: { 0: slots, 1: hidden }, pot: 4, round: "Draw" }));
+    const html = renderToStaticMarkup(createElement(Table, { players, heroSeat: 0, cards: { 0: slots, 1: hidden }, pot: 4, round: "Draw" }));
     expect(html.match(/aria-label="Empty card slot"/g)).toHaveLength(2);
     expect(html.match(/aria-label="Hidden card"/g)).toHaveLength(5);
     expect(html).toContain('aria-label="7♥"');
@@ -82,7 +87,7 @@ describe("draw felt rendering", () => {
   });
 
   it("makes discard selection accessible without changing kept cards", () => {
-    const html = renderToStaticMarkup(createElement(DrawTable, {
+    const html = renderToStaticMarkup(createElement(Table, {
       players, heroSeat: 0, cards: { 0: hero, 1: hidden }, pot: 4, round: "Draw", selected: [0, 3], onToggleHero: () => {},
     }));
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(2);
@@ -91,10 +96,21 @@ describe("draw felt rendering", () => {
   });
 
   it("honors visibility even if a hidden slot contains a stored identity", () => {
-    const html = renderToStaticMarkup(createElement(DrawTable, {
+    const html = renderToStaticMarkup(createElement(Table, {
       players, heroSeat: 0, cards: { 0: hero, 1: hidden.map((slot) => ({ ...slot, card: "8♠" })) }, pot: 4, round: "Predraw",
     }));
     expect(html).not.toContain('aria-label="8♠"');
     expect(html.match(/aria-label="Hidden card"/g)).toHaveLength(5);
+  });
+
+  it("keeps anonymous identities hidden in the departing-card animation", () => {
+    const slots = hidden.map((slot, index) => index === 0 ? { ...slot, present: false } : slot);
+    const html = renderToStaticMarkup(createElement(Table, {
+      players, heroSeat: 0, cards: { 0: hero, 1: slots }, pot: 4, round: "Draw",
+      previousCards: { 0: hero, 1: hidden.map((slot) => ({ ...slot, card: "8♠" })) },
+    }));
+    expect(html).toContain('class="smh-draw-card-leave"');
+    expect(html).not.toContain("8♠");
+    expect(html.match(/aria-label="Empty card slot"/g)).toHaveLength(1);
   });
 });

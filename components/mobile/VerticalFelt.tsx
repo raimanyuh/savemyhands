@@ -112,7 +112,7 @@ const SEAT_COORDS_BY_N: Record<number, SeatCoord[]> = {
   ],
 };
 
-function getSeatCoords(n: number): SeatCoord[] {
+export function getSeatCoords(n: number): SeatCoord[] {
   return SEAT_COORDS_BY_N[n] ?? SEAT_COORDS_BY_N[6];
 }
 
