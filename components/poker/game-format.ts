@@ -80,6 +80,7 @@ export type HandTimelineEvent =
       seat: number;
       count: number;
       /** Exact cards are normally present for hero only. */
+      discardIndexes?: number[];
       discardedCards?: CardId[];
       replacementCards?: CardId[];
     })

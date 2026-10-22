@@ -6,6 +6,7 @@ export type DrawDecision = {
   round: DrawNumber;
   seat: number;
   count: number;
+  discardIndexes?: number[];
   discardedCards?: CardId[];
   replacementCards?: CardId[];
 };
@@ -69,13 +70,20 @@ export function recordDrawDecision(
 
   const discardedCount = input.discardedCards?.length;
   const replacementCount = input.replacementCards?.length;
+  const discardIndexCount = input.discardIndexes?.length;
+  if (discardIndexCount !== undefined && discardIndexCount !== input.count) {
+    throw new Error("Discard-index count does not match the declared draw");
+  }
   if (discardedCount !== undefined && discardedCount !== input.count) {
     throw new Error("Discarded-card count does not match the declared draw");
   }
   if (replacementCount !== undefined && replacementCount !== input.count) {
     throw new Error("Replacement-card count does not match the declared draw");
   }
-  if (input.count === 0 && (discardedCount || replacementCount)) {
+  if (
+    input.count === 0 &&
+    (discardIndexCount || discardedCount || replacementCount)
+  ) {
     throw new Error("A player standing pat cannot exchange cards");
   }
 
@@ -83,6 +91,9 @@ export function recordDrawDecision(
     round: state.round,
     seat: input.seat,
     count: input.count,
+    ...(input.discardIndexes
+      ? { discardIndexes: [...input.discardIndexes] }
+      : {}),
     ...(input.discardedCards
       ? { discardedCards: [...input.discardedCards] }
       : {}),
@@ -158,6 +169,9 @@ export function drawDecisionToTimelineEvent(
     round: `draw-${decision.round}`,
     seat: decision.seat,
     count: decision.count,
+    ...(decision.discardIndexes
+      ? { discardIndexes: [...decision.discardIndexes] }
+      : {}),
     ...(decision.discardedCards
       ? { discardedCards: [...decision.discardedCards] }
       : {}),

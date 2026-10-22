@@ -87,6 +87,7 @@ describe("draw exchange state", () => {
         round: 1,
         seat: 0,
         count: 2,
+        discardIndexes: [0, 1],
         discardedCards: ["A♠", "K♥"],
         replacementCards: ["3♣", "2♦"],
       }),
@@ -96,6 +97,7 @@ describe("draw exchange state", () => {
       round: "draw-1",
       seat: 0,
       count: 2,
+      discardIndexes: [0, 1],
       discardedCards: ["A♠", "K♥"],
       replacementCards: ["3♣", "2♦"],
     });
