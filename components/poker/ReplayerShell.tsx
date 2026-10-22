@@ -35,7 +35,8 @@ export default function ReplayerShell({
   fullPayload?: SavedHand["_full"];
 }) {
   const { isMobile } = useIsMobile();
-  if (isMobile) {
+  // Never send draw snapshots through the community-only mobile felt.
+  if (isMobile && hand.game.family === "community") {
     return (
       <MobileReplayer
         hand={hand}

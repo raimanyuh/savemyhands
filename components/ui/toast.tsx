@@ -117,7 +117,9 @@ function ToastViewport({
   toasts: ToastEntry[];
   onDismiss: (id: number) => void;
 }) {
-  if (typeof document === "undefined") return null;
+  // The empty viewport must be absent on both the server and the initial
+  // client render, otherwise the portal causes a hydration mismatch.
+  if (!toasts.length || typeof document === "undefined") return null;
   return createPortal(
     <div
       // Fixed bottom-right stack. `pointer-events-none` on the wrapper so

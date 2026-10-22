@@ -152,6 +152,33 @@ describe("No-Limit 2-7 Single Draw state machine", () => {
     expect(state.draws).toEqual([{ round: 1, seat: 1, count: 2 }]);
   });
 
+  it("allows calls but not a re-raise when a short all-in does not reopen action", () => {
+    let state = initialSingleDrawState({ playerCount: 3 });
+    state = updateSingleDrawPlayer(state, 1, { stack: 8 });
+    state = startSingleDrawHand(setSingleDrawStartingCards(state, 0, [...heroCards]));
+    state = recordSingleDrawAction(state, { seat: 0, action: "raise", amount: 6 });
+    state = recordSingleDrawAction(state, { seat: 1, action: "raise", amount: 8 });
+    expect(deriveSingleDrawBetting(state)?.canRaise).toBe(true);
+    state = recordSingleDrawAction(state, { seat: 2, action: "call" });
+    expect(deriveSingleDrawBetting(state)).toMatchObject({ activeSeat: 0, canRaise: false, toCall: 2 });
+    expect(() => recordSingleDrawAction(state, { seat: 0, action: "raise", amount: 12 })).toThrow("not reopened");
+    state = recordSingleDrawAction(state, { seat: 0, action: "call" });
+    expect(deriveSingleDrawBetting(state)?.roundClosed).toBe(true);
+  });
+
+  it("reopens raising when successive short all-ins cumulatively make a full raise", () => {
+    let state = initialSingleDrawState({ playerCount: 4, heroSeat: 3 });
+    state = updateSingleDrawPlayer(state, 0, { stack: 8 });
+    state = updateSingleDrawPlayer(state, 1, { stack: 10 });
+    state = startSingleDrawHand(setSingleDrawStartingCards(state, 3, [...heroCards]));
+    state = recordSingleDrawAction(state, { seat: 3, action: "raise", amount: 6 });
+    state = recordSingleDrawAction(state, { seat: 0, action: "raise", amount: 8 });
+    state = recordSingleDrawAction(state, { seat: 1, action: "raise", amount: 10 });
+    state = recordSingleDrawAction(state, { seat: 2, action: "call" });
+    expect(deriveSingleDrawBetting(state)).toMatchObject({ activeSeat: 3, canRaise: true, minRaise: 14 });
+    expect(() => recordSingleDrawAction(state, { seat: 3, action: "raise", amount: 14 })).not.toThrow();
+  });
+
   it("ends immediately when folds leave one player and refunds an uncalled blind", () => {
     let state = startedThreeHanded();
     state = recordSingleDrawAction(state, { seat: 0, action: "fold" });

@@ -1457,6 +1457,7 @@ function buildFilterOptions(hands: SavedHand[]) {
       { value: "NLHE", label: "Hold'em" },
       { value: "PLO4", label: "PLO 4-card" },
       { value: "PLO5", label: "PLO 5-card" },
+      { value: "2-7_SINGLE_DRAW", label: "2–7 Single Draw" },
     ],
     doubleBoard: [
       { value: "single", label: "Single board" },

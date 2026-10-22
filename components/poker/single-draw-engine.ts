@@ -69,6 +69,7 @@ export type DerivedDrawBetting = {
   activeSeat: number | null;
   toCall: number;
   canCheck: boolean;
+  canRaise: boolean;
   minRaise: number;
   totalPot: number;
   roundClosed: boolean;
@@ -284,6 +285,7 @@ function replayBettingRound(
   lastBet: number;
   lastRaiseSize: number;
   acted: Set<number>;
+  actedAtBet: Record<number, number>;
 } {
   const bets: Record<number, number> = {};
   const stackOf = (seat: number) => state.players[seat]?.stack ?? 0;
@@ -292,6 +294,7 @@ function replayBettingRound(
   let lastBet = 0;
   let lastRaiseSize = state.bb;
   const acted = new Set<number>();
+  const actedAtBet: Record<number, number> = {};
 
   if (round === "predraw") {
     const blinds = blindSeats(state.playerCount);
@@ -303,6 +306,7 @@ function replayBettingRound(
   for (const action of state.actions) {
     if (action.round !== round) continue;
     acted.add(action.seat);
+    actedAtBet[action.seat] = lastBet;
     if (action.action === "fold" || action.action === "check") continue;
     if (action.action === "call") {
       bets[action.seat] = cap(action.seat, lastBet);
@@ -321,8 +325,9 @@ function replayBettingRound(
         acted.add(action.seat);
       }
     }
+    actedAtBet[action.seat] = lastBet;
   }
-  return { bets, lastBet, lastRaiseSize, acted };
+  return { bets, lastBet, lastRaiseSize, acted, actedAtBet };
 }
 
 function sumCommits(
@@ -386,7 +391,7 @@ export function deriveSingleDrawBetting(
     Object.assign(previous, roundCommits(state, "predraw", {}));
   }
   const replay = replayBettingRound(state, round, previous);
-  const { bets, lastBet, lastRaiseSize, acted } = replay;
+  const { bets, lastBet, lastRaiseSize, acted, actedAtBet } = replay;
   const roundActions = state.actions.filter((action) => action.round === round);
 
   const committed = singleDrawCommittedBySeat(state);
@@ -440,6 +445,8 @@ export function deriveSingleDrawBetting(
     activeSeat,
     toCall: Math.max(0, lastBet - activeBet),
     canCheck: lastBet - activeBet <= 0,
+    canRaise: activeSeat !== null && (!acted.has(activeSeat) ||
+      lastBet - (actedAtBet[activeSeat] ?? lastBet) >= lastRaiseSize),
     minRaise: lastBet === 0 ? state.bb : lastBet + Math.max(lastRaiseSize, state.bb),
     totalPot: singleDrawTotalPot(state),
     roundClosed: activeSeat === null,
@@ -473,6 +480,7 @@ export function recordSingleDrawAction(
 
   let amount = input.amount;
   if (input.action === "bet" || input.action === "raise") {
+    if (!derived.canRaise) throw new Error("A short all-in has not reopened raising");
     if (amount === undefined || amount <= derived.lastBet) {
       throw new Error("Bet or raise must increase the current bet");
     }
