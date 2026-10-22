@@ -14,6 +14,7 @@
 // caller can decide how to surface it.
 
 import { saveHandAction } from "@/lib/hands/actions";
+import { buildSingleDrawHand, type BuildSingleDrawHandArgs } from "./single-draw-hand";
 import {
   derivePotType,
   isMultiway,
@@ -51,6 +52,14 @@ export type BuildAndSaveResult = {
   // /hand/<id> after save.
   id: string;
 };
+
+/** Draw has its own builder and evaluator; community equity does not apply. */
+export async function buildAndSaveSingleDrawHand(
+  args: BuildSingleDrawHandArgs,
+): Promise<BuildAndSaveResult> {
+  const saved = await saveHandAction(buildSingleDrawHand(args));
+  return { id: saved.id };
+}
 
 export async function buildAndSaveHand(
   args: BuildAndSaveArgs,

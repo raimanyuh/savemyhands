@@ -5,6 +5,11 @@ import { computeSidePots, totalPotFinal } from "./engine";
 import type { Action, Player, Street } from "./engine";
 import { awardPots, determineWinner } from "./hand-eval";
 import {
+  singleDrawToReplay,
+  type SingleDrawReplayRound,
+  type SingleDrawReplayState,
+} from "./single-draw-replay";
+import {
   gameDefinitionOf,
   type GameDefinition,
   type HandSchemaVersion,
@@ -35,6 +40,14 @@ export function derivePotType(actions: Action[]): PotType {
 // derive fresh from the action log (older saves were hardcoded to "SRP",
 // so re-deriving is what makes existing rows classify correctly).
 export function potTypeOf(h: SavedHand): PotType {
+  if (h._full?.game?.family === "draw") {
+    if (!h._full.timeline) return h.type;
+    const raises = h._full.timeline.filter(
+      (event) => event.type === "action" && event.round === "predraw" &&
+        (event.action === "bet" || event.action === "raise"),
+    ).length;
+    return (["LP", "SRP", "3BP", "4BP", "5BP"] as const)[Math.min(raises, 4)];
+  }
   if (h._full?.bombPotOn) return "BP";
   if (h._full?.actions) return derivePotType(h._full.actions);
   return h.type;
@@ -126,7 +139,9 @@ export function isMultiway(args: {
 }
 
 export type ReplayStep = {
-  street: Street | "showdown";
+  // Historical field name; draw steps carry native round ids, never fake
+  // preflop/flop/turn/river values. Community replay behavior is unchanged.
+  street: Street | "showdown" | SingleDrawReplayRound;
   label: string;
   pot: number;
   active?: number;
@@ -150,6 +165,9 @@ export type ReplayStep = {
   // Per-seat chips committed across ALL streets through this step, again
   // stack-capped. Drives the live stack display in the replayer.
   committedAfter?: Record<number, number>;
+  // Complete per-step card/visibility and outcome state for draw replay.
+  // Consumers must use this snapshot rather than the final saved cards.
+  draw?: SingleDrawReplayState;
 };
 
 export type ReplayHand = {
@@ -197,6 +215,9 @@ export type ReplayHand = {
 export function recordedToHand(rec: SavedHand): ReplayHand | null {
   if (!rec || !rec._full) return null;
   const f = rec._full;
+  if (gameDefinitionOf(f).family !== "community") {
+    return singleDrawToReplay(rec);
+  }
   const posNames = POSITION_NAMES[f.playerCount] || [];
 
   const heroPos = f.heroPosition ?? 0;
