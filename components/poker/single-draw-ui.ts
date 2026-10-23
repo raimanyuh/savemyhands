@@ -72,6 +72,7 @@ export function singleDrawSizing(state: SingleDrawState, betting: DerivedDrawBet
 }
 
 export function drawRoundLabel(round: string, state?: SingleDrawState): string {
+  if (/^(third|fourth|fifth|sixth|seventh)-street$/.test(round)) return round[0].toUpperCase() + round.slice(1).replace("-", " ");
   if (state?.variant === "2-7_TRIPLE_DRAW") {
     if (round === "draw") return `Draw ${state.drawNumber} of 3`;
     if (round === "postdraw") return `After draw ${state.drawNumber}`;

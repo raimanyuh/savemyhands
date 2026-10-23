@@ -2,6 +2,18 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+.smh-stud-dense {
+  --smh-stud-aspect: 1.5;
+}
+@media (max-width: 899px) {
+  .smh-stud-dense {
+    --smh-stud-aspect: 1.2;
+    --smh-stud-hero-top: 78%;
+    --smh-stud-hero-cards-bottom: auto;
+    --smh-stud-hero-cards-top: calc(100% + 8px * var(--smh-u, 1));
+    --smh-stud-hero-award-top: calc(-20px * var(--smh-u, 1));
+  }
+}
 @keyframes smh-draw-card-enter {
   from { opacity: 0; transform: translateY(-10px) scale(0.96); }
   to { opacity: 1; transform: translateY(0) scale(1); }

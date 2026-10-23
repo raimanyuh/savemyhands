@@ -308,7 +308,7 @@ export function StackDisplay({
 // Initial inline `--smh-u: 1` covers SSR and the brief window before the
 // effect runs — components render at design size on first paint, then
 // rescale to the actual felt width.
-export function TableSurface({ children }: { children: React.ReactNode }) {
+export function TableSurface({ children, aspectRatio = "2 / 1", className = "" }: { children: React.ReactNode; aspectRatio?: string; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -330,10 +330,10 @@ export function TableSurface({ children }: { children: React.ReactNode }) {
   return (
     <div
       ref={ref}
-      className="relative w-full"
+      className={`relative w-full ${className}`}
       style={
         {
-          aspectRatio: "2 / 1",
+          aspectRatio,
           "--smh-u": "1",
         } as React.CSSProperties
       }
