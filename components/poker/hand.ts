@@ -9,6 +9,8 @@ import {
   type SingleDrawReplayRound,
   type SingleDrawReplayState,
 } from "./single-draw-replay";
+import { studToReplay, type StudReplayState } from "./stud-replay";
+import type { StudLimitRules, StudStreet } from "./stud-engine";
 import {
   gameDefinitionOf,
   type GameDefinition,
@@ -39,7 +41,10 @@ export function derivePotType(actions: Action[]): PotType {
 // Display-time pot type. Bomb pots get the dedicated BP label; otherwise
 // derive fresh from the action log (older saves were hardcoded to "SRP",
 // so re-deriving is what makes existing rows classify correctly).
-export function potTypeOf(h: SavedHand): PotType {
+export function potTypeOf(h: SavedHand): PotType | "—" {
+  // Stud has no preflop pot classification. Its legacy row value is a
+  // compatibility container, not an LP/SRP classification.
+  if (h._full?.game?.family === "stud") return "—";
   if (h._full?.game?.family === "draw") {
     if (!h._full.timeline) return h.type;
     const raises = h._full.timeline.filter(
@@ -83,6 +88,12 @@ export type SavedHand = {
     // Community hands continue using `actions` until their adapter is added.
     timeline?: HandTimelineEvent[];
     drawRules?: { maxBets: 4 | 5; headsUpUncapped: boolean };
+    studRules?: StudLimitRules & {
+      ante: number;
+      bringIn: number;
+      smallBet: number;
+      dealerSeat: number;
+    };
     players: Player[];
     actions: Action[];
     board: (string | null)[];
@@ -140,9 +151,9 @@ export function isMultiway(args: {
 }
 
 export type ReplayStep = {
-  // Historical field name; draw steps carry native round ids, never fake
+  // Historical field name; draw/Stud steps carry native round ids, never fake
   // preflop/flop/turn/river values. Community replay behavior is unchanged.
-  street: Street | "showdown" | SingleDrawReplayRound;
+  street: Street | "showdown" | SingleDrawReplayRound | StudStreet;
   label: string;
   pot: number;
   active?: number;
@@ -169,6 +180,7 @@ export type ReplayStep = {
   // Complete per-step card/visibility and outcome state for draw replay.
   // Consumers must use this snapshot rather than the final saved cards.
   draw?: SingleDrawReplayState;
+  stud?: StudReplayState;
 };
 
 export type ReplayHand = {
@@ -176,6 +188,7 @@ export type ReplayHand = {
   schemaVersion: HandSchemaVersion;
   game: GameDefinition;
   stakes: { sb: number; bb: number };
+  studRules?: NonNullable<SavedHand["_full"]>["studRules"];
   straddleOn?: boolean;
   straddleAmt?: number;
   // Bomb pot variant — drives the header label ("Bomb pot $X" instead of
@@ -216,9 +229,9 @@ export type ReplayHand = {
 export function recordedToHand(rec: SavedHand): ReplayHand | null {
   if (!rec || !rec._full) return null;
   const f = rec._full;
-  if (gameDefinitionOf(f).family !== "community") {
-    return singleDrawToReplay(rec);
-  }
+  const family = gameDefinitionOf(f).family;
+  if (family === "stud") return studToReplay(rec);
+  if (family === "draw") return singleDrawToReplay(rec);
   const posNames = POSITION_NAMES[f.playerCount] || [];
 
   const heroPos = f.heroPosition ?? 0;

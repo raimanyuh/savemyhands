@@ -4,6 +4,7 @@
 // surface components.
 
 import { isMultiway, type SavedHand } from "./hand";
+import type { StudVariant } from "./game-format";
 
 // Hero's position only — older saves stored "X vs Y", strip back to the hero side.
 export function heroPositionOf(h: SavedHand): string {
@@ -16,6 +17,9 @@ export function heroPositionOf(h: SavedHand): string {
 // Multiway flag — derived on the fly when the row predates the field.
 export function multiwayOf(h: SavedHand): boolean | null {
   if (typeof h.multiway === "boolean") return h.multiway;
+  if (h._full?.game?.family === "stud" && h._full.timeline) {
+    return new Set(h._full.timeline.flatMap((event) => event.type === "deal" && event.round === "fourth-street" ? [event.seat] : [])).size > 2;
+  }
   if (h._full?.actions && typeof h._full.playerCount === "number") {
     return isMultiway({
       playerCount: h._full.playerCount,
@@ -27,9 +31,10 @@ export function multiwayOf(h: SavedHand): boolean | null {
 
 // Game variant for a saved hand. Older saves predate `_full.gameType`
 // and are always Hold'em.
-export type DashboardGameType = "NLHE" | "PLO4" | "PLO5" | "2-7_SINGLE_DRAW" | "2-7_TRIPLE_DRAW";
+export type DashboardGameType = "NLHE" | "PLO4" | "PLO5" | "2-7_SINGLE_DRAW" | "2-7_TRIPLE_DRAW" | StudVariant;
 export function gameTypeOf(h: SavedHand): DashboardGameType {
   if (h._full?.game?.family === "draw") return h._full.game.variant;
+  if (h._full?.game?.family === "stud") return h._full.game.variant;
   return h._full?.gameType ?? "NLHE";
 }
 export const GAME_LABEL: Record<DashboardGameType, string> = {
@@ -38,8 +43,12 @@ export const GAME_LABEL: Record<DashboardGameType, string> = {
   PLO5: "PLO5",
   "2-7_SINGLE_DRAW": "2–7 SD",
   "2-7_TRIPLE_DRAW": "2–7 TD",
+  STUD_HIGH: "Stud High",
+  RAZZ: "Razz",
+  STUD_HILO_8: "Stud Hi/Lo 8",
 };
-export function holeCountOf(h: SavedHand): 2 | 4 | 5 {
+export function holeCountOf(h: SavedHand): 2 | 4 | 5 | 7 {
+  if (h._full?.game?.family === "stud") return 7;
   const g = gameTypeOf(h);
   if (g === "PLO5" || g === "2-7_SINGLE_DRAW" || g === "2-7_TRIPLE_DRAW") return 5;
   if (g === "PLO4") return 4;

@@ -60,7 +60,9 @@ export default async function HandPage({
   }
 
   const replayHand = recordedToHand(result.hand);
-  if (!replayHand) notFound();
+  // The Stud adapter is ready before its dedicated felt. Preserve the
+  // existing unsupported-format behavior until the UI slice is complete.
+  if (!replayHand || replayHand.game.family === "stud") notFound();
 
   // Build the canonical share URL from the live request so dev (localhost)
   // and prod (vercel) both get the right host without a hardcoded constant.

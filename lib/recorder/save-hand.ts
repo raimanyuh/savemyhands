@@ -15,6 +15,7 @@
 
 import { saveHandAction } from "@/lib/hands/actions";
 import { buildSingleDrawHand, type BuildSingleDrawHandArgs } from "./single-draw-hand";
+import { buildStudHand, type BuildStudHandArgs } from "./stud-hand";
 import {
   derivePotType,
   isMultiway,
@@ -58,6 +59,12 @@ export async function buildAndSaveSingleDrawHand(
   args: BuildSingleDrawHandArgs,
 ): Promise<BuildAndSaveResult> {
   const saved = await saveHandAction(buildSingleDrawHand(args));
+  return { id: saved.id };
+}
+
+/** Stud's timeline has its own visibility and evaluator; no community equity. */
+export async function buildAndSaveStudHand(args: BuildStudHandArgs): Promise<BuildAndSaveResult> {
+  const saved = await saveHandAction(buildStudHand(args));
   return { id: saved.id };
 }
 

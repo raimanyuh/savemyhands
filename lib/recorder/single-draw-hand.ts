@@ -76,6 +76,6 @@ export function buildSingleDrawHand(args: BuildSingleDrawHandArgs): Omit<SavedHa
   const result = replay.steps.at(-1)!;
   if (!result.draw.resolved) throw new Error("Every pot needs a shown eligible winner before saving");
   payload.result = (result.draw.winnings?.[state.heroSeat] ?? 0) - (result.committedAfter?.[state.heroSeat] ?? 0);
-  payload.type = potTypeOf(draft);
+  payload.type = potTypeOf(draft) as SavedHand["type"];
   return payload;
 }
