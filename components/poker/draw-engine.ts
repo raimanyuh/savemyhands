@@ -9,6 +9,8 @@ export type DrawDecision = {
   discardIndexes?: number[];
   discardedCards?: CardId[];
   replacementCards?: CardId[];
+  /** Live-game reshuffle before these replacements; current-round discards stay dead. */
+  reshuffleBefore?: boolean;
 };
 
 export type DrawExchangeState = {
@@ -86,11 +88,15 @@ export function recordDrawDecision(
   ) {
     throw new Error("A player standing pat cannot exchange cards");
   }
+  if (input.reshuffleBefore && (state.variant !== "2-7_TRIPLE_DRAW" || input.count === 0)) {
+    throw new Error("A reshuffle belongs to a non-pat Triple Draw exchange");
+  }
 
   const decision: DrawDecision = {
     round: state.round,
     seat: input.seat,
     count: input.count,
+    ...(input.reshuffleBefore ? { reshuffleBefore: true } : {}),
     ...(input.discardIndexes
       ? { discardIndexes: [...input.discardIndexes] }
       : {}),
@@ -169,6 +175,7 @@ export function drawDecisionToTimelineEvent(
     round: `draw-${decision.round}`,
     seat: decision.seat,
     count: decision.count,
+    ...(decision.reshuffleBefore ? { reshuffleBefore: true } : {}),
     ...(decision.discardIndexes
       ? { discardIndexes: [...decision.discardIndexes] }
       : {}),

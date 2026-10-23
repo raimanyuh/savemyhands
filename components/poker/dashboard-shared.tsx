@@ -27,9 +27,9 @@ export function multiwayOf(h: SavedHand): boolean | null {
 
 // Game variant for a saved hand. Older saves predate `_full.gameType`
 // and are always Hold'em.
-export type DashboardGameType = "NLHE" | "PLO4" | "PLO5" | "2-7_SINGLE_DRAW";
+export type DashboardGameType = "NLHE" | "PLO4" | "PLO5" | "2-7_SINGLE_DRAW" | "2-7_TRIPLE_DRAW";
 export function gameTypeOf(h: SavedHand): DashboardGameType {
-  if (h._full?.game?.family === "draw" && h._full.game.variant === "2-7_SINGLE_DRAW") return "2-7_SINGLE_DRAW";
+  if (h._full?.game?.family === "draw") return h._full.game.variant;
   return h._full?.gameType ?? "NLHE";
 }
 export const GAME_LABEL: Record<DashboardGameType, string> = {
@@ -37,10 +37,11 @@ export const GAME_LABEL: Record<DashboardGameType, string> = {
   PLO4: "PLO4",
   PLO5: "PLO5",
   "2-7_SINGLE_DRAW": "2–7 SD",
+  "2-7_TRIPLE_DRAW": "2–7 TD",
 };
 export function holeCountOf(h: SavedHand): 2 | 4 | 5 {
   const g = gameTypeOf(h);
-  if (g === "PLO5" || g === "2-7_SINGLE_DRAW") return 5;
+  if (g === "PLO5" || g === "2-7_SINGLE_DRAW" || g === "2-7_TRIPLE_DRAW") return 5;
   if (g === "PLO4") return 4;
   return 2;
 }

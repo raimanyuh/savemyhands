@@ -1,3 +1,5 @@
+// Shared NL Single Draw / FL Triple Draw state machine. Legacy export
+// names remain stable for the existing recorder and saved-hand adapters.
 import type { ActionType } from "./engine";
 import { postflopOrder, preflopOrder } from "./lib";
 import {
@@ -9,8 +11,10 @@ import {
   startDrawExchange,
   type DrawDecision,
   type DrawExchangeState,
+  type DrawNumber,
+  drawCountForVariant,
 } from "./draw-engine";
-import type { CardId, HandTimelineEvent } from "./game-format";
+import type { CardId, DrawVariant, HandTimelineEvent } from "./game-format";
 
 export type SingleDrawPhase =
   | "setup"
@@ -19,7 +23,8 @@ export type SingleDrawPhase =
   | "postdraw"
   | "showdown"
   | "done";
-export type DrawBettingRound = "predraw" | "postdraw";
+export type DrawBettingRound = "predraw" | "postdraw" | `postdraw-${DrawNumber}`;
+export type DrawLimitRules = { maxBets: 4 | 5; headsUpUncapped: boolean };
 
 export type SingleDrawPlayer = {
   seat: number;
@@ -41,7 +46,9 @@ export type SingleDrawAction = {
 };
 
 export type SingleDrawCoreState = {
-  variant: "2-7_SINGLE_DRAW";
+  variant: DrawVariant;
+  drawNumber: 0 | DrawNumber;
+  limitRules: DrawLimitRules;
   phase: SingleDrawPhase;
   playerCount: number;
   players: SingleDrawPlayer[];
@@ -76,7 +83,43 @@ export type DerivedDrawBetting = {
   handOver: boolean;
   order: number[];
   playersLeft: number;
+  limitBet?: number;
+  raiseCapped: boolean;
+  betCount: number;
 };
+
+export function drawBettingRounds(state: Pick<SingleDrawCoreState, "variant">): DrawBettingRound[] {
+  return state.variant === "2-7_TRIPLE_DRAW" ? ["predraw", "postdraw-1", "postdraw-2", "postdraw-3"] : ["predraw", "postdraw"];
+}
+
+export function currentDrawBettingRound(state: SingleDrawCoreState): DrawBettingRound | null {
+  if (state.phase === "predraw") return "predraw";
+  return state.phase === "postdraw" ? state.variant === "2-7_TRIPLE_DRAW" ? `postdraw-${state.drawNumber as DrawNumber}` : "postdraw" : null;
+}
+
+function limitBetForRound(state: SingleDrawCoreState, round: DrawBettingRound): number {
+  return state.bb * (round === "postdraw-2" || round === "postdraw-3" ? 2 : 1);
+}
+
+/** Shared live-game dead-card policy for engine and touch/desktop pickers. */
+export function unavailableDrawCards(state: SingleDrawCoreState, editingSeat?: number, reshuffleBefore = false): Set<CardId> {
+  const reshuffleRound = state.variant === "2-7_TRIPLE_DRAW" ? Math.max(
+    0, ...state.draws.filter((draw) => draw.reshuffleBefore).map((draw) => draw.round),
+    reshuffleBefore ? state.drawNumber : 0,
+  ) : 0;
+  const used = new Set<CardId>();
+  for (const player of state.players) {
+    if (player.seat === editingSeat) continue;
+    const folded = state.actions.find((action) => action.seat === player.seat && action.action === "fold");
+    const foldedAfterDraw = folded?.round === "predraw" ? 0 : Number(folded?.round.split("-")[1] ?? 1);
+    if (folded && reshuffleRound > foldedAfterDraw) continue;
+    for (const card of player.cards ?? []) if (card) used.add(card);
+  }
+  for (const draw of state.draws) if (!reshuffleRound || draw.round >= reshuffleRound) {
+    for (const card of draw.discardedCards ?? []) used.add(card);
+  }
+  return used;
+}
 
 function blankPlayer(seat: number, heroSeat: number, stack: number): SingleDrawPlayer {
   const cards = seat === heroSeat ? Array<CardId | null>(5).fill(null) : null;
@@ -95,6 +138,8 @@ export function initialSingleDrawState(args: {
   sb?: number;
   bb?: number;
   stack?: number;
+  variant?: DrawVariant;
+  limitRules?: DrawLimitRules;
 } = {}): SingleDrawState {
   const playerCount = args.playerCount ?? 6;
   const heroSeat = args.heroSeat ?? 0;
@@ -111,8 +156,12 @@ export function initialSingleDrawState(args: {
     throw new Error("Blinds must be positive and the big blind must be largest");
   }
   if (stack <= 0) throw new Error("Starting stack must be positive");
+  const limitRules = args.limitRules ?? { maxBets: 4, headsUpUncapped: false };
+  if (![4, 5].includes(limitRules.maxBets)) throw new Error("Choose a four- or five-bet cap");
   return {
-    variant: "2-7_SINGLE_DRAW",
+    variant: args.variant ?? "2-7_SINGLE_DRAW",
+    drawNumber: 0,
+    limitRules: { ...limitRules },
     phase: "setup",
     playerCount,
     players: Array.from({ length: playerCount }, (_, seat) =>
@@ -132,6 +181,7 @@ export function initialSingleDrawState(args: {
 function cloneCore(state: SingleDrawCoreState): SingleDrawCoreState {
   return {
     ...state,
+    limitRules: { ...state.limitRules },
     players: state.players.map((player) => ({
       ...player,
       cards: player.cards ? [...player.cards] : null,
@@ -160,6 +210,8 @@ function cloneCore(state: SingleDrawCoreState): SingleDrawCoreState {
 function coreOf(state: SingleDrawState): SingleDrawCoreState {
   return cloneCore({
     variant: state.variant,
+    drawNumber: state.drawNumber,
+    limitRules: state.limitRules,
     phase: state.phase,
     playerCount: state.playerCount,
     players: state.players,
@@ -286,6 +338,8 @@ function replayBettingRound(
   lastRaiseSize: number;
   acted: Set<number>;
   actedAtBet: Record<number, number>;
+  betCount: number;
+  limitTarget: number;
 } {
   const bets: Record<number, number> = {};
   const stackOf = (seat: number) => state.players[seat]?.stack ?? 0;
@@ -293,6 +347,10 @@ function replayBettingRound(
     Math.min(target, Math.max(0, stackOf(seat) - (previous[seat] ?? 0)));
   let lastBet = 0;
   let lastRaiseSize = state.bb;
+  const fixed = state.variant === "2-7_TRIPLE_DRAW";
+  const unit = limitBetForRound(state, round);
+  let fullTarget = 0;
+  let betCount = 0;
   const acted = new Set<number>();
   const actedAtBet: Record<number, number> = {};
 
@@ -301,6 +359,15 @@ function replayBettingRound(
     bets[blinds.sb] = cap(blinds.sb, state.sb);
     bets[blinds.bb] = cap(blinds.bb, state.bb);
     lastBet = bets[blinds.bb] ?? 0;
+    if (fixed) {
+      const ableToBet = state.players.filter((player) => player.stack >
+        (player.seat === blinds.sb ? state.sb : player.seat === blinds.bb ? state.bb : 0)).length;
+      // A full blind remains the price when others can contest a wager.
+      // With only one stack left, match the actual all-in instead.
+      lastBet = ableToBet >= 2 ? unit : Math.max(...Object.values(bets));
+    }
+    fullTarget = lastBet;
+    betCount = 1;
   }
 
   for (const action of state.actions) {
@@ -319,15 +386,17 @@ function replayBettingRound(
       lastBet = target;
       // A short all-in changes the price but does not establish a smaller
       // legal raise size or reopen action as a full raise would.
-      if (raiseSize >= lastRaiseSize) {
-        lastRaiseSize = raiseSize;
+      if (fixed ? target - fullTarget >= unit / 2 : raiseSize >= lastRaiseSize) {
+        lastRaiseSize = fixed ? unit : raiseSize;
+        fullTarget = target;
+        betCount++;
         acted.clear();
         acted.add(action.seat);
       }
     }
     actedAtBet[action.seat] = lastBet;
   }
-  return { bets, lastBet, lastRaiseSize, acted, actedAtBet };
+  return { bets, lastBet, lastRaiseSize, acted, actedAtBet, betCount, limitTarget: fullTarget + unit };
 }
 
 function sumCommits(
@@ -335,9 +404,9 @@ function sumCommits(
   refundUncalled: boolean,
 ): Record<number, number> {
   const total: Record<number, number> = {};
-  for (const round of ["predraw", "postdraw"] as const) {
+  for (const round of drawBettingRounds(state)) {
     const bets = roundCommits(state, round, total);
-    if (refundUncalled) applyUncalledRefund(bets);
+    if (refundUncalled || (state.phase !== "setup" && currentDrawBettingRound(state) !== round)) applyUncalledRefund(bets);
     for (const [seat, amount] of Object.entries(bets)) {
       total[Number(seat)] = (total[Number(seat)] ?? 0) + amount;
     }
@@ -377,21 +446,19 @@ export function singleDrawTotalPot(state: SingleDrawCoreState): number {
 export function deriveSingleDrawBetting(
   state: SingleDrawCoreState,
 ): DerivedDrawBetting | null {
-  const round =
-    state.phase === "predraw"
-      ? "predraw"
-      : state.phase === "postdraw"
-        ? "postdraw"
-        : null;
+  const round = currentDrawBettingRound(state);
   if (!round) return null;
 
   const folded = foldedSeats(state);
   const previous: Record<number, number> = {};
-  if (round === "postdraw") {
-    Object.assign(previous, roundCommits(state, "predraw", {}));
+  for (const earlier of drawBettingRounds(state)) {
+    if (earlier === round) break;
+    const amounts = roundCommits(state, earlier, previous);
+    applyUncalledRefund(amounts);
+    for (const [seat, amount] of Object.entries(amounts)) previous[Number(seat)] = (previous[Number(seat)] ?? 0) + amount;
   }
   const replay = replayBettingRound(state, round, previous);
-  const { bets, lastBet, lastRaiseSize, acted, actedAtBet } = replay;
+  const { bets, lastBet, lastRaiseSize, acted, actedAtBet, betCount } = replay;
   const roundActions = state.actions.filter((action) => action.round === round);
 
   const committed = singleDrawCommittedBySeat(state);
@@ -434,6 +501,16 @@ export function deriveSingleDrawBetting(
   }
 
   const activeBet = activeSeat === null ? 0 : bets[activeSeat] ?? 0;
+  const fixed = state.variant === "2-7_TRIPLE_DRAW";
+  const limitBet = fixed ? limitBetForRound(state, round) : undefined;
+  const foldedBeforeRound = new Set(state.actions.filter((action) => action.round !== round && action.action === "fold").map((action) => action.seat));
+  const blinds = blindSeats(state.playerCount);
+  const couldBetAtStart = state.players.filter((player) => {
+    const forced = round !== "predraw" ? 0 : player.seat === blinds.sb ? state.sb : player.seat === blinds.bb ? state.bb : 0;
+    return !foldedBeforeRound.has(player.seat) && (previous[player.seat] ?? 0) + forced < player.stack;
+  }).length;
+  const uncapped = state.limitRules.headsUpUncapped && couldBetAtStart === 2;
+  const raiseCapped = fixed && !uncapped && betCount >= state.limitRules.maxBets;
   return {
     round,
     folded,
@@ -445,9 +522,10 @@ export function deriveSingleDrawBetting(
     activeSeat,
     toCall: Math.max(0, lastBet - activeBet),
     canCheck: lastBet - activeBet <= 0,
-    canRaise: activeSeat !== null && (!acted.has(activeSeat) ||
-      lastBet - (actedAtBet[activeSeat] ?? lastBet) >= lastRaiseSize),
-    minRaise: lastBet === 0 ? state.bb : lastBet + Math.max(lastRaiseSize, state.bb),
+    canRaise: activeSeat !== null && actionable.length > 1 && !raiseCapped && (!acted.has(activeSeat) ||
+      lastBet - (actedAtBet[activeSeat] ?? lastBet) >= (limitBet ? limitBet / 2 : lastRaiseSize)),
+    minRaise: fixed ? replay.limitTarget : lastBet === 0 ? state.bb : lastBet + Math.max(lastRaiseSize, state.bb),
+    limitBet, raiseCapped, betCount,
     totalPot: singleDrawTotalPot(state),
     roundClosed: activeSeat === null,
     handOver: playersLeft <= 1,
@@ -480,8 +558,8 @@ export function recordSingleDrawAction(
 
   let amount = input.amount;
   if (input.action === "bet" || input.action === "raise") {
-    if (!derived.canRaise) throw new Error("A short all-in has not reopened raising");
-    if (amount === undefined || amount <= derived.lastBet) {
+    if (!derived.canRaise) throw new Error(derived.raiseCapped ? "Betting is capped for this round" : "Betting has not reopened, or no opponent can respond");
+    if (amount === undefined || !Number.isFinite(amount) || amount <= derived.lastBet) {
       throw new Error("Bet or raise must increase the current bet");
     }
     const currentRoundCommit = derived.bets[input.seat] ?? 0;
@@ -492,6 +570,9 @@ export function recordSingleDrawAction(
     );
     const allInTarget = currentRoundCommit + remaining;
     amount = Math.min(amount, allInTarget);
+    if (derived.limitBet && amount !== Math.min(derived.minRaise, allInTarget)) {
+      throw new Error(`Fixed-limit bet or raise must be to ${Math.min(derived.minRaise, allInTarget)}`);
+    }
     if (amount < derived.minRaise && amount !== allInTarget) {
       throw new Error(`Minimum raise is ${derived.minRaise}`);
     }
@@ -519,7 +600,7 @@ export function advanceSingleDrawPhase(state: SingleDrawState): SingleDrawState 
     if (derived.handOver) {
       return commit(state, { ...coreOf(state), phase: "done" });
     }
-    if (state.phase === "postdraw") {
+    if (state.phase === "postdraw" && state.drawNumber === drawCountForVariant(state.variant)) {
       return commit(state, { ...coreOf(state), phase: "showdown" });
     }
     const order = postflopOrder(state.playerCount).filter(
@@ -528,9 +609,10 @@ export function advanceSingleDrawPhase(state: SingleDrawState): SingleDrawState 
     return commit(state, {
       ...coreOf(state),
       phase: "draw",
+      drawNumber: (state.drawNumber + 1) as DrawNumber,
       exchange: startDrawExchange({
-        variant: "2-7_SINGLE_DRAW",
-        round: 1,
+        variant: state.variant,
+        round: (state.drawNumber + 1) as DrawNumber,
         order,
       }),
     });
@@ -549,7 +631,7 @@ export function advanceSingleDrawPhase(state: SingleDrawState): SingleDrawState 
     );
     return commit(state, {
       ...coreOf(state),
-      phase: canBet.length >= 2 ? "postdraw" : "showdown",
+      phase: canBet.length >= 2 || state.drawNumber < drawCountForVariant(state.variant) ? "postdraw" : "showdown",
       exchange: null,
     });
   }
@@ -567,6 +649,7 @@ export function recordSingleDrawDecision(
     count: number;
     discardIndexes?: number[];
     replacementCards?: CardId[];
+    reshuffleBefore?: boolean;
   },
 ): SingleDrawState {
   if (state.phase !== "draw" || !state.exchange) {
@@ -586,14 +669,11 @@ export function recordSingleDrawDecision(
     if (indexes.length !== input.count || replacements.length !== input.count) {
       throw new Error("Hero draw needs exact discard slots and replacements");
     }
-    const otherKnownCards = state.players.flatMap((player) =>
-      player.seat === input.seat ? [] : (player.cards ?? []).filter(Boolean),
-    ) as CardId[];
     const result = applyKnownDraw({
       cards,
       discardIndexes: indexes,
       replacementCards: replacements,
-      unavailableCards: otherKnownCards,
+      unavailableCards: unavailableDrawCards(state, undefined, input.reshuffleBefore),
     });
     discardedCards = result.discardedCards;
     players = state.players.map((player) =>
@@ -606,6 +686,7 @@ export function recordSingleDrawDecision(
   const exchange = recordDrawDecision(state.exchange, {
     seat: input.seat,
     count: input.count,
+    reshuffleBefore: input.reshuffleBefore,
     ...(input.discardIndexes
       ? { discardIndexes: [...input.discardIndexes] }
       : {}),
@@ -635,17 +716,7 @@ export function setSingleDrawShownCards(
   if (cards.length !== 5 || new Set(cards).size !== 5) {
     throw new Error("A shown draw hand must contain 5 unique cards");
   }
-  const unavailable = new Set<CardId>();
-  for (const player of state.players) {
-    if (player.seat === seat) continue;
-    for (const card of player.cards ?? []) if (card) unavailable.add(card);
-  }
-  for (const draw of state.draws) {
-    for (const card of draw.discardedCards ?? []) unavailable.add(card);
-    if (draw.seat !== seat) {
-      for (const card of draw.replacementCards ?? []) unavailable.add(card);
-    }
-  }
+  const unavailable = unavailableDrawCards(state, seat);
   const conflict = cards.find((card) => unavailable.has(card));
   if (conflict) throw new Error(`Card is already in use: ${conflict}`);
   const players = state.players.map((player) =>
@@ -717,11 +788,12 @@ export function buildSingleDrawTimeline(
     action: action.action,
     ...(action.amount !== undefined ? { amount: action.amount } : {}),
   });
-  events.push(
-    ...state.actions.filter((action) => action.round === "predraw").map(actionEvent),
-    ...state.draws.map(drawDecisionToTimelineEvent),
-    ...state.actions.filter((action) => action.round === "postdraw").map(actionEvent),
-  );
+  for (const [index, round] of drawBettingRounds(state).entries()) {
+    events.push(...state.actions.filter((action) => action.round === round).map(actionEvent));
+    if (index < drawCountForVariant(state.variant)) {
+      events.push(...state.draws.filter((draw) => draw.round === index + 1).map(drawDecisionToTimelineEvent));
+    }
+  }
   const folded = foldedSeats(state);
   for (const player of state.players) {
     if (folded.has(player.seat)) continue;

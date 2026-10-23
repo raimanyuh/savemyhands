@@ -1170,7 +1170,7 @@ function SetupPopover({
 
       {onSelectSingleDraw && <button type="button" onClick={() => onSelectSingleDraw(state)}
         className="ml-[102px] text-left text-[11.5px] text-emerald-300 hover:text-emerald-200 cursor-pointer">
-        2–7 Single Draw <ChevronRight size={12} className="inline ml-1" />
+        2–7 Single / Triple Draw <ChevronRight size={12} className="inline ml-1" />
       </button>}
 
       {/* Players */}

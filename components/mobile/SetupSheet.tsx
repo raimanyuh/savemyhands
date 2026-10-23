@@ -170,7 +170,7 @@ export function SetupSheet({
         style={{ padding: "8px 16px 16px", gap: 18 }}
       >
         {/* Game */}
-        {setupOnly && onSelectSingleDraw && <button type="button" onClick={onSelectSingleDraw} className="min-h-12 rounded-xl border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 font-semibold text-sm">2–7 Single Draw</button>}
+        {setupOnly && onSelectSingleDraw && <button type="button" onClick={onSelectSingleDraw} className="min-h-12 rounded-xl border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 font-semibold text-sm">2–7 Single / Triple Draw</button>}
         <Row label="Game">
           <ChipGroup
             options={[

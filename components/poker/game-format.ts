@@ -83,6 +83,7 @@ export type HandTimelineEvent =
       discardIndexes?: number[];
       discardedCards?: CardId[];
       replacementCards?: CardId[];
+      reshuffleBefore?: boolean;
     })
   | (TimelineEventBase & {
       type: "show";

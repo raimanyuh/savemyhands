@@ -32,7 +32,7 @@ import { computeEquity } from "./equity";
 import PlayingCard from "./PlayingCard";
 import HandFan from "./HandFan";
 import DrawTable from "./DrawTable";
-import { drawRoundLabel } from "./single-draw-ui";
+import { drawRoundLabel, drawGameLabel, drawStakesLabel } from "./single-draw-ui";
 import { seatXY } from "./lib";
 import { scaled } from "./scale";
 import { BetBubble, DealerButtonChip, TableSurface } from "./table-pieces";
@@ -541,7 +541,7 @@ function ReplayerInner({
           <h2 className="text-xl font-semibold tracking-tight">
             {handName || "Untitled hand"}
           </h2>
-          {HAND.game.family === "draw" && <span className="text-xs text-emerald-300">2–7 Single Draw · ${HAND.stakes.sb}/${HAND.stakes.bb}</span>}
+          {HAND.game.family === "draw" && <span className="text-xs text-emerald-300">{drawGameLabel(HAND.game.variant)} · {drawStakesLabel({ variant: HAND.game.variant, ...HAND.stakes })}</span>}
         </div>
 
         {/* Table — capped by viewport height so the floating dock at the
@@ -551,7 +551,7 @@ function ReplayerInner({
           className="w-full flex flex-col items-center"
           style={{ maxWidth: "calc((100vh - 280px) * 2)" }}
         >
-        {cur.draw ? <DrawTable players={HAND.players} heroSeat={heroPos} cards={cur.draw.cards}
+        {cur.draw ? <DrawTable variant={HAND.game.family === "draw" ? HAND.game.variant : undefined} players={HAND.players} heroSeat={heroPos} cards={cur.draw.cards}
           pot={pot} round={drawRoundLabel(street)} active={cur.active} committed={committed} bets={streetBets}
           folded={cur.draw.foldedSeats} mucked={cur.draw.muckedSeats} winnings={cur.draw.winnings}
           previousCards={cur.draw.stage === "discard" ? HAND.steps[step - 1]?.draw?.cards : undefined}

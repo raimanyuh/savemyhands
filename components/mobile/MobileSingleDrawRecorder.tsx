@@ -8,12 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import NumericInput from "@/components/poker/NumericInput";
+import DrawFormatSettings from "@/components/poker/DrawFormatSettings";
 import { POSITION_NAMES } from "@/components/poker/lib";
 import {
   advanceSingleDrawPhase, recordSingleDrawAction, recordSingleDrawDecision, setSingleDrawMucked,
   setSingleDrawShownCards, setSingleDrawStartingCards, startSingleDrawHand, updateSingleDrawPlayer,
 } from "@/components/poker/single-draw-engine";
-import { changeSingleDrawSetup, drawRoundLabel, knownSingleDrawCards, singleDrawSizing } from "@/components/poker/single-draw-ui";
+import { changeSingleDrawSetup, drawRoundLabel, drawGameLabel, drawStakesLabel, drawLogEntries, nextDrawPhaseLabel, knownSingleDrawCards, singleDrawSizing } from "@/components/poker/single-draw-ui";
 import type { SingleDrawRecorderController } from "@/components/poker/use-single-draw-recorder";
 import { startRouteProgress } from "@/lib/route-progress";
 import { CardPickerSheet } from "./CardPickerSheet";
@@ -32,6 +33,11 @@ function MobileBetting({ recorder }: { recorder: SingleDrawRecorderController })
   const raise = betting!.lastBet > 0;
   const act = (action: "fold" | "check" | "call" | "raise" | "bet", target?: number) =>
     apply((current) => recordSingleDrawAction(current, { seat: betting!.activeSeat!, action, amount: target }));
+  if (betting!.limitBet) return <>
+    <p className="text-xs text-zinc-400">${betting!.limitBet} fixed bets · {betting!.betCount} bet{betting!.betCount === 1 ? "" : "s"}{betting!.raiseCapped ? " · capped" : ""}</p>
+    <div className="grid grid-cols-3 gap-2"><Button variant="outline" className="h-12 text-rose-300" onClick={() => act("fold")}>Fold</Button><Button variant="outline" className="h-12" onClick={() => act(betting!.canCheck ? "check" : "call")}>{betting!.canCheck ? "Check" : `Call $${sizing.call}`}</Button><Button className={primary} disabled={!sizing.canRaise} onClick={() => act(raise ? "raise" : "bet", sizing.minimum)}>{raise ? "Raise" : "Bet"} ${sizing.minimum}</Button></div>
+    {betting!.raiseCapped && <p className="text-xs text-zinc-500">The round has reached its bet cap.</p>}
+  </>;
   return <>
     <div className="grid grid-cols-3 gap-2">
       <Button className="h-12 text-rose-300 border-rose-400/30" variant="outline" onClick={() => act("fold")}>Fold</Button>
@@ -78,16 +84,16 @@ function CardEditor({ initial, used, title, onConfirm, onCancel, confirmLabel }:
 }
 
 function HeroExchange({ recorder }: { recorder: SingleDrawRecorderController }) {
-  const { state, selected, setSelected, apply } = recorder;
+  const { state, selected, setSelected, apply, reshuffleBefore } = recorder;
   const [replacing, setReplacing] = useState(false);
   const record = (replacementCards: string[]) => apply((current) => recordSingleDrawDecision(current, {
-    seat: current.heroSeat, count: selected.length, discardIndexes: selected, replacementCards,
+    seat: current.heroSeat, count: selected.length, discardIndexes: selected, replacementCards, reshuffleBefore,
   }));
-  return replacing ? <CardEditor initial={blank(selected.length)} used={knownSingleDrawCards(state)} title={`Replacement${selected.length === 1 ? "" : "s"} for slot${selected.length === 1 ? "" : "s"} ${selected.map((index) => index + 1).join(", ")}`}
+  return replacing ? <CardEditor initial={blank(selected.length)} used={knownSingleDrawCards(state, undefined, reshuffleBefore)} title={`Replacement${selected.length === 1 ? "" : "s"} for slot${selected.length === 1 ? "" : "s"} ${selected.map((index) => index + 1).join(", ")}`}
     confirmLabel={`Draw ${selected.length}`} onConfirm={record} onCancel={() => setReplacing(false)} />
     : <>
       <p className="text-sm text-zinc-300">Tap your cards to discard. {selected.length ? `Keep ${5 - selected.length} · draw ${selected.length}.` : "Keep all five to stand pat."}</p>
-      <Button className={primary} onClick={() => selected.length ? setReplacing(true) : record([])}>{selected.length ? `Choose ${selected.length} replacement${selected.length === 1 ? "" : "s"}` : "Stand pat"}</Button>
+      <Button className={primary} disabled={reshuffleBefore && !selected.length} onClick={() => selected.length ? setReplacing(true) : record([])}>{selected.length ? `Choose ${selected.length} replacement${selected.length === 1 ? "" : "s"}` : "Stand pat"}</Button>
       {selected.length > 0 && <Button variant="ghost" className="h-11" onClick={() => setSelected([])}>Keep all five</Button>}
     </>;
 }
@@ -103,7 +109,7 @@ export default function MobileSingleDrawRecorder({ recorder, onSwitchGame }: {
   const [logOpen, setLogOpen] = useState(false);
   const { state, name, setName, notes, setNotes, venue, setVenue, date, setDate, selected, setSelected,
     editingSeat, setEditingSeat, saving, betting, drawSeat, activeSeat, setup, finished, folded,
-    committed, pot, resolution, apply, undo, cards, labels, save } = recorder;
+    committed, pot, resolution, apply, undo, cards, labels, save, reshuffleBefore, setReshuffleBefore } = recorder;
   const positions = POSITION_NAMES[state.playerCount];
   const heroCards = state.players[state.heroSeat].cards ?? blank();
   const heroUsed = knownSingleDrawCards(state);
@@ -115,28 +121,29 @@ export default function MobileSingleDrawRecorder({ recorder, onSwitchGame }: {
       <Button variant="ghost" size="icon" className="size-11" aria-label="Back to dashboard" onClick={async () => {
         if (await confirm({ title: "Leave without saving?", message: "Your in-progress recording will be lost.", confirmLabel: "Leave", destructive: true })) { startRouteProgress(); router.push("/dashboard"); }
       }}><ChevronLeft size={22} /></Button>
-      <button type="button" aria-label="Edit hand details" className="flex-1 min-w-0 text-left" disabled={saving} onClick={() => setDetailsOpen(true)}><p className="text-sm font-semibold truncate">{name || "Untitled hand"}</p><p className="text-[10px] text-emerald-300">2–7 Single Draw · ${state.sb}/${state.bb}</p></button>
+      <button type="button" aria-label="Edit hand details" className="flex-1 min-w-0 text-left" disabled={saving} onClick={() => setDetailsOpen(true)}><p className="text-sm font-semibold truncate">{name || "Untitled hand"}</p><p className="text-[10px] text-emerald-300">{drawGameLabel(state.variant)} · {drawStakesLabel(state)}</p></button>
       <Button variant="ghost" size="icon" className="size-11" aria-label="Notes and hand details" onClick={() => setDetailsOpen(true)} disabled={saving}><FileText size={18} /></Button>
     </header>
     <div className="flex items-center gap-2 px-3 py-2 text-xs">
-      {setup ? <Button variant="outline" className="h-9" onClick={() => setSetupOpen(true)}><Settings size={14} /> Setup</Button> : <span className="rounded-md bg-emerald-500/10 px-2 py-2 text-emerald-200">{drawRoundLabel(state.phase)}</span>}
+      {setup ? <Button variant="outline" className="h-9" onClick={() => setSetupOpen(true)}><Settings size={14} /> Setup</Button> : <span className="rounded-md bg-emerald-500/10 px-2 py-2 text-emerald-200">{drawRoundLabel(state.phase, state)}</span>}
       <span className="text-zinc-500">{state.playerCount}-handed</span><div className="flex-1" />
       <Button variant="ghost" className="h-9" onClick={() => setLogOpen(true)}>Log {state.actions.length + state.draws.length}</Button>
     </div>
     <fieldset disabled={saving} className="contents">
       <div className="px-2 shrink-0" style={{ height: `max(${state.playerCount >= 6 ? 440 : state.playerCount === 5 ? 400 : 360}px, calc(100dvh - 330px))` }}>
-        <VerticalDrawFelt players={state.players} heroSeat={state.heroSeat} cards={cards} pot={pot} round={drawRoundLabel(state.phase)} active={activeSeat}
+        <VerticalDrawFelt variant={state.variant} players={state.players} heroSeat={state.heroSeat} cards={cards} pot={pot} round={drawRoundLabel(state.phase, state)} active={activeSeat}
           committed={committed} bets={betting?.bets} folded={folded} mucked={state.muckedSeats} labels={labels} selected={selected} discarding={heroDrawing}
           onEditSeat={setup ? () => setSetupOpen(true) : undefined} onHeroCardSlot={setup ? setHeroSlot : heroDrawing ? (index) => setSelected((current) => current.includes(index) ? current.filter((value) => value !== index) : [...current, index].sort((a,b) => a-b)) : undefined} />
       </div>
       <section aria-label="Hand controls" className="flex flex-col gap-3 p-3 pb-[max(16px,env(safe-area-inset-bottom))]">
-        <div className="flex items-center justify-between gap-2"><h2 className="text-sm font-semibold truncate">{activeSeat !== null ? `${positions[activeSeat]}${state.players[activeSeat].name ? ` · ${state.players[activeSeat].name}` : ""} ${state.phase === "draw" ? "to draw" : "to act"}` : drawRoundLabel(state.phase)}</h2><Button variant="ghost" className="h-11 shrink-0" disabled={!state.history.length} onClick={undo}><RotateCcw size={14} /> Undo</Button></div>
+        <div className="flex items-center justify-between gap-2"><h2 className="text-sm font-semibold truncate">{activeSeat !== null ? `${positions[activeSeat]}${state.players[activeSeat].name ? ` · ${state.players[activeSeat].name}` : ""} ${state.phase === "draw" ? "to draw" : "to act"}` : drawRoundLabel(state.phase, state)}</h2><Button variant="ghost" className="h-11 shrink-0" disabled={!state.history.length} onClick={undo}><RotateCcw size={14} /> Undo</Button></div>
+        {state.variant === "2-7_TRIPLE_DRAW" && state.phase === "draw" && drawSeat !== null && <div className="flex flex-col gap-1"><Button variant="outline" className="h-11" aria-pressed={reshuffleBefore} disabled={!reshuffleBefore && heroDrawing && !selected.length} onClick={() => setReshuffleBefore(!reshuffleBefore)}>{reshuffleBefore ? "Reshuffle recorded" : "Deck was reshuffled"}</Button><p className="text-[11px] text-zinc-500">Only if the dealer reshuffled before these replacements. Earlier draws can return; this draw’s discards stay out.</p></div>}
         {setup ? <><p className="text-xs text-zinc-400">Tap your five cards to enter them. Set names and stacks in Setup.</p><Button className={primary} disabled={heroCards.some((card) => !card)} onClick={() => apply(startSingleDrawHand)}>Start hand</Button></>
           : betting && !betting.roundClosed ? <MobileBetting key={`${state.phase}-${state.actions.length}`} recorder={recorder} />
-            : betting ? <Button className={primary} onClick={() => apply(advanceSingleDrawPhase)}>{betting.handOver ? "Confirm result" : state.phase === "predraw" ? "Go to draw" : "Go to showdown"}</Button>
+            : betting ? <Button className={primary} onClick={() => apply(advanceSingleDrawPhase)}>{nextDrawPhaseLabel(state, betting.handOver)}</Button>
               : state.phase === "draw" ? drawSeat === null ? <Button className={primary} onClick={() => apply(advanceSingleDrawPhase)}>Finish draw</Button>
-                : heroDrawing ? <HeroExchange key={`${state.history.length}:${selected.join("-")}`} recorder={recorder} />
-                  : <><p className="text-xs text-zinc-400">How many cards did this player draw?</p><div className="grid grid-cols-3 gap-2">{[0,1,2,3,4,5].map((count) => <Button key={count} variant="outline" className="h-12" onClick={() => apply((current) => recordSingleDrawDecision(current, { seat: drawSeat, count }))}>{count ? `Draw ${count}` : "Stand pat"}</Button>)}</div></>
+                : heroDrawing ? <HeroExchange key={`${state.history.length}:${selected.join("-")}:${reshuffleBefore}`} recorder={recorder} />
+                  : <><p className="text-xs text-zinc-400">How many cards did this player draw?</p><div className="grid grid-cols-3 gap-2">{[0,1,2,3,4,5].map((count) => <Button key={count} variant="outline" className="h-12" disabled={count === 0 && reshuffleBefore} onClick={() => apply((current) => recordSingleDrawDecision(current, { seat: drawSeat, count, reshuffleBefore }))}>{count ? `Draw ${count}` : "Stand pat"}</Button>)}</div></>
                 : finished ? <>
                   {editingSeat !== null ? <CardEditor key={`${editingSeat}-${state.history.length}`} initial={[...(state.players[editingSeat].cards ?? blank())]} used={knownSingleDrawCards(state, editingSeat)} title={`${positions[editingSeat]} shows five cards`} confirmLabel="Confirm show"
                     onCancel={() => setEditingSeat(null)} onConfirm={(shown) => apply((current) => setSingleDrawShownCards(current.muckedSeats.includes(editingSeat) ? setSingleDrawMucked(current, editingSeat, false) : current, editingSeat, shown))} />
@@ -161,8 +168,9 @@ export default function MobileSingleDrawRecorder({ recorder, onSwitchGame }: {
         setHeroSlot(heroCards[heroSlot] || empty < 0 ? null : empty);
       }
     }} />
-    <BottomSheet open={setupOpen && setup} onOpenChange={setSetupOpen} title="Single Draw setup" cancelLabel="Done">
+    <BottomSheet open={setupOpen && setup} onOpenChange={setSetupOpen} title="Draw setup" cancelLabel="Done">
       <div className="p-4 flex flex-col gap-4">
+        <DrawFormatSettings state={state} onChange={changeSetup} />
         <div className="grid grid-cols-2 gap-3">
           <label className="text-xs text-zinc-400">Players<select aria-label="Players" className="mt-1 h-11 w-full rounded-md border border-white/15 bg-zinc-900 px-2" value={state.playerCount} onChange={(event) => changeSetup({ playerCount: Number(event.target.value) })}>{[2,3,4,5,6,7,8].map((count) => <option key={count}>{count}</option>)}</select></label>
           <label className="text-xs text-zinc-400">Hero position<select aria-label="Hero position" className="mt-1 h-11 w-full rounded-md border border-white/15 bg-zinc-900 px-2" value={state.heroSeat} onChange={(event) => changeSetup({ heroSeat: Number(event.target.value) })}>{positions.map((position, index) => <option key={position} value={index}>{position}</option>)}</select></label>
@@ -182,9 +190,7 @@ export default function MobileSingleDrawRecorder({ recorder, onSwitchGame }: {
       </fieldset>
     </BottomSheet>
     <BottomSheet open={logOpen} onOpenChange={setLogOpen} title="Hand log"><div className="p-4 flex flex-col gap-3 text-sm text-zinc-400">
-      {state.actions.filter((action) => action.round === "predraw").map((action) => <p key={action.id}>Predraw · {positions[action.seat]} {action.action}{action.amount !== undefined ? ` $${action.amount}` : ""}</p>)}
-      {state.draws.map((draw) => <p key={draw.seat} className="text-emerald-300">Draw · {positions[draw.seat]} {draw.count ? `draws ${draw.count}` : "stands pat"}</p>)}
-      {state.actions.filter((action) => action.round === "postdraw").map((action) => <p key={action.id}>Postdraw · {positions[action.seat]} {action.action}{action.amount !== undefined ? ` $${action.amount}` : ""}</p>)}
+      {drawLogEntries(state).map((entry) => <p key={entry.id}>{drawRoundLabel(entry.round)} · {positions[entry.seat]} {entry.label}</p>)}
     </div></BottomSheet>
   </div>;
 }

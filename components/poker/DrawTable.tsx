@@ -7,6 +7,8 @@ import { POSITION_NAMES, seatXY } from "./lib";
 import { scaled } from "./scale";
 import { BetBubble, DealerButtonChip, NameDisplay, StackDisplay, TableSurface } from "./table-pieces";
 import type { DrawReplayCard } from "./single-draw-replay";
+import type { DrawVariant } from "./game-format";
+import { drawGameLabel } from "./single-draw-ui";
 
 type TablePlayer = { seat: number; name: string; stack: number };
 
@@ -57,7 +59,9 @@ function DrawCards({ slots, previousSlots, hero, selected, onToggle }: {
 
 export default function DrawTable({ players, heroSeat, cards, pot, round, active, committed = {}, bets = {},
   folded = [], mucked = [], labels = {}, winnings = {}, heroCards, selected, onToggleHero, onEditPlayer, previousCards,
+  variant = "2-7_SINGLE_DRAW",
 }: {
+  variant?: DrawVariant;
   players: TablePlayer[]; heroSeat: number; cards: Record<number, DrawReplayCard[]>;
   previousCards?: Record<number, DrawReplayCard[]>;
   pot: number; round: string; active?: number | null; committed?: Record<number, number>;
@@ -71,7 +75,7 @@ export default function DrawTable({ players, heroSeat, cards, pot, round, active
   return (
     <TableSurface>
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none" style={{ transform: "translateY(-10%)" }}>
-        <span className="uppercase tracking-[0.2em] text-emerald-100/45 font-semibold" style={{ fontSize: scaled(12) }}>No-limit 2–7 Single Draw</span>
+        <span className="uppercase tracking-[0.2em] text-emerald-100/45 font-semibold" style={{ fontSize: scaled(12) }}>{variant === "2-7_TRIPLE_DRAW" ? "Fixed-limit" : "No-limit"} {drawGameLabel(variant)}</span>
         <div className="rounded-lg bg-zinc-950/80 border border-white/15 text-white font-semibold tabular-nums" style={{ padding: `${scaled(6)} ${scaled(16)}`, fontSize: scaled(24) }}>${pot.toLocaleString()}</div>
         <span className="uppercase tracking-[0.2em] text-white/35" style={{ fontSize: scaled(11) }}>{round}</span>
       </div>

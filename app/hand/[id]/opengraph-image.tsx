@@ -139,12 +139,12 @@ export default async function HandOgImage({
 
   const full = hand._full;
   const gameType = full?.gameType ?? "NLHE";
-  const singleDraw = full?.game?.family === "draw" && full.game.variant === "2-7_SINGLE_DRAW";
+  const drawGame = full?.game?.family === "draw" ? full.game : null;
   const playerCount = full?.playerCount;
   const heroSeat = full?.heroPosition ?? 0;
   const hero = full?.players?.find((p) => p.seat === heroSeat);
   const heroCards: string[] = hero?.cards
-    ? (hero.cards.filter(Boolean) as string[]).slice(0, singleDraw ? 5 : holeCardCount(gameType))
+    ? (hero.cards.filter(Boolean) as string[]).slice(0, drawGame ? 5 : holeCardCount(gameType))
     : [];
 
   // Board(s). `hand.board` mirrors the row's column-store value (length 5
@@ -157,7 +157,7 @@ export default async function HandOgImage({
 
   const subtitleParts: string[] = [];
   if (hand.stakes) subtitleParts.push(`$${hand.stakes}`);
-  subtitleParts.push(singleDraw ? "2–7 Single Draw" : gameType === "NLHE" ? "Hold'em" : `PLO ${gameType.slice(3)}-card`);
+  subtitleParts.push(drawGame ? drawGame.variant === "2-7_TRIPLE_DRAW" ? "2–7 Triple Draw" : "2–7 Single Draw" : gameType === "NLHE" ? "Hold'em" : `PLO ${gameType.slice(3)}-card`);
   if (full?.bombPotOn) subtitleParts.push("Bomb pot");
   if (isDouble) subtitleParts.push("Double board");
   if (playerCount) subtitleParts.push(`${playerCount}-handed`);

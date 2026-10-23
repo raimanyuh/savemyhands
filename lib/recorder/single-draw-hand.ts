@@ -13,7 +13,7 @@ export type BuildSingleDrawHandArgs = {
   notes?: string;
 };
 
-/** Pure payload builder, shared by future desktop/mobile draw recorders. */
+/** Pure payload builder shared by both draw variants and responsive recorders. */
 export function buildSingleDrawHand(args: BuildSingleDrawHandArgs): Omit<SavedHand, "id"> {
   const { state } = args;
   if (state.phase !== "showdown" && state.phase !== "done") {
@@ -46,17 +46,18 @@ export function buildSingleDrawHand(args: BuildSingleDrawHandArgs): Omit<SavedHa
   const payload: Omit<SavedHand, "id"> = {
     name: args.name?.trim() || "Untitled hand",
     date: date.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "2-digit" }),
-    stakes: `${state.sb}/${state.bb}`,
+    stakes: state.variant === "2-7_TRIPLE_DRAW" ? `${state.bb}/${state.bb * 2} FL` : `${state.sb}/${state.bb}`,
     loc: venue || "—",
     positions: POSITION_NAMES[state.playerCount]?.[state.heroSeat] ?? `S${state.heroSeat + 1}`,
     // Draw-game counterpart of reaching the flop: more than two drew.
-    multiway: state.draws.length > 2,
+    multiway: state.draws.filter((draw) => draw.round === 1).length > 2,
     board: Array<string>(5).fill("—"),
     type: "LP",
     tags: [], result: 0, fav: false, notes,
     _full: {
       schemaVersion: CURRENT_HAND_SCHEMA_VERSION,
-      game: { family: "draw", variant: "2-7_SINGLE_DRAW", bettingStructure: "NL" },
+      game: { family: "draw", variant: state.variant, bettingStructure: state.variant === "2-7_TRIPLE_DRAW" ? "FL" : "NL" },
+      ...(state.variant === "2-7_TRIPLE_DRAW" ? { drawRules: { ...state.limitRules } } : {}),
       timeline,
       players: state.players.map((player) => ({
         seat: player.seat, name: player.name, stack: player.stack,

@@ -13,13 +13,14 @@ import type { ActionType } from "./engine";
 import { CardRow } from "./CardPicker";
 import DrawTable from "./DrawTable";
 import NumericInput from "./NumericInput";
+import DrawFormatSettings from "./DrawFormatSettings";
 import { POSITION_NAMES } from "./lib";
 import {
   advanceSingleDrawPhase, deriveSingleDrawBetting, recordSingleDrawAction,
   recordSingleDrawDecision, setSingleDrawMucked, setSingleDrawShownCards,
   setSingleDrawStartingCards, startSingleDrawHand, updateSingleDrawPlayer, type SingleDrawState,
 } from "./single-draw-engine";
-import { changeSingleDrawSetup, drawRoundLabel, knownSingleDrawCards, singleDrawSizing, type SingleDrawDraft } from "./single-draw-ui";
+import { changeSingleDrawSetup, drawRoundLabel, drawGameLabel, drawStakesLabel, drawLogEntries, nextDrawPhaseLabel, knownSingleDrawCards, singleDrawSizing, type SingleDrawDraft } from "./single-draw-ui";
 import { useSingleDrawRecorder, type SingleDrawSaveOptions } from "./use-single-draw-recorder";
 
 const emptyHand = () => Array<string | null>(5).fill(null);
@@ -42,6 +43,12 @@ function BettingPanel({ state, act }: { state: SingleDrawState; act: (action: Ac
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [act, betting.canCheck]);
+  if (betting.limitBet) return <div className="flex flex-col gap-4">
+    <p className="text-xs text-zinc-400">${betting.limitBet} fixed bets · {betting.betCount} bet{betting.betCount === 1 ? "" : "s"}{betting.raiseCapped ? " · capped" : ""}</p>
+    <div className="grid grid-cols-2 gap-2"><Button variant="outline" className="h-11 text-rose-300" onClick={() => act("fold")}>Fold</Button><Button variant="outline" className="h-11" onClick={() => act(betting.canCheck ? "check" : "call")}>{betting.canCheck ? "Check" : `Call $${sizing.call}`}</Button></div>
+    <Button className={`h-11 ${primary}`} disabled={!sizing.canRaise} onClick={() => act(betting.lastBet > 0 ? "raise" : "bet", sizing.minimum)}>{betting.lastBet > 0 ? "Raise" : "Bet"} to ${sizing.minimum}</Button>
+    {!sizing.canRaise && <p className="text-xs text-zinc-500">{betting.raiseCapped ? "The round has reached its bet cap." : "Raising is not open."}</p>}
+  </div>;
   return <div className="flex flex-col gap-4">
     <div className="grid grid-cols-2 gap-2">
       <Button variant="outline" className="h-11 text-rose-300 border-rose-400/30" onClick={() => act("fold")}>Fold <kbd className="opacity-40 ml-2">F</kbd></Button>
@@ -62,19 +69,20 @@ function BettingPanel({ state, act }: { state: SingleDrawState; act: (action: Ac
   </div>;
 }
 
-function HeroDrawPanel({ state, selected, onClear, onRecord }: {
+function HeroDrawPanel({ state, selected, onClear, onRecord, reshuffleBefore }: {
   state: SingleDrawState; selected: number[]; onClear: () => void;
   onRecord: (indexes: number[], replacements: string[]) => void;
+  reshuffleBefore: boolean;
 }) {
   const [choosing, setChoosing] = useState(false);
   const [replacements, setReplacements] = useState<(string | null)[]>(() => selected.map(() => null));
-  const used = knownSingleDrawCards(state);
+  const used = knownSingleDrawCards(state, undefined, reshuffleBefore);
   replacements.forEach((card) => { if (card) used.add(card); });
   return <div className="flex flex-col gap-4">
     {!choosing ? <>
       <p className="text-sm text-zinc-300">Click the cards in your hand to discard them. Keep the rest.</p>
       <p className="text-xs text-zinc-500">{selected.length ? `Keeping ${5 - selected.length} · drawing ${selected.length}` : "Keeping all five cards"}</p>
-      <Button className={`h-11 ${primary}`} onClick={() => {
+      <Button className={`h-11 ${primary}`} disabled={reshuffleBefore && !selected.length} onClick={() => {
         if (!selected.length) onRecord([], []);
         else { setReplacements(selected.map(() => null)); setChoosing(true); }
       }}>{selected.length ? `Choose ${selected.length} replacement${selected.length === 1 ? "" : "s"}` : "Stand pat"}</Button>
@@ -123,6 +131,7 @@ function DesktopSingleDrawRecorder({ recorder, onSwitchGame }: {
     state, name, setName, notes, setNotes, venue, setVenue, date, setDate, selected, setSelected,
     editingSeat, setEditingSeat, saving, betting, drawSeat, activeSeat, setup, finished,
     folded, committed, pot, resolution, apply, undo, cards, labels, save,
+    reshuffleBefore, setReshuffleBefore,
   } = recorder;
   const positions = POSITION_NAMES[state.playerCount];
   useEffect(() => {
@@ -136,20 +145,21 @@ function DesktopSingleDrawRecorder({ recorder, onSwitchGame }: {
   const changeSetup = (patch: Parameters<typeof changeSingleDrawSetup>[1]) => apply((current) => changeSingleDrawSetup(current, patch));
   return <Shell header={<Header title="" back="Dashboard" backHref="/dashboard" onBack={() =>
     confirm({ title: "Leave without saving?", message: "Your in-progress recording will be lost.", confirmLabel: "Leave", destructive: true })}
-    right={<><span className="text-xs font-mono text-muted-foreground">draft · {drawRoundLabel(state.phase)}</span><Button className={primary} onClick={save} disabled={!resolution.payload || editingSeat !== null || saving}>{saving ? "Saving…" : "Save hand"}</Button></>} />}>
+    right={<><span className="text-xs font-mono text-muted-foreground">draft · {drawRoundLabel(state.phase, state)}</span><Button className={primary} onClick={save} disabled={!resolution.payload || editingSeat !== null || saving}>{saving ? "Saving…" : "Save hand"}</Button></>} />}>
     <div className="w-full max-w-[1600px] mx-auto p-6 flex flex-col gap-4">
       <Input aria-label="Hand name" value={name} disabled={saving} onChange={(event) => setName(event.target.value)} className="text-xl font-semibold border-transparent px-0 max-w-lg" />
       <div className="flex flex-wrap items-center gap-3 text-sm relative z-30">
         <Button variant="outline" size="sm" disabled={!setup || saving} onClick={() => setSetupOpen(!setupOpen)}><Settings size={14} /> Stakes &amp; seats</Button>
-        <span className="text-emerald-300 font-semibold">2–7 Single Draw</span><span className="text-zinc-500">${state.sb}/${state.bb} · {state.playerCount}-handed</span>
-        <span className="text-xs uppercase tracking-wider rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-200">{drawRoundLabel(state.phase)}</span>
+        <span className="text-emerald-300 font-semibold">{drawGameLabel(state.variant)}</span><span className="text-zinc-500">{drawStakesLabel(state)} · {state.playerCount}-handed</span>
+        <span className="text-xs uppercase tracking-wider rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-200">{drawRoundLabel(state.phase, state)}</span>
         <span className="text-zinc-400">Pot <strong className="text-zinc-100">${pot}</strong></span>
         <div className="flex-1" />
         <Button variant="ghost" size="sm" onClick={() => setLogOpen(!logOpen)}>Log {state.actions.length + state.draws.length}</Button>
         {setup && <Button className={primary} disabled={heroCards.some((card) => !card) || saving} onClick={() => apply(startSingleDrawHand)}>Start hand <ChevronRight size={14} /></Button>}
         {setupOpen && setup && <><button type="button" className="fixed inset-0 z-0 cursor-default" aria-label="Dismiss setup" onClick={() => setSetupOpen(false)} />
-          <div className="absolute z-10 left-0 top-full mt-2 w-[420px] max-w-[90vw] p-4 rounded-xl border border-white/15 bg-zinc-950 shadow-2xl flex flex-col gap-4" role="dialog" aria-label="Single Draw setup">
+          <div className="absolute z-10 left-0 top-full mt-2 w-[420px] max-w-[90vw] max-h-[75vh] overflow-y-auto p-4 rounded-xl border border-white/15 bg-zinc-950 shadow-2xl flex flex-col gap-4" role="dialog" aria-label="Draw setup">
           <div className="flex items-center justify-between"><span className="font-medium">Stakes &amp; seats</span><Button variant="ghost" size="icon-sm" aria-label="Close setup" onClick={() => setSetupOpen(false)}><X size={16} /></Button></div>
+          <DrawFormatSettings state={state} onChange={changeSetup} />
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-zinc-400">Players<select aria-label="Players" className="mt-1 h-9 w-full rounded-md border border-white/15 bg-zinc-900 px-2 text-zinc-100" value={state.playerCount} onChange={(event) => changeSetup({ playerCount: Number(event.target.value) })}>{[2,3,4,5,6,7,8].map((count) => <option key={count}>{count}</option>)}</select></label>
             <label className="text-xs text-zinc-400">Hero position<select aria-label="Hero position" className="mt-1 h-9 w-full rounded-md border border-white/15 bg-zinc-900 px-2 text-zinc-100" value={state.heroSeat} onChange={(event) => changeSetup({ heroSeat: Number(event.target.value) })}>{positions.map((position, index) => <option key={position} value={index}>{position}</option>)}</select></label>
@@ -163,7 +173,7 @@ function DesktopSingleDrawRecorder({ recorder, onSwitchGame }: {
       <div className={`flex gap-6 items-start ${side ? "flex-row" : "flex-col"}`}>
         <div className="flex-1 w-full min-w-0 flex justify-center pt-7 pb-4">
           <div className="w-full" style={{ maxWidth: side ? "calc((100vh - 220px) * 2)" : "calc((100vh - 440px) * 2)", minWidth: "min(100%, 640px)" }}>
-            <DrawTable players={state.players} heroSeat={state.heroSeat} cards={cards} pot={pot} round={drawRoundLabel(state.phase)} active={activeSeat}
+            <DrawTable variant={state.variant} players={state.players} heroSeat={state.heroSeat} cards={cards} pot={pot} round={drawRoundLabel(state.phase, state)} active={activeSeat}
               committed={committed} bets={betting?.bets} folded={folded} mucked={state.muckedSeats} labels={labels}
               selected={selected} onToggleHero={state.phase === "draw" && drawSeat === state.heroSeat ? (index) => setSelected((current) => current.includes(index) ? current.filter((value) => value !== index) : [...current, index].sort((a,b) => a-b)) : undefined}
               onEditPlayer={setup ? (seat, patch) => apply((current) => updateSingleDrawPlayer(current, seat, patch)) : undefined}
@@ -174,15 +184,16 @@ function DesktopSingleDrawRecorder({ recorder, onSwitchGame }: {
         </div>
         <div className={`flex flex-col gap-4 ${side ? "w-[360px] shrink-0" : "w-full max-w-3xl self-center"}`}>
           <section className="rounded-xl border border-white/10 bg-zinc-950/40 p-4 flex flex-col gap-4 min-h-[260px]" aria-label="Hand controls">
-            <div className="flex justify-between items-center"><h2 className="font-semibold text-sm">{activeSeat !== null ? `${positions[activeSeat]}${state.players[activeSeat].name ? ` · ${state.players[activeSeat].name}` : ""} ${state.phase === "draw" ? "to draw" : "to act"}` : drawRoundLabel(state.phase)}</h2>
+            <div className="flex justify-between items-center"><h2 className="font-semibold text-sm">{activeSeat !== null ? `${positions[activeSeat]}${state.players[activeSeat].name ? ` · ${state.players[activeSeat].name}` : ""} ${state.phase === "draw" ? "to draw" : "to act"}` : drawRoundLabel(state.phase, state)}</h2>
               <Button variant="ghost" size="sm" disabled={!state.history.length || saving} onClick={undo}><RotateCcw size={13} /> Undo</Button></div>
             <fieldset disabled={saving} className="contents">
+              {state.variant === "2-7_TRIPLE_DRAW" && state.phase === "draw" && drawSeat !== null && <div className="flex flex-col gap-1"><Button variant="outline" aria-pressed={reshuffleBefore} disabled={!reshuffleBefore && drawSeat === state.heroSeat && !selected.length} onClick={() => setReshuffleBefore(!reshuffleBefore)}>{reshuffleBefore ? "Reshuffle recorded" : "Deck was reshuffled"}</Button><p className="text-[11px] text-zinc-500">Use only if the dealer reshuffled before this player’s replacements. Earlier draws can return; this draw’s discards stay out.</p></div>}
               {setup ? <p className="text-sm text-zinc-400">Pick your five starting cards on the table, set the stacks, then start the hand.</p>
                 : betting && !betting.roundClosed ? <BettingPanel key={`${state.phase}-${state.actions.length}`} state={state} act={(action, amount) => apply((current) => recordSingleDrawAction(current, { seat: betting.activeSeat!, action, amount }))} />
-                : betting ? <><p className="text-sm text-zinc-400">{betting.handOver ? "One player remains." : "Betting is complete."}</p><Button className={primary} onClick={() => apply(advanceSingleDrawPhase)}>{betting.handOver ? "Confirm result" : state.phase === "predraw" ? "Go to draw" : "Go to showdown"}<ChevronRight size={14} /></Button></>
+                : betting ? <><p className="text-sm text-zinc-400">{betting.handOver ? "One player remains." : "Betting is complete."}</p><Button className={primary} onClick={() => apply(advanceSingleDrawPhase)}>{nextDrawPhaseLabel(state, betting.handOver)}<ChevronRight size={14} /></Button></>
                 : state.phase === "draw" ? drawSeat === null ? <Button className={primary} onClick={() => apply(advanceSingleDrawPhase)}>Finish draw <ChevronRight size={14} /></Button>
-                  : drawSeat === state.heroSeat ? <HeroDrawPanel key={`${state.history.length}:${selected.join("-")}`} state={state} selected={selected} onClear={() => setSelected([])} onRecord={(discardIndexes, replacementCards) => apply((current) => recordSingleDrawDecision(current, { seat: current.heroSeat, count: discardIndexes.length, discardIndexes, replacementCards }))} />
-                  : <><p className="text-sm text-zinc-400">How many cards did this player draw?</p><div className="grid grid-cols-3 gap-2">{[0,1,2,3,4,5].map((count) => <Button key={count} variant="outline" className="h-12" onClick={() => apply((current) => recordSingleDrawDecision(current, { seat: drawSeat, count }))}>{count === 0 ? "Stand pat" : `Draw ${count}`}</Button>)}</div><p className="text-xs text-zinc-500">Only the public count is recorded.</p></>
+                  : drawSeat === state.heroSeat ? <HeroDrawPanel key={`${state.history.length}:${selected.join("-")}:${reshuffleBefore}`} state={state} selected={selected} reshuffleBefore={reshuffleBefore} onClear={() => setSelected([])} onRecord={(discardIndexes, replacementCards) => apply((current) => recordSingleDrawDecision(current, { seat: current.heroSeat, count: discardIndexes.length, discardIndexes, replacementCards, reshuffleBefore }))} />
+                  : <><p className="text-sm text-zinc-400">How many cards did this player draw?</p><div className="grid grid-cols-3 gap-2">{[0,1,2,3,4,5].map((count) => <Button key={count} variant="outline" className="h-12" disabled={count === 0 && reshuffleBefore} onClick={() => apply((current) => recordSingleDrawDecision(current, { seat: drawSeat, count, reshuffleBefore }))}>{count === 0 ? "Stand pat" : `Draw ${count}`}</Button>)}</div><p className="text-xs text-zinc-500">Only the public count is recorded.</p></>
                 : finished ? <>
                   {editingSeat !== null ? <ShowHandEditor key={`${editingSeat}-${state.history.length}`} state={state} seat={editingSeat} onCancel={() => setEditingSeat(null)} onShow={(shownCards) => apply((current) => setSingleDrawShownCards(current.muckedSeats.includes(editingSeat) ? setSingleDrawMucked(current, editingSeat, false) : current, editingSeat, shownCards))} />
                     : state.players.filter((player) => !folded.includes(player.seat) && state.playerCount - folded.length > 1).map((player) => {
@@ -206,9 +217,7 @@ function DesktopSingleDrawRecorder({ recorder, onSwitchGame }: {
       </div>
       {logOpen && <section aria-label="Action log" className="rounded-xl border border-white/10 p-4 text-sm flex flex-col gap-2">
         <h2 className="font-semibold">Hand log</h2>
-        {state.actions.filter((action) => action.round === "predraw").map((action) => <p key={action.id} className="text-zinc-400">Predraw · {positions[action.seat]} {action.action}{action.amount !== undefined ? ` $${action.amount}` : ""}</p>)}
-        {state.draws.map((draw) => <p key={draw.seat} className="text-emerald-300/80">Draw · {positions[draw.seat]} {draw.count ? `draws ${draw.count}` : "stands pat"}</p>)}
-        {state.actions.filter((action) => action.round === "postdraw").map((action) => <p key={action.id} className="text-zinc-400">Postdraw · {positions[action.seat]} {action.action}{action.amount !== undefined ? ` $${action.amount}` : ""}</p>)}
+        {drawLogEntries(state).map((entry) => <p key={entry.id} className="text-zinc-400">{drawRoundLabel(entry.round)} · {positions[entry.seat]} {entry.label}</p>)}
       </section>}
     </div>
   </Shell>;

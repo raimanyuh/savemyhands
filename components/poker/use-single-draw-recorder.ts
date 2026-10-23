@@ -30,6 +30,7 @@ export function useSingleDrawRecorder(initialDraft: SingleDrawDraft, {
   const [venue, setVenue] = useState(initialDraft.venue);
   const [date, setDate] = useState(initialDraft.date);
   const [selected, setSelected] = useState<number[]>([]);
+  const [reshuffleBefore, setReshuffleBefore] = useState(false);
   const [editingSeat, setEditingSeat] = useState<number | null>(null);
   const [saving, startSave] = useTransition();
   const betting = deriveSingleDrawBetting(state);
@@ -50,7 +51,7 @@ export function useSingleDrawRecorder(initialDraft: SingleDrawDraft, {
     if (saving) return false;
     try {
       const next = update(state);
-      setState(next); setSelected([]); setEditingSeat(null);
+      setState(next); setSelected([]); setEditingSeat(null); setReshuffleBefore(false);
       return true;
     } catch (error) { toast.error(error instanceof Error ? error.message : "Couldn't record that action."); return false; }
   };
@@ -60,7 +61,7 @@ export function useSingleDrawRecorder(initialDraft: SingleDrawDraft, {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" &&
           !(event.target as HTMLElement | null)?.closest("input, textarea, [contenteditable='true']")) {
         event.preventDefault();
-        if (!saving) { setState((current) => undoSingleDraw(current)); setSelected([]); setEditingSeat(null); }
+        if (!saving) { setState((current) => undoSingleDraw(current)); setSelected([]); setEditingSeat(null); setReshuffleBefore(false); }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -73,7 +74,7 @@ export function useSingleDrawRecorder(initialDraft: SingleDrawDraft, {
     }),
   ]));
   const labels: Record<number, string> = {};
-  if (state.phase === "draw") for (const draw of state.draws) labels[draw.seat] = draw.count ? `Draw ${draw.count}` : "Pat";
+  if (state.phase === "draw") for (const draw of state.draws.filter((draw) => draw.round === state.drawNumber)) labels[draw.seat] = draw.count ? `Draw ${draw.count}` : "Pat";
   if (betting) for (const action of state.actions.filter((action) => action.round === betting.round)) {
     if (action.action === "check") labels[action.seat] = "check";
     else delete labels[action.seat];
@@ -90,7 +91,7 @@ export function useSingleDrawRecorder(initialDraft: SingleDrawDraft, {
   };
   return {
     state, name, setName, notes, setNotes, venue, setVenue, date, setDate,
-    selected, setSelected, editingSeat, setEditingSeat, saving,
+    selected, setSelected, editingSeat, setEditingSeat, saving, reshuffleBefore, setReshuffleBefore,
     betting, drawSeat, activeSeat, setup, finished, folded, committed, pot, resolution,
     apply, undo, cards, labels, save,
   };

@@ -8,6 +8,11 @@ export type SingleDrawReplayRound =
   | "initial-deal"
   | "predraw"
   | "draw-1"
+  | "draw-2"
+  | "draw-3"
+  | "postdraw-1"
+  | "postdraw-2"
+  | "postdraw-3"
   | "postdraw"
   | "showdown";
 
@@ -28,7 +33,7 @@ export type SingleDrawReplayState = {
   round: SingleDrawReplayRound;
   eventId?: string;
   kind: HandTimelineEvent["type"] | "round-end" | "result";
-  stage?: "discard" | "replace" | "pat";
+  stage?: "discard" | "replace" | "pat" | "reshuffle";
   count?: number;
   /** Opponent indexes are animation slots only, never known card identities. */
   cardIndexes?: number[];
@@ -108,9 +113,9 @@ function resolvePots(
  */
 export function singleDrawToReplay(rec: SavedHand): SingleDrawReplayHand | null {
   const f = rec._full;
-  if (!f || f.schemaVersion !== 2 || f.game?.family !== "draw" ||
-      f.game.variant !== "2-7_SINGLE_DRAW" || f.game.bettingStructure !== "NL" ||
-      !f.timeline?.length) return null;
+  if (!f || f.schemaVersion !== 2 || f.game?.family !== "draw" || !f.timeline?.length ||
+      !((f.game.variant === "2-7_SINGLE_DRAW" && f.game.bettingStructure === "NL") ||
+        (f.game.variant === "2-7_TRIPLE_DRAW" && f.game.bettingStructure === "FL"))) return null;
 
   const heroSeat = f.heroPosition ?? 0;
   const posNames = POSITION_NAMES[f.playerCount] ?? [];
@@ -121,6 +126,7 @@ export function singleDrawToReplay(rec: SavedHand): SingleDrawReplayHand | null 
   const mucked = new Set<number>();
   const shown = new Map<number, string[]>();
   const knownCards = new Set<string>();
+  const discards: { round: number; cards: string[] }[] = [];
   const steps: SingleDrawReplayStep[] = [];
   for (let seat = 0; seat < f.playerCount; seat++) {
     cards[seat] = Array.from({ length: 5 }, () => ({ present: false, visibility: "down" }));
@@ -155,7 +161,7 @@ export function singleDrawToReplay(rec: SavedHand): SingleDrawReplayHand | null 
   };
 
   const closeBetting = () => {
-    if (round !== "predraw" && round !== "postdraw") return;
+    if (round !== "predraw" && !round.startsWith("postdraw")) return;
     const amounts = Object.entries(bets).sort((a, b) => b[1] - a[1]);
     const refunds: Record<number, number> = {};
     const highest = amounts[0];
@@ -168,7 +174,7 @@ export function singleDrawToReplay(rec: SavedHand): SingleDrawReplayHand | null 
     }
     const refundLabel = Object.entries(refunds)
       .map(([seat, amount]) => `${posOf(Number(seat))} refunded $${amount}`).join(" · ");
-    emit(refundLabel || `${round === "predraw" ? "Predraw" : "Postdraw"} betting complete`,
+    emit(refundLabel || `${round === "predraw" ? "Predraw" : round === "postdraw" ? "Postdraw" : `After draw ${round.slice(-1)}`} betting complete`,
       { kind: "round-end", refunds });
   };
 
@@ -179,8 +185,11 @@ export function singleDrawToReplay(rec: SavedHand): SingleDrawReplayHand | null 
     if (!Number.isInteger(event.seat) || event.seat < 0 || event.seat >= f.playerCount) {
       throw new Error(`Invalid timeline seat: ${event.seat}`);
     }
-    if (!["initial-deal", "predraw", "draw-1", "postdraw", "showdown"].includes(event.round)) {
-      throw new Error(`Invalid Single Draw round: ${event.round}`);
+    const rounds = f.game.variant === "2-7_TRIPLE_DRAW"
+      ? ["initial-deal", "predraw", "draw-1", "postdraw-1", "draw-2", "postdraw-2", "draw-3", "postdraw-3", "showdown"]
+      : ["initial-deal", "predraw", "draw-1", "postdraw", "showdown"];
+    if (!rounds.includes(event.round)) {
+      throw new Error(`Invalid draw round: ${event.round}`);
     }
     if (event.round !== round) {
       closeBetting();
@@ -219,8 +228,13 @@ export function singleDrawToReplay(rec: SavedHand): SingleDrawReplayHand | null 
         committed[seat] = (committed[seat] ?? 0) + delta;
       }
       // Match the recorder's short-blind price, including a BB below the SB.
-      lastBet = event.type === "forced-bet" && event.kind === "big-blind"
-        ? bets[seat] ?? 0 : Math.max(lastBet, bets[seat] ?? 0);
+      if (event.type === "forced-bet" && event.kind === "big-blind") {
+        const sbSeat = f.playerCount === 2 ? 0 : 1;
+        const bbSeat = f.playerCount === 2 ? 1 : 2;
+        const ableToBet = f.players.filter((player, index) => player.stack >
+          (index === sbSeat ? f.sb : index === bbSeat ? f.bb : 0)).length;
+        lastBet = f.game.variant === "2-7_TRIPLE_DRAW" ? ableToBet >= 2 ? f.bb : Math.max(...Object.values(bets)) : bets[seat] ?? 0;
+      } else lastBet = Math.max(lastBet, bets[seat] ?? 0);
       if (event.type === "forced-bet") {
         emit(`${name} posts ${event.kind === "small-blind" ? "small" : "big"} blind $${delta}`,
           detail, { active: seat });
@@ -235,15 +249,29 @@ export function singleDrawToReplay(rec: SavedHand): SingleDrawReplayHand | null 
         emit(label, detail, { active: seat, action });
       }
     } else if (event.type === "draw") {
+      if (!round.startsWith("draw-")) throw new Error("Draw decision belongs to a draw round");
       if (!Number.isInteger(event.count) || event.count < 0 || event.count > 5) {
         throw new Error("Invalid draw count");
       }
       if (event.count === 0) {
+        if (event.reshuffleBefore) throw new Error("A pat decision cannot include a reshuffle");
         emit(`${name} stands pat`, { ...detail, stage: "pat", count: 0, cardIndexes: [] }, { active: seat });
         continue;
       }
       let indexes: number[];
       let replacements: string[] | undefined;
+      const number = Number(round.slice(-1));
+      if (event.reshuffleBefore) {
+        if (f.game.variant !== "2-7_TRIPLE_DRAW") throw new Error("Reshuffle markers require Triple Draw");
+        const held = new Set(Object.entries(cards).flatMap(([seat, slots]) => folded.has(Number(seat)) ? [] : slots.flatMap((slot) => slot.card ? [slot.card] : [])));
+        for (const previous of discards) if (previous.round < number) {
+          for (const card of previous.cards) if (!held.has(card)) knownCards.delete(card);
+        }
+        for (const foldedSeat of folded) for (const slot of cards[foldedSeat]) {
+          if (slot.card && !held.has(slot.card)) knownCards.delete(slot.card);
+        }
+        emit("Deck reshuffled — previous draws recycled", { ...detail, stage: "reshuffle" });
+      }
       if (seat === heroSeat) {
         const current = cards[seat].map((slot) => slot.present ? slot.card : undefined);
         if (current.some((card) => !card) || event.discardIndexes?.length !== event.count ||
@@ -261,6 +289,7 @@ export function singleDrawToReplay(rec: SavedHand): SingleDrawReplayHand | null 
         }
         indexes = [...event.discardIndexes];
         replacements = [...event.replacementCards];
+        discards.push({ round: number, cards: result.discardedCards });
       } else {
         // Animate anonymous backs only; count is the sole public information.
         indexes = Array.from({ length: event.count }, (_, i) => 5 - event.count + i);

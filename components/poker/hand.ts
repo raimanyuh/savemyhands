@@ -82,6 +82,7 @@ export type SavedHand = {
     // New draw/stud recorders write their variant-native replay history here.
     // Community hands continue using `actions` until their adapter is added.
     timeline?: HandTimelineEvent[];
+    drawRules?: { maxBets: 4 | 5; headsUpUncapped: boolean };
     players: Player[];
     actions: Action[];
     board: (string | null)[];

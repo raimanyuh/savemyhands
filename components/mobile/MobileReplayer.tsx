@@ -410,11 +410,11 @@ function MobileReplayerInner({
               letterSpacing: "0.06em",
             }}
           >
-            {HAND.bombPotOn
+            {HAND.game.family === "draw" && HAND.game.variant === "2-7_TRIPLE_DRAW" ? `$${HAND.stakes.bb}/$${HAND.stakes.bb * 2} FL` : HAND.bombPotOn
               ? `Bomb $${HAND.bombPotAmt}`
               : `$${HAND.stakes.sb}/$${HAND.stakes.bb}`}
             {` · ${N}-handed`}
-            {HAND.game.family === "draw" ? " · 2–7 SD" : ""}
+            {HAND.game.family === "draw" ? HAND.game.variant === "2-7_TRIPLE_DRAW" ? " · 2–7 TD" : " · 2–7 SD" : ""}
             {HAND.gameType && HAND.gameType !== "NLHE"
               ? ` · ${HAND.gameType}`
               : ""}
@@ -495,11 +495,11 @@ function MobileReplayerInner({
         style={{ padding: "8px 8px 0" }}
       >
         {cur.draw ? <div className="absolute inset-x-2 top-2 bottom-[112px] min-h-[360px]">
-          <VerticalDrawFelt players={HAND.players} heroSeat={heroPos} cards={cur.draw.cards}
+          <VerticalDrawFelt variant={HAND.game.family === "draw" ? HAND.game.variant : undefined} players={HAND.players} heroSeat={heroPos} cards={cur.draw.cards}
             previousCards={HAND.steps[step - 1]?.draw?.cards} pot={cur.pot} round={drawRoundLabel(cur.street)}
             active={cur.active} committed={committed} bets={streetBets}
             folded={cur.draw.foldedSeats} mucked={cur.draw.muckedSeats} winnings={cur.draw.winnings}
-            labels={cur.draw.kind === "draw" && cur.active != null ? { [cur.active]: cur.draw.count ? `Draw ${cur.draw.count}` : "Pat" } : Object.fromEntries([...checkedSeats].map((seat) => [seat, "check"]))} />
+            labels={cur.draw.kind === "draw" && cur.active != null ? { [cur.active]: cur.draw.stage === "reshuffle" ? "Reshuffle" : cur.draw.count ? `Draw ${cur.draw.count}` : "Pat" } : Object.fromEntries([...checkedSeats].map((seat) => [seat, "check"]))} />
         </div> : <VerticalFelt
           state={feltState}
           committed={committed}

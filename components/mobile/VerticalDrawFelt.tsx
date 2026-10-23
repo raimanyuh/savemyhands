@@ -6,6 +6,7 @@ import FannedPlayingCard from "@/components/poker/FannedPlayingCard";
 import { POSITION_NAMES } from "@/components/poker/lib";
 import type { DrawReplayCard } from "@/components/poker/single-draw-replay";
 import { getSeatCoords } from "./VerticalFelt";
+import type { DrawVariant } from "@/components/poker/game-format";
 
 /** Five stable slots; missing cards and anonymous backs remain distinct. */
 export function MobileDrawCards({ slots, previousSlots, hero = true, selected = [], onSlot, discarding = false, labelPrefix = "Hero card" }: {
@@ -49,7 +50,9 @@ export function MobileDrawCards({ slots, previousSlots, hero = true, selected = 
 export default function VerticalDrawFelt({ players, heroSeat, cards, previousCards, pot, round, active,
   committed = {}, bets = {}, folded = [], mucked = [], labels = {}, winnings = {}, selected,
   onHeroCardSlot, discarding, onEditSeat,
+  variant = "2-7_SINGLE_DRAW",
 }: {
+  variant?: DrawVariant;
   players: { seat: number; name: string; stack: number }[]; heroSeat: number;
   cards: Record<number, DrawReplayCard[]>; previousCards?: Record<number, DrawReplayCard[]>;
   pot: number; round: string; active?: number | null; committed?: Record<number, number>;
@@ -66,12 +69,12 @@ export default function VerticalDrawFelt({ players, heroSeat, cards, previousCar
     8: [{ left: 50, top: 92 }, { left: 14, top: 58 }, { left: 14, top: 38 }, { left: 14, top: 18 }, { left: 50, top: 13 }, { left: 86, top: 18 }, { left: 86, top: 38 }, { left: 86, top: 58 }],
   };
   const coords = denseRows[count] ?? getSeatCoords(count);
-  return <div className="relative w-full h-full rounded-3xl overflow-hidden" aria-label="Single Draw table" style={{
+  return <div className="relative w-full h-full rounded-3xl overflow-hidden" aria-label={variant === "2-7_TRIPLE_DRAW" ? "Triple Draw table" : "Single Draw table"} style={{
     background: "radial-gradient(ellipse 70% 95% at 50% 50%, var(--smh-mobile-felt-top) 0%, var(--smh-mobile-felt-bottom) 100%)",
     boxShadow: "0 4px 24px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.06)",
   }}>
     <div className="absolute left-1/2 top-[43%] -translate-x-1/2 text-center pointer-events-none">
-      <p className="text-[9px] uppercase tracking-[.12em] text-emerald-100/45 whitespace-nowrap">No-limit 2–7{count >= 5 ? <br /> : " "}Single Draw</p>
+      <p className="text-[9px] uppercase tracking-[.12em] text-emerald-100/45 whitespace-nowrap">{variant === "2-7_TRIPLE_DRAW" ? "Fixed-limit" : "No-limit"} 2–7{count >= 5 ? <br /> : " "}{variant === "2-7_TRIPLE_DRAW" ? "Triple" : "Single"} Draw</p>
       <p className="text-2xl font-semibold tabular-nums text-white mt-1">${pot.toLocaleString()}</p>
       <p className="text-[10px] uppercase tracking-[.15em] text-white/40 mt-1">{round}</p>
     </div>
