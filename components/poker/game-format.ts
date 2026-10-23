@@ -70,10 +70,19 @@ export type HandTimelineEvent =
       visibility: CardVisibility;
     })
   | (TimelineEventBase & {
+      type: "shared-deal";
+      /** Stud's shared seventh card, recorded once rather than per seat. */
+      card: CardId;
+      cardIndex: 6;
+      visibility: "up";
+    })
+  | (TimelineEventBase & {
       type: "action";
       seat: number;
       action: ActionType;
       amount?: number;
+      /** Chosen fixed-limit increment (including fourth-street big bets). */
+      limitBet?: number;
     })
   | (TimelineEventBase & {
       type: "draw";

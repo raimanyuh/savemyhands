@@ -81,6 +81,13 @@ function patToShowdown(state: SingleDrawState): SingleDrawState {
 }
 
 describe("Single Draw save → load → replay", () => {
+  it("rejects a Stud shared-card event in a draw payload", () => {
+    const hand = saved(completed());
+    hand._full!.timeline!.push({ id: "stud-only", round: "seventh-street", type: "shared-deal", card: "T♠", cardIndex: 6, visibility: "up" });
+    expect(() => singleDrawToReplay(hand)).toThrow("shared Stud card");
+    expect(() => recordedToHand(hand)).toThrow("shared Stud card");
+  });
+
   it("persists schema-v2 metadata, the full timeline and dashboard result", () => {
     const state = completed();
     const hand = saved(state);

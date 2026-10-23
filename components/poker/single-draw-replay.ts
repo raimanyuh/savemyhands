@@ -180,6 +180,7 @@ export function singleDrawToReplay(rec: SavedHand): SingleDrawReplayHand | null 
 
   const eventIds = new Set<string>();
   for (const event of f.timeline) {
+    if (event.type === "shared-deal") throw new Error("A shared Stud card cannot appear in a draw hand");
     if (eventIds.has(event.id)) throw new Error(`Duplicate timeline event: ${event.id}`);
     eventIds.add(event.id);
     if (!Number.isInteger(event.seat) || event.seat < 0 || event.seat >= f.playerCount) {
