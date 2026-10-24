@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { initialState } from "./engine";
 import { CardRow } from "./CardPicker";
 import StudTable, { StudCards, studSeatXY } from "./StudTable";
+import VerticalStudFelt, { MobileStudCards, mobileStudSeatCoords, mobileStudFeltHeight } from "@/components/mobile/VerticalStudFelt";
 import { changeStudSetup, missingStudSetupSeats, studDraftFromCommunity, studRecorderCards, studSizing } from "./stud-ui";
 import {
   deriveStudBetting, initialStudState, setStudStartingCards, startStudHand,
@@ -64,6 +65,62 @@ describe("Stud UI state derivations", () => {
     expect(cards[1][2]).toMatchObject({ present: true, faceUp: true, card: "2♣" });
     expect(cards[0][0]).toMatchObject({ visibility: "down", faceUp: true, card: "A♠" });
     expect(cards[0].slice(3).every((slot) => !slot.present)).toBe(true);
+  });
+});
+
+describe("Mobile Stud felt", () => {
+  it("keeps unknown downcards separate from future slots and hero identities", () => {
+    const hidden = renderToStaticMarkup(createElement(MobileStudCards, { slots: slots.map((slot, index) => index === 0 ? { ...slot, card: "K♠" } : slot) }));
+    expect(hidden.match(/aria-label="Hidden card"/g)).toHaveLength(2);
+    expect(hidden.match(/aria-label="Empty card slot"/g)).toHaveLength(4);
+    expect(hidden).not.toContain("K♠");
+    const hero = renderToStaticMarkup(createElement(MobileStudCards, { hero: true, slots: studRecorderCards(setup())[0] }));
+    expect(hero).toContain('aria-label="A♠" data-card-slot="1" data-dealt="down"');
+  });
+  it("never leaks identities through departing anonymous downcards", () => {
+    const previousSlots = slots.map((slot) => ({ ...slot, card: slot.faceUp ? slot.card : "K♠" }));
+    const html = renderToStaticMarkup(createElement(MobileStudCards, { slots: slots.map((slot) => ({ ...slot, present: false })), previousSlots }));
+    expect(html).toContain("smh-draw-card-leave");
+    expect(html).not.toContain("K♠");
+  });
+  it("provides touch targets only for editable slots in a shown hand", () => {
+    const html = renderToStaticMarkup(createElement(MobileStudCards, { hero: true, slots, onSlot: () => {}, editableIndexes: [0,1,6], labelPrefix: "Shown card" }));
+    expect(html.match(/<button/g)).toHaveLength(3);
+    expect(html).toContain('aria-label="Shown card 3 2♣ · locked"');
+    expect(html).toContain('aria-label="Shown card 7"');
+  });
+  it("does not expose future hero cards as setup controls", () => {
+    const html = renderToStaticMarkup(createElement(VerticalStudFelt, { players: setup().players, heroSeat: 0, dealerSeat: 2, cards: studRecorderCards(setup()), pot: 0, round: "Setup", onHeroCardSlot: () => {} }));
+    expect(html.match(/<button/g)).toHaveLength(3);
+    expect(html).not.toContain("BTN");
+  });
+  it("animates a muck without exposing anonymous values or moving its plate", () => {
+    const state = setup();
+    const previousCards = studRecorderCards(state);
+    previousCards[1][0].card = "K♠";
+    const cards = { ...previousCards, 1: previousCards[1].map((slot) => ({ ...slot, present: false, faceUp: false })) };
+    const html = renderToStaticMarkup(createElement(VerticalStudFelt, { players: state.players, heroSeat: 0, dealerSeat: 2, cards, previousCards, mucked: [1], pot: 10, round: "Showdown" }));
+    expect(html).toContain("smh-draw-card-leave");
+    expect(html).not.toContain("K♠");
+    expect(html).toContain("height:53px");
+  });
+  it("renders one shared river with all eight physical seats and hides mucked cards", () => {
+    const state = initialStudState({ playerCount: 8, heroSeat: 3 });
+    const cards = Object.fromEntries(state.players.map((player) => [player.seat, slots]));
+    const html = renderToStaticMarkup(createElement(VerticalStudFelt, { players: state.players, heroSeat: 3, dealerSeat: 7, cards, pot: 10, round: "Seventh street", mucked: [1], sharedCard: { present: true, visibility: "up", faceUp: true, card: "A♦" } }));
+    expect(html.match(/aria-label="Shared seventh card"/g)).toHaveLength(1);
+    expect(html.match(/data-stud-seat=/g)).toHaveLength(8);
+    expect(html.match(/aria-label="2♣"/g)).toHaveLength(7);
+  });
+  it("has a portrait arrangement for every table size, with a separate hero band", () => {
+    for (let count = 2; count <= 8; count++) {
+      const coords = mobileStudSeatCoords(count);
+      expect(coords).toHaveLength(count);
+      expect(coords[0]).toEqual({ left: 50, top: 90 });
+      expect(new Set(coords.map((point) => `${point.left},${point.top}`)).size).toBe(count);
+      expect(coords.slice(1).every((point) => point.top <= 64 && point.left >= 23 && point.left <= 77)).toBe(true);
+      expect(mobileStudFeltHeight(count)).toBeGreaterThanOrEqual(400);
+    }
   });
 });
 

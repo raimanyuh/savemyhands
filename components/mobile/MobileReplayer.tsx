@@ -33,6 +33,8 @@ import {
 import { useAnnotationEdit } from "@/lib/replayer/use-annotation-edit";
 import { VerticalFelt, type FeltViewState } from "./VerticalFelt";
 import VerticalDrawFelt from "./VerticalDrawFelt";
+import VerticalStudFelt, { mobileStudFeltHeight } from "./VerticalStudFelt";
+import { studStakesLabel } from "@/components/poker/stud-ui";
 import { drawRoundLabel } from "@/components/poker/single-draw-ui";
 import { ReplayDock } from "./ReplayDock";
 import { AnnotationBalloon } from "./AnnotationBalloon";
@@ -150,9 +152,9 @@ function MobileReplayerInner({
         }
         return s + 1;
       });
-    }, cur.draw?.kind === "deal" ? 140 : cur.draw?.stage === "discard" ? 750 : 1100);
+    }, cur.draw?.kind === "deal" || cur.stud?.kind === "deal" ? 140 : cur.stud?.kind === "shared-deal" ? 650 : cur.draw?.stage === "discard" ? 750 : 1100);
     return () => clearTimeout(t);
-  }, [playing, step, HAND, cur.draw]);
+  }, [playing, step, HAND, cur.draw, cur.stud]);
 
   const atShowdown = cur.street === "showdown";
   const heroPos = HAND.heroPosition ?? 0;
@@ -353,7 +355,7 @@ function MobileReplayerInner({
   return (
     <div
       className="flex flex-col h-[100dvh] w-full"
-      style={{ background: BG, color: "oklch(0.92 0 0)", minHeight: HAND.game.family === "draw" && N >= 6 ? 620 : undefined }}
+      style={{ background: BG, color: "oklch(0.92 0 0)", minHeight: HAND.game.family === "stud" ? mobileStudFeltHeight(N) + 176 : HAND.game.family === "draw" && N >= 6 ? 620 : undefined }}
     >
       {/* Header */}
       <header
@@ -410,11 +412,12 @@ function MobileReplayerInner({
               letterSpacing: "0.06em",
             }}
           >
-            {HAND.game.family === "draw" && HAND.game.variant === "2-7_TRIPLE_DRAW" ? `$${HAND.stakes.bb}/$${HAND.stakes.bb * 2} FL` : HAND.bombPotOn
+            {HAND.game.family === "stud" && HAND.studRules ? studStakesLabel(HAND.studRules) : HAND.game.family === "draw" && HAND.game.variant === "2-7_TRIPLE_DRAW" ? `$${HAND.stakes.bb}/$${HAND.stakes.bb * 2} FL` : HAND.bombPotOn
               ? `Bomb $${HAND.bombPotAmt}`
               : `$${HAND.stakes.sb}/$${HAND.stakes.bb}`}
             {` · ${N}-handed`}
             {HAND.game.family === "draw" ? HAND.game.variant === "2-7_TRIPLE_DRAW" ? " · 2–7 TD" : " · 2–7 SD" : ""}
+            {HAND.game.family === "stud" ? " · Stud High" : ""}
             {HAND.gameType && HAND.gameType !== "NLHE"
               ? ` · ${HAND.gameType}`
               : ""}
@@ -494,7 +497,13 @@ function MobileReplayerInner({
         className="flex-1 min-h-0 relative"
         style={{ padding: "8px 8px 0" }}
       >
-        {cur.draw ? <div className="absolute inset-x-2 top-2 bottom-[112px] min-h-[360px]">
+        {cur.stud ? <div className="absolute inset-x-2 top-2 bottom-[112px]" style={{ minHeight: mobileStudFeltHeight(N) }}>
+          <VerticalStudFelt players={HAND.players} heroSeat={heroPos} dealerSeat={HAND.studRules?.dealerSeat ?? N - 1} cards={cur.stud.cards}
+            previousCards={cur.stud.kind === "muck" ? HAND.steps[step - 1]?.stud?.cards : undefined} sharedCard={cur.stud.sharedCard}
+            pot={cur.pot} round={drawRoundLabel(cur.street)} active={cur.active} committed={committed} bets={streetBets}
+            folded={cur.stud.foldedSeats} mucked={cur.stud.muckedSeats} winnings={cur.stud.winnings}
+            labels={Object.fromEntries([...checkedSeats].map((seat) => [seat, "check"]))} />
+        </div> : cur.draw ? <div className="absolute inset-x-2 top-2 bottom-[112px] min-h-[360px]">
           <VerticalDrawFelt variant={HAND.game.family === "draw" ? HAND.game.variant : undefined} players={HAND.players} heroSeat={heroPos} cards={cur.draw.cards}
             previousCards={HAND.steps[step - 1]?.draw?.cards} pot={cur.pot} round={drawRoundLabel(cur.street)}
             active={cur.active} committed={committed} bets={streetBets}

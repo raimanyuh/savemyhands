@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useIsSideLayout } from "@/lib/use-is-side-layout";
+import { useIsMobile } from "@/lib/use-is-mobile";
+import MobileStudRecorder from "@/components/mobile/MobileStudRecorder";
 import type { ActionType } from "./engine";
 import { CardRow } from "./CardPicker";
 import NumericInput from "./NumericInput";
@@ -87,12 +89,13 @@ function StudDealPanel({ recorder }: { recorder: StudRecorderController }) {
   </div>;
 }
 
-/** Desktop Stud slice. Kept off format selectors until mobile and the
- * database migration/signed-in smoke test are ready. */
+/** Keep the controller mounted when switching between phone and desktop. */
 export default function StudRecorder({ initialDraft, onSwitchGame, onSaveAction, onSavedAction }: {
   initialDraft: StudDraft; onSwitchGame: () => void;
 } & StudSaveOptions) {
   const recorder = useStudRecorder(initialDraft, { onSaveAction, onSavedAction });
+  const { isMobile } = useIsMobile();
+  if (isMobile) return <MobileStudRecorder recorder={recorder} onSwitchGame={onSwitchGame} />;
   return <DesktopStudRecorder recorder={recorder} onSwitchGame={onSwitchGame} />;
 }
 
