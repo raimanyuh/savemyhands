@@ -16,6 +16,7 @@ export type BuildStudHandArgs = {
  * columns are compatibility containers; native Stud data lives in _full. */
 export function buildStudHand(args: BuildStudHandArgs): Omit<SavedHand, "id"> {
   const { state } = args;
+  if (state.variant !== "STUD_HIGH") throw new Error("This Stud variant is not ready to save");
   if (state.phase !== "showdown" && state.phase !== "done") throw new Error("Finish the hand before saving");
   if (!studResult(state).resolved) throw new Error("Every live hand must show or muck, and every pot needs a shown eligible winner");
   const [year, month, day] = args.date.split("-").map(Number);

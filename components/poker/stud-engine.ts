@@ -1,9 +1,10 @@
-// Seven-Card Stud High domain. No recorder format is exposed until its
+// Stud High and Razz domain. Each variant stays hidden until its
 // save/replay/UI adapters are complete. Seat numbers run clockwise; unlike
 // the community engine, they carry no blind/position semantics.
 import type { ActionType, SidePot } from "./engine";
 import type { CardId, CardVisibility, HandTimelineEvent } from "./game-format";
 import { compareHands, evaluateBest, type HandScore } from "./hand-eval";
+import { aceToFiveBoardScore, compareAceToFive, evaluateBestAceToFive } from "./ace-to-five-eval";
 
 export const STUD_STREETS = ["third-street", "fourth-street", "fifth-street", "sixth-street", "seventh-street"] as const;
 export type StudStreet = typeof STUD_STREETS[number];
@@ -15,8 +16,9 @@ export type StudLimitRules = {
   fourthStreetBigBet: boolean;
 };
 export type StudPlayer = { seat: number; name: string; stack: number; cards: StudCard[] };
+export type StudEngineVariant = "STUD_HIGH" | "RAZZ";
 export type StudCoreState = {
-  variant: "STUD_HIGH";
+  variant: StudEngineVariant;
   phase: StudPhase;
   street: StudStreet;
   playerCount: number;
@@ -64,9 +66,12 @@ export function undoStud(state: StudState): StudState {
 }
 
 export function initialStudState(args: {
+  variant?: StudEngineVariant;
   playerCount?: number; heroSeat?: number; dealerSeat?: number; stack?: number;
   ante?: number; bringIn?: number; smallBet?: number; limitRules?: StudLimitRules;
 } = {}): StudState {
+  const variant = args.variant ?? "STUD_HIGH";
+  if (variant !== "STUD_HIGH" && variant !== "RAZZ") throw new Error("Unsupported Stud variant");
   const playerCount = args.playerCount ?? 6;
   const heroSeat = args.heroSeat ?? 0;
   const dealerSeat = args.dealerSeat ?? playerCount - 1;
@@ -80,8 +85,8 @@ export function initialStudState(args: {
   if (![stack, ante, bringIn, smallBet].every(Number.isFinite) || stack <= 0 || ante < 0 || bringIn <= 0 || bringIn > smallBet) throw new Error("Invalid Stud stakes or stack");
   if (![4, 5].includes(limitRules.maxBets)) throw new Error("Choose a four- or five-bet cap");
   return {
-    variant: "STUD_HIGH", phase: "setup", street: "third-street", playerCount, heroSeat, dealerSeat,
-    ante, bringIn, smallBet, limitRules: { ...limitRules }, events: [], shownCards: {}, muckedSeats: [], history: [],
+    variant, phase: "setup", street: "third-street", playerCount, heroSeat, dealerSeat,
+    ante, bringIn, smallBet, limitRules: { ...limitRules, fourthStreetBigBet: variant === "STUD_HIGH" && limitRules.fourthStreetBigBet }, events: [], shownCards: {}, muckedSeats: [], history: [],
     players: Array.from({ length: playerCount }, (_, seat) => ({
       seat, name: seat === heroSeat ? "Hero" : "", stack,
       cards: [{ visibility: "down" }, { visibility: "down" }, { visibility: "up" }],
@@ -129,13 +134,15 @@ export function updateStudPlayer(state: StudState, seat: number, patch: { name?:
 export function studBringInSeat(state: StudCoreState): number | null {
   const order = clockwise(state, (state.dealerSeat + 1) % state.playerCount);
   if (state.players.some((player) => !player.cards[2]?.card)) return null;
-  const low = [...order].sort((a, b) => {
+  const ranks = state.variant === "RAZZ" ? "A23456789TJQK" : RANKS;
+  const opening = [...order].sort((a, b) => {
     const ca = state.players[a].cards[2].card!;
     const cb = state.players[b].cards[2].card!;
-    return RANKS.indexOf(ca[0]) - RANKS.indexOf(cb[0]) || SUITS.indexOf(ca[1]) - SUITS.indexOf(cb[1]);
+    const comparison = ranks.indexOf(ca[0]) - ranks.indexOf(cb[0]) || SUITS.indexOf(ca[1]) - SUITS.indexOf(cb[1]);
+    return state.variant === "RAZZ" ? -comparison : comparison;
   })[0];
   // An ante-all-in cannot post. Move clockwise, regardless of upcard rank.
-  return clockwise(state, low).find((seat) => state.players[seat].stack > state.ante) ?? null;
+  return clockwise(state, opening).find((seat) => state.players[seat].stack > state.ante) ?? null;
 }
 export function startStudHand(state: StudState, options: { complete?: boolean } = {}): StudState {
   if (state.phase !== "setup") throw new Error("The hand has already started");
@@ -166,9 +173,10 @@ function foldedBefore(state: StudCoreState, street?: StudStreet): Set<number> {
   const index = street ? STUD_STREETS.indexOf(street) : STUD_STREETS.length;
   return new Set(state.events.flatMap((event) => event.type === "action" && event.action === "fold" && STUD_STREETS.indexOf(event.round as StudStreet) < index ? [event.seat] : []));
 }
-/** Exposed pairs/trips/quads outrank high cards; straights/flushes do not
- * determine action order. Equal boards use deal order, never suit. */
-export function studBoardScore(cards: CardId[]): number[] {
+/** High boards prefer pairs/trips/quads, while Razz prefers unpaired low
+ * boards with aces low. Equal boards use deal order, never suit. */
+export function studBoardScore(cards: CardId[], variant: StudEngineVariant = "STUD_HIGH"): number[] {
+  if (variant === "RAZZ") return aceToFiveBoardScore(cards);
   const counts = new Map<number, number>();
   for (const card of cards) {
     assertCard(card);
@@ -197,11 +205,16 @@ export function studFirstToAct(state: StudCoreState, street = state.street): num
   }
   const folded = foldedBefore(state, street);
   const order = clockwise(state, (state.dealerSeat + 1) % state.playerCount).filter((seat) => !folded.has(seat));
-  return order.reduce<number | null>((best, seat) => best === null || compareBoard(studBoardScore(boardAt(state, seat, street)), studBoardScore(boardAt(state, best, street))) > 0 ? seat : best, null);
+  return order.reduce<number | null>((best, seat) => {
+    if (best === null) return seat;
+    const comparison = compareBoard(studBoardScore(boardAt(state, seat, street), state.variant), studBoardScore(boardAt(state, best, street), state.variant));
+    const better = state.variant === "RAZZ" ? comparison < 0 : comparison > 0;
+    return better ? seat : best;
+  }, null);
 }
 function fourthBigBetAvailable(state: StudCoreState, street: StudStreet): boolean {
   const folded = foldedBefore(state, street);
-  return street === "fourth-street" && state.limitRules.fourthStreetBigBet && state.players.some((player) =>
+  return state.variant === "STUD_HIGH" && street === "fourth-street" && state.limitRules.fourthStreetBigBet && state.players.some((player) =>
     !folded.has(player.seat) && studBoardScore(boardAt(state, player.seat, street))[0] > 0);
 }
 
@@ -432,10 +445,12 @@ export function studResult(state: StudCoreState): {
   const folded = foldedBefore(state);
   const survivors = state.players.filter((player) => !folded.has(player.seat));
   const showing = new Map<number, HandScore>();
+  const evaluate = state.variant === "RAZZ" ? evaluateBestAceToFive : evaluateBest;
+  const compare = state.variant === "RAZZ" ? compareAceToFive : compareHands;
   for (const player of survivors) {
     if (state.muckedSeats.includes(player.seat)) continue;
     const cards = state.shownCards[player.seat] ?? (player.seat === state.heroSeat ? player.cards.flatMap((slot) => slot.card ? [slot.card] : []) : []);
-    if (cards.length === (state.sharedSeventh ? 6 : 7)) showing.set(player.seat, evaluateBest([...cards, ...(state.sharedSeventh ? [state.sharedSeventh] : [])]));
+    if (cards.length === (state.sharedSeventh ? 6 : 7)) showing.set(player.seat, evaluate([...cards, ...(state.sharedSeventh ? [state.sharedSeventh] : [])]));
   }
   const levels = [...new Set(Object.values(committed).filter((amount) => amount > 0))].sort((a, b) => a - b);
   const awards: StudPotAward[] = [];
@@ -449,8 +464,8 @@ export function studResult(state: StudCoreState): {
     let winners: number[] = [];
     if (survivors.length === 1) winners = [survivors[0].seat];
     else if (eligibleShowing.length) {
-      const best = eligibleShowing.reduce((a, b) => compareHands(showing.get(a)!, showing.get(b)!) >= 0 ? a : b);
-      winners = eligibleShowing.filter((seat) => compareHands(showing.get(seat)!, showing.get(best)!) === 0);
+      const best = eligibleShowing.reduce((a, b) => compare(showing.get(a)!, showing.get(b)!) >= 0 ? a : b);
+      winners = eligibleShowing.filter((seat) => compare(showing.get(seat)!, showing.get(best)!) === 0);
     }
     const last = awards.at(-1);
     if (last && last.eligibleSeats.join() === eligibleSeats.join()) last.amount += amount;

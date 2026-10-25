@@ -26,7 +26,7 @@ export function changeStudSetup(state: StudState, patch: StudSetupPatch): StudSt
   if (state.phase !== "setup") throw new Error("Setup is locked during play");
   const playerCount = patch.playerCount ?? state.playerCount;
   const heroSeat = Math.min(patch.heroSeat ?? state.heroSeat, playerCount - 1);
-  let next = initialStudState({ playerCount, heroSeat, dealerSeat: Math.min(patch.dealerSeat ?? state.dealerSeat, playerCount - 1),
+  let next = initialStudState({ variant: state.variant, playerCount, heroSeat, dealerSeat: Math.min(patch.dealerSeat ?? state.dealerSeat, playerCount - 1),
     ante: patch.ante ?? state.ante, bringIn: patch.bringIn ?? state.bringIn, smallBet: patch.smallBet ?? state.smallBet,
     limitRules: patch.limitRules ?? state.limitRules,
   });
