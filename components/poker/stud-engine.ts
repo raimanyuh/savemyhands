@@ -1,10 +1,11 @@
-// Stud High and Razz domain. Each variant stays hidden until its
+// Stud High, Razz and Stud/8 domain. Each variant stays hidden until its
 // save/replay/UI adapters are complete. Seat numbers run clockwise; unlike
 // the community engine, they carry no blind/position semantics.
 import type { ActionType, SidePot } from "./engine";
 import type { CardId, CardVisibility, HandTimelineEvent } from "./game-format";
 import { compareHands, evaluateBest, type HandScore } from "./hand-eval";
 import { aceToFiveBoardScore, compareAceToFive, evaluateBestAceToFive } from "./ace-to-five-eval";
+import { evaluateBestEightOrBetter } from "./eight-or-better-eval";
 
 export const STUD_STREETS = ["third-street", "fourth-street", "fifth-street", "sixth-street", "seventh-street"] as const;
 export type StudStreet = typeof STUD_STREETS[number];
@@ -16,7 +17,7 @@ export type StudLimitRules = {
   fourthStreetBigBet: boolean;
 };
 export type StudPlayer = { seat: number; name: string; stack: number; cards: StudCard[] };
-export type StudEngineVariant = "STUD_HIGH" | "RAZZ";
+export type StudEngineVariant = "STUD_HIGH" | "RAZZ" | "STUD_HILO_8";
 export type StudCoreState = {
   variant: StudEngineVariant;
   phase: StudPhase;
@@ -72,7 +73,7 @@ export function initialStudState(args: {
   ante?: number; bringIn?: number; smallBet?: number; limitRules?: StudLimitRules;
 } = {}): StudState {
   const variant = args.variant ?? "STUD_HIGH";
-  if (variant !== "STUD_HIGH" && variant !== "RAZZ") throw new Error("Unsupported Stud variant");
+  if (variant !== "STUD_HIGH" && variant !== "RAZZ" && variant !== "STUD_HILO_8") throw new Error("Unsupported Stud variant");
   const playerCount = args.playerCount ?? 6;
   const heroSeat = args.heroSeat ?? 0;
   const dealerSeat = args.dealerSeat ?? playerCount - 1;
@@ -383,6 +384,7 @@ export function recordStudDeal(state: StudState, input: { seat: number; card?: C
 /** Legacy replay restoration only. New recorder flows deal individual rivers.
  * Keep the original shared event so existing saves do not change their result. */
 export function restoreLegacyStudSharedSeventh(state: StudState, card: CardId): StudState {
+  if (state.variant === "STUD_HILO_8") throw new Error("Stud/8 requires individual seventh cards");
   if (state.phase !== "deal" || state.street !== "seventh-street" || state.sharedSeventh || state.players.some((player) => player.cards.length > 6)) throw new Error("Record a shared seventh card before individual river cards");
   assertCard(card);
   if (unavailableStudCards(state).has(card)) throw new Error(`Card is already in use: ${card}`);
@@ -436,7 +438,18 @@ export function setStudMucked(state: StudState, seat: number, mucked = true): St
   return commit(state, next);
 }
 
-export type StudPotAward = SidePot & { winners: number[] };
+export type StudPotAward = SidePot & {
+  winners: number[];
+  /** Contested Stud/8 pots name each awarded portion. Without a qualifying
+   * low, the high portion is the whole pot. Uncontested pots need no split. */
+  portion?: "high" | "low";
+};
+function winningSeats(eligible: number[], showing: Map<number, HandScore>, compare: (a: HandScore, b: HandScore) => number): number[] {
+  const seats = eligible.filter((seat) => showing.has(seat));
+  if (!seats.length) return [];
+  const best = seats.reduce((a, b) => compare(showing.get(a)!, showing.get(b)!) >= 0 ? a : b);
+  return seats.filter((seat) => compare(showing.get(seat)!, showing.get(best)!) === 0);
+}
 export function studResult(state: StudCoreState): {
   resolved: boolean; committed: Record<number, number>; totalPot: number;
   awards: StudPotAward[]; winnings: Record<number, number>;
@@ -445,32 +458,44 @@ export function studResult(state: StudCoreState): {
   const folded = foldedBefore(state);
   const survivors = state.players.filter((player) => !folded.has(player.seat));
   const showing = new Map<number, HandScore>();
+  const lowShowing = new Map<number, HandScore>();
   const evaluate = state.variant === "RAZZ" ? evaluateBestAceToFive : evaluateBest;
   const compare = state.variant === "RAZZ" ? compareAceToFive : compareHands;
   for (const player of survivors) {
     if (state.muckedSeats.includes(player.seat)) continue;
     const cards = state.shownCards[player.seat] ?? (player.seat === state.heroSeat ? player.cards.flatMap((slot) => slot.card ? [slot.card] : []) : []);
-    if (cards.length === (state.sharedSeventh ? 6 : 7)) showing.set(player.seat, evaluate([...cards, ...(state.sharedSeventh ? [state.sharedSeventh] : [])]));
+    if (cards.length === (state.sharedSeventh ? 6 : 7)) {
+      const holding = [...cards, ...(state.sharedSeventh ? [state.sharedSeventh] : [])];
+      showing.set(player.seat, evaluate(holding));
+      if (state.variant === "STUD_HILO_8") {
+        const low = evaluateBestEightOrBetter(holding);
+        if (low) lowShowing.set(player.seat, low);
+      }
+    }
   }
   const levels = [...new Set(Object.values(committed).filter((amount) => amount > 0))].sort((a, b) => a - b);
-  const awards: StudPotAward[] = [];
+  const pots: SidePot[] = [];
   let previous = 0;
   for (const level of levels) {
     const contributors = state.players.filter((player) => (committed[player.seat] ?? 0) >= level - EPSILON);
     const eligibleSeats = contributors.filter((player) => !folded.has(player.seat)).map((player) => player.seat);
     const amount = (level - previous) * contributors.length;
     previous = level;
-    const eligibleShowing = eligibleSeats.filter((seat) => showing.has(seat));
-    let winners: number[] = [];
-    if (survivors.length === 1) winners = [survivors[0].seat];
-    else if (eligibleShowing.length) {
-      const best = eligibleShowing.reduce((a, b) => compare(showing.get(a)!, showing.get(b)!) >= 0 ? a : b);
-      winners = eligibleShowing.filter((seat) => compare(showing.get(seat)!, showing.get(best)!) === 0);
-    }
-    const last = awards.at(-1);
+    const last = pots.at(-1);
     if (last && last.eligibleSeats.join() === eligibleSeats.join()) last.amount += amount;
-    else awards.push({ amount, eligibleSeats, winners });
+    else pots.push({ amount, eligibleSeats });
   }
+  const awards = pots.flatMap<StudPotAward>((pot) => {
+    if (survivors.length === 1) return [{ ...pot, winners: [survivors[0].seat] }];
+    const winners = winningSeats(pot.eligibleSeats, showing, compare);
+    if (state.variant !== "STUD_HILO_8") return [{ ...pot, winners }];
+    const lowWinners = winningSeats(pot.eligibleSeats, lowShowing, compareAceToFive);
+    if (!lowWinners.length) return [{ ...pot, winners, portion: "high" }];
+    return [
+      { ...pot, amount: pot.amount / 2, winners, portion: "high" },
+      { ...pot, amount: pot.amount / 2, winners: lowWinners, portion: "low" },
+    ];
+  });
   const resolved = (state.phase === "showdown" || state.phase === "done") &&
     (survivors.length === 1 || survivors.every((player) => showing.has(player.seat) || state.muckedSeats.includes(player.seat))) && awards.every((pot) => pot.winners.length > 0);
   const winnings: Record<number, number> = {};

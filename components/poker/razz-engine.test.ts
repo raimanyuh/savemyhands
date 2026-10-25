@@ -53,7 +53,7 @@ function revealAll(state: StudState, holdings = hands) {
 describe("Razz domain", () => {
   it("opts in explicitly, preserves the variant through setup/undo, and rejects unsupported variants", () => {
     expect(initialStudState().variant).toBe("STUD_HIGH");
-    expect(() => initialStudState({ variant: "STUD_HILO_8" as never })).toThrow("Unsupported");
+    expect(() => initialStudState({ variant: "UNKNOWN_STUD" as never })).toThrow("Unsupported");
     const state = setup();
     const changed = changeStudSetup(state, { heroSeat: 1, ante: .5 });
     expect(changed).toMatchObject({ variant: "RAZZ", ante: .5, heroSeat: 1, limitRules: { fourthStreetBigBet: false } });
