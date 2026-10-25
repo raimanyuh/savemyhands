@@ -5,7 +5,7 @@ import { initialState } from "./engine";
 import { CardRow } from "./CardPicker";
 import StudTable, { StudCards, studSeatXY } from "./StudTable";
 import VerticalStudFelt, { MobileStudCards, mobileStudSeatCoords, mobileStudFeltHeight } from "@/components/mobile/VerticalStudFelt";
-import { changeStudSetup, missingStudSetupSeats, studDraftFromCommunity, studRecorderCards, studSizing } from "./stud-ui";
+import { changeStudSetup, missingStudSetupSeats, studDraftFromCommunity, studGameLabel, studRecorderCards, studSizing } from "./stud-ui";
 import {
   deriveStudBetting, initialStudState, setStudStartingCards, startStudHand,
   undoStud, updateStudPlayer,
@@ -19,6 +19,28 @@ function setup() {
   return setStudStartingCards(state, 2, [null,null,"J♣"]);
 }
 describe("Stud UI state derivations", () => {
+  it("starts a Razz draft with low rules while retaining table profiles and metadata", () => {
+    const source = initialState();
+    source.heroPosition = 2;
+    source.players[2].name = "Low hero";
+    source.handName = "Razz night";
+    const draft = studDraftFromCommunity(source, "RAZZ");
+    expect(draft).toMatchObject({ name: "Razz night", state: { variant: "RAZZ", heroSeat: 2, limitRules: { fourthStreetBigBet: false } } });
+    expect(draft.state.players[2].name).toBe("Low hero");
+    expect(studGameLabel(draft.state.variant)).toBe("Razz");
+    expect(studGameLabel("STUD_HIGH", true)).toBe("Stud High");
+  });
+  it("labels both Razz felts correctly and leaves every undealt slot empty", () => {
+    const state = studDraftFromCommunity(initialState(), "RAZZ").state;
+    const props = { variant: "RAZZ" as const, players: state.players, heroSeat: state.heroSeat, dealerSeat: state.dealerSeat, cards: studRecorderCards(state), pot: 0, round: "Setup" };
+    for (const Felt of [StudTable, VerticalStudFelt]) {
+      const html = renderToStaticMarkup(createElement(Felt, props));
+      expect(html).toContain("Razz");
+      expect(html).not.toContain("Stud High");
+      expect(html).not.toContain("Shared 7th");
+      expect(html).toContain("Empty card slot");
+    }
+  });
   it("retains names, stacks and metadata when switching families, with a fresh three-card holding", () => {
     const community = initialState();
     community.heroPosition = 2;

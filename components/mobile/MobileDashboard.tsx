@@ -73,11 +73,13 @@ export default function MobileDashboard({
   signOutAction,
   initialHands,
   enableStud = false,
+  enableRazz = false,
 }: {
   initialUsername: string | null;
   signOutAction?: () => void | Promise<void>;
   initialHands: SavedHand[];
   enableStud?: boolean;
+  enableRazz?: boolean;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -102,8 +104,8 @@ export default function MobileDashboard({
 
   // Distinct filter values discovered from the dataset.
   const filterOptions = useMemo(
-    () => buildFilterOptions(hands, enableStud),
-    [hands, enableStud],
+    () => buildFilterOptions(hands, enableStud, enableRazz),
+    [hands, enableStud, enableRazz],
   );
   const allTags = useMemo(
     () => [...new Set(hands.flatMap((h) => h.tags))].sort(),
@@ -1399,7 +1401,7 @@ const emptyFilterState: FilterState = {
   doubleBoard: new Set(),
 };
 
-function buildFilterOptions(hands: SavedHand[], enableStud: boolean) {
+function buildFilterOptions(hands: SavedHand[], enableStud: boolean, enableRazz: boolean) {
   const venues = new Set<string>();
   const stakes = new Set<string>();
   const tags = new Set<string>();
@@ -1441,7 +1443,7 @@ function buildFilterOptions(hands: SavedHand[], enableStud: boolean) {
       { value: "yes", label: "Multiway" },
       { value: "no", label: "Heads-up" },
     ],
-    gameType: dashboardGameOptions(enableStud),
+    gameType: dashboardGameOptions(enableStud, enableRazz),
     doubleBoard: [
       { value: "single", label: "Single board" },
       { value: "double", label: "Double board" },

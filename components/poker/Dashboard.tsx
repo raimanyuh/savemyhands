@@ -949,6 +949,7 @@ export default function Dashboard({
   signOutAction,
   initialHands,
   enableStud = false,
+  enableRazz = false,
 }: {
   // The signed-in user's @username, or null if they haven't picked one yet.
   initialUsername: string | null;
@@ -956,6 +957,7 @@ export default function Dashboard({
   // Hands fetched on the server for the signed-in user.
   initialHands: SavedHand[];
   enableStud?: boolean;
+  enableRazz?: boolean;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -1038,13 +1040,13 @@ export default function Dashboard({
         { value: "yes", label: "Multiway" },
         { value: "no", label: "Heads-up" },
       ],
-      gameType: dashboardGameOptions(enableStud),
+      gameType: dashboardGameOptions(enableStud, enableRazz),
       doubleBoard: [
         { value: "single", label: "Single board" },
         { value: "double", label: "Double board" },
       ],
     };
-  }, [hands, enableStud]);
+  }, [hands, enableStud, enableRazz]);
 
   const filtered = useMemo(() => {
     return hands.filter((h) => {

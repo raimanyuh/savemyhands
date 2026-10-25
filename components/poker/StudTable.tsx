@@ -5,6 +5,8 @@ import FannedPlayingCard from "./FannedPlayingCard";
 import { scaled } from "./scale";
 import { BetBubble, DealerButtonChip, NameDisplay, StackDisplay, TableSurface } from "./table-pieces";
 import type { StudReplayCard } from "./stud-replay";
+import type { StudVariant } from "./game-format";
+import { studGameLabel } from "./stud-ui";
 
 export function studSeatXY(visualSeat: number, count: number) {
   if (visualSeat === 0) return { left: 50, top: 89 };
@@ -47,11 +49,12 @@ export function StudCards({ slots, previousSlots, hero = false }: {
   </div>;
 }
 
-export default function StudTable({ players, heroSeat, dealerSeat, cards, sharedCard, pot, round, active,
+export default function StudTable({ players, heroSeat, dealerSeat, cards, sharedCard, pot, round, active, variant = "STUD_HIGH",
   committed = {}, bets = {}, folded = [], mucked = [], labels = {}, winnings = {}, previousCards,
   onEditPlayer, onEditCards, heroCards,
 }: {
   players: { seat: number; name: string; stack: number }[];
+  variant?: StudVariant;
   heroSeat: number; dealerSeat: number; cards: Record<number, StudReplayCard[]>; sharedCard?: StudReplayCard;
   previousCards?: Record<number, StudReplayCard[]>; pot: number; round: string; active?: number | null;
   committed?: Record<number, number>; bets?: Record<number, number>; folded?: number[]; mucked?: number[];
@@ -64,7 +67,7 @@ export default function StudTable({ players, heroSeat, dealerSeat, cards, shared
   return <TableSurface className={count >= 6 ? "smh-stud-dense" : undefined} aspectRatio={count >= 6 ? "var(--smh-stud-aspect)" : "2 / 1"}>
     <div className="absolute -translate-x-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none" style={{ left: "50%", top: "48%", gap: scaled(22) }}>
       <div className="flex flex-col items-center text-center" style={{ gap: scaled(7) }}>
-        <span className="uppercase tracking-[.18em] font-semibold text-emerald-100/45" style={{ fontSize: scaled(11) }}>Seven-Card Stud</span>
+        <span className="uppercase tracking-[.18em] font-semibold text-emerald-100/45" style={{ fontSize: scaled(11) }}>{studGameLabel(variant)}</span>
         <span className="rounded-lg border border-white/15 bg-zinc-950/80 text-white tabular-nums font-semibold" style={{ padding: `${scaled(6)} ${scaled(15)}`, fontSize: scaled(24) }}>${pot.toLocaleString()}</span>
         <span className="uppercase tracking-wider text-white/40 whitespace-nowrap" style={{ fontSize: scaled(10) }}>{round}</span>
       </div>

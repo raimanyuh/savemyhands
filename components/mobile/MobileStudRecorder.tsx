@@ -14,7 +14,7 @@ import {
   advanceStudPhase, recordStudAction, recordStudDeal, setStudMucked, setStudShownCards,
   setStudStartingCards, startStudHand, studBringInSeat, unavailableStudCards, updateStudPlayer, type StudState,
 } from "@/components/poker/stud-engine";
-import { changeStudSetup, missingStudSetupSeats, nextStudPhaseLabel, studLogEntries, studSizing, studStakesLabel } from "@/components/poker/stud-ui";
+import { changeStudSetup, missingStudSetupSeats, nextStudPhaseLabel, studGameLabel, studLogEntries, studSizing, studStakesLabel } from "@/components/poker/stud-ui";
 import { studRoundLabel, type StudReplayCard } from "@/components/poker/stud-replay";
 import type { StudRecorderController } from "@/components/poker/use-stud-recorder";
 import { CardPickerSheet } from "./CardPickerSheet";
@@ -103,7 +103,7 @@ export default function MobileStudRecorder({ recorder, onSwitchGame }: { recorde
       <Button variant="ghost" size="icon" className="size-11" aria-label="Back to dashboard" onClick={async () => {
         if (await confirm({ title: "Leave without saving?", message: "Your in-progress recording will be lost.", confirmLabel: "Leave", destructive: true })) { startRouteProgress(); router.push("/dashboard"); }
       }}><ChevronLeft size={22} /></Button>
-      <button type="button" aria-label="Edit hand details" className="flex-1 min-w-0 text-left" disabled={saving} onClick={() => setDetailsOpen(true)}><p className="text-sm font-semibold truncate">{name || "Untitled hand"}</p><p className="text-[9px] text-emerald-300 truncate">Stud High · {studStakesLabel(state)}</p></button>
+      <button type="button" aria-label="Edit hand details" className="flex-1 min-w-0 text-left" disabled={saving} onClick={() => setDetailsOpen(true)}><p className="text-sm font-semibold truncate">{name || "Untitled hand"}</p><p className="text-[9px] text-emerald-300 truncate">{studGameLabel(state.variant, true)} · {studStakesLabel(state)}</p></button>
       <Button variant="ghost" size="icon" className="size-11" aria-label="Notes and hand details" disabled={saving} onClick={() => setDetailsOpen(true)}><FileText size={18} /></Button>
     </header>
     <div className="flex items-center gap-2 px-3 py-2 text-xs">
@@ -112,7 +112,7 @@ export default function MobileStudRecorder({ recorder, onSwitchGame }: { recorde
     </div>
     <fieldset disabled={saving} className="contents">
       <div className="px-2 shrink-0" style={{ height: `max(${mobileStudFeltHeight(state.playerCount)}px, calc(100dvh - 350px))` }}>
-        <VerticalStudFelt players={state.players} heroSeat={state.heroSeat} dealerSeat={state.dealerSeat} cards={cards} pot={pot} round={round} active={activeSeat}
+        <VerticalStudFelt variant={state.variant} players={state.players} heroSeat={state.heroSeat} dealerSeat={state.dealerSeat} cards={cards} pot={pot} round={round} active={activeSeat}
           committed={committed} bets={betting?.bets} folded={folded} mucked={state.muckedSeats} labels={labels}
           onEditSeat={setup ? () => setSetupOpen(true) : undefined} onHeroCardSlot={setup ? (index) => chooseStarting(state.heroSeat, index) : undefined} />
       </div>
@@ -162,7 +162,8 @@ export default function MobileStudRecorder({ recorder, onSwitchGame }: { recorde
         <p className="text-xs text-zinc-500">Big bet: ${state.smallBet * 2}. Cards are dealt clockwise after the last seat dealt; tied exposed boards use this order.</p>
         <label className="text-xs text-zinc-400">Bet cap<select aria-label="Bet cap" className={selectClass} value={state.limitRules.maxBets} onChange={(event) => changeSetup({ limitRules: { ...state.limitRules, maxBets: Number(event.target.value) as 4 | 5 } })}><option value={4}>4 bets (bet + 3 raises)</option><option value={5}>5 bets (bet + 4 raises)</option></select></label>
         <div className="flex items-center gap-3 text-xs text-zinc-300"><Checkbox checked={state.limitRules.headsUpUncapped} ariaLabel="Uncapped when a round starts heads-up" onChange={(headsUpUncapped) => changeSetup({ limitRules: { ...state.limitRules, headsUpUncapped } })} className="size-5" /><span>Uncapped when a round starts heads-up</span></div>
-        <div className="flex items-center gap-3 text-xs text-zinc-300"><Checkbox checked={state.limitRules.fourthStreetBigBet} ariaLabel="Allow a fourth-street big bet with an open pair" onChange={(fourthStreetBigBet) => changeSetup({ limitRules: { ...state.limitRules, fourthStreetBigBet } })} className="size-5" /><span>Allow a fourth-street big bet with an open pair</span></div>
+        {state.variant === "STUD_HIGH" && <div className="flex items-center gap-3 text-xs text-zinc-300"><Checkbox checked={state.limitRules.fourthStreetBigBet} ariaLabel="Allow a fourth-street big bet with an open pair" onChange={(fourthStreetBigBet) => changeSetup({ limitRules: { ...state.limitRules, fourthStreetBigBet } })} className="size-5" /><span>Allow a fourth-street big bet with an open pair</span></div>}
+        {state.variant === "RAZZ" && <p className="text-xs text-emerald-200">Lowest five-card hand wins; aces are low and straights/flushes do not count. Highest door card brings in; lowest exposed hand acts first afterward.</p>}
         {state.players.map((player) => <div key={player.seat} className="grid grid-cols-[28px_1fr_84px] items-center gap-2"><span className="text-xs text-zinc-400">S{player.seat + 1}</span><Input aria-label={`S${player.seat + 1} name`} className="h-11" value={player.name} onChange={(event) => apply((value) => updateStudPlayer(value, player.seat, { name: event.target.value }))} /><NumericInput aria-label={`S${player.seat + 1} stack`} className="h-11" value={player.stack} min={.01} step="any" onCommit={(stack) => apply((value) => updateStudPlayer(value, player.seat, { stack }))} /></div>)}
         <Button variant="outline" className="h-11" onClick={onSwitchGame}>Hold’em / Omaha</Button>
       </div>

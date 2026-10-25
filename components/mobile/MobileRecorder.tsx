@@ -50,9 +50,10 @@ const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
 const BG = "oklch(0.145 0 0)";
 
-export default function MobileRecorder({ initialSetup, onSelectSingleDraw, onSelectStud }: {
+export default function MobileRecorder({ initialSetup, onSelectSingleDraw, onSelectStud, onSelectRazz }: {
   initialSetup?: RecorderState; onSelectSingleDraw?: (state: RecorderState) => void;
   onSelectStud?: (state: RecorderState) => void;
+  onSelectRazz?: (state: RecorderState) => void;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -992,6 +993,7 @@ export default function MobileRecorder({ initialSetup, onSelectSingleDraw, onSel
         dispatch={dispatch}
         onSelectSingleDraw={onSelectSingleDraw ? () => onSelectSingleDraw(state) : undefined}
         onSelectStud={onSelectStud ? () => onSelectStud(state) : undefined}
+        onSelectRazz={onSelectRazz ? () => onSelectRazz(state) : undefined}
       />
 
       {/* Rename sheet — opens from header title tap. Editable any

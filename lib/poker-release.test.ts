@@ -43,6 +43,7 @@ async function ogHtml() {
 }
 beforeEach(() => {
   vi.stubEnv("ENABLE_STUD_HIGH", "");
+  vi.stubEnv("ENABLE_RAZZ", "");
   mocks.getUser.mockResolvedValue({ data: { user: { id: "owner" } } });
   mocks.getHandForViewing.mockResolvedValue({ hand: studHand(), isOwner: true, isAuthenticated: true, ownerUsername: "owner" });
   mocks.listMyHands.mockResolvedValue([]);
@@ -84,7 +85,7 @@ describe("Stud release routing", () => {
     expect(await generateMetadata(params)).toEqual({ title: "Hand" });
     expect(await ogHtml()).not.toContain("Stud release check");
   });
-  it("continues rejecting unfinished Razz and Stud/8 variants", async () => {
+  it("keeps Razz disabled without its own flag and Stud/8 unavailable", async () => {
     vi.stubEnv("ENABLE_STUD_HIGH", "true");
     for (const variant of ["RAZZ", "STUD_HILO_8"] as const) {
       const hand = studHand();
@@ -95,7 +96,7 @@ describe("Stud release routing", () => {
       expect(await ogHtml()).not.toContain("Stud release check");
     }
   });
-  it("keeps a valid Razz adapter payload hidden from routes, metadata and social previews", async () => {
+  it("gates Razz entry, routes, metadata and social previews independently of Stud High", async () => {
     vi.stubEnv("ENABLE_STUD_HIGH", "true");
     let state = initialStudState({ variant: "RAZZ", playerCount: 2 });
     state = setStudStartingCards(state, 0, ["A♠", "K♥", "2♣"]);
@@ -107,6 +108,15 @@ describe("Stud release routing", () => {
     await expect(HandPage(params)).rejects.toThrow("NOT_FOUND");
     expect(await generateMetadata(params)).toEqual({ title: "Hand" });
     expect(await ogHtml()).not.toContain("Unreleased Razz");
+    vi.stubEnv("ENABLE_STUD_HIGH", "");
+    vi.stubEnv("ENABLE_RAZZ", "true");
+    expect((await RecordPage()).props).toMatchObject({ enableStud: false, enableRazz: true });
+    expect((await DashboardPage()).props).toMatchObject({ enableStud: false, enableRazz: true });
+    const page = await HandPage(params);
+    expect(page.props.hand.game.variant).toBe("RAZZ");
+    expect(await generateMetadata(params)).toEqual({ title: "Unreleased Razz" });
+    expect(await ogHtml()).toContain("Razz");
+    expect(await ogHtml()).not.toContain("Preflop");
   });
   it("keeps the community sample available when Stud is disabled", async () => {
     const page = await HandPage({ params: Promise.resolve({ id: SAMPLE_HAND_ID }) });
@@ -120,6 +130,8 @@ describe("Native game release previews", () => {
   it("offers Stud High in shared filters only after enabling it, never unfinished variants", () => {
     expect(dashboardGameOptions().some((option) => option.value === "STUD_HIGH")).toBe(false);
     expect(dashboardGameOptions(true).filter((option) => option.value.startsWith("STUD") || option.value === "RAZZ")).toEqual([{ value: "STUD_HIGH", label: "Seven-Card Stud High" }]);
+    expect(dashboardGameOptions(false, true).filter((option) => option.value.startsWith("STUD") || option.value === "RAZZ")).toEqual([{ value: "RAZZ", label: "Razz" }]);
+    expect(dashboardGameOptions(true, true).some((option) => option.value === "STUD_HILO_8")).toBe(false);
   });
   it("shows six personal cards plus a labeled shared seventh in both dashboard sizes", () => {
     for (const size of ["sm", "md"] as const) {

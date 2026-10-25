@@ -3,6 +3,8 @@
 import type { CSSProperties } from "react";
 import FannedPlayingCard from "@/components/poker/FannedPlayingCard";
 import type { StudReplayCard } from "@/components/poker/stud-replay";
+import type { StudVariant } from "@/components/poker/game-format";
+import { studGameLabel } from "@/components/poker/stud-ui";
 
 /** Seven ordered slots. Visibility is physical; faceUp controls identity. */
 export function MobileStudCards({ slots, previousSlots, hero = false, onSlot, editableIndexes, labelPrefix = "Card" }: {
@@ -52,22 +54,23 @@ export function mobileStudSeatCoords(count: number): { left: number; top: number
   }
 }
 
-export default function VerticalStudFelt({ players, heroSeat, dealerSeat, cards, previousCards, sharedCard, pot, round, active,
+export default function VerticalStudFelt({ players, heroSeat, dealerSeat, cards, previousCards, sharedCard, pot, round, active, variant = "STUD_HIGH",
   committed = {}, bets = {}, folded = [], mucked = [], labels = {}, winnings = {}, onEditSeat, onHeroCardSlot,
 }: {
   players: { seat: number; name: string; stack: number }[]; heroSeat: number; dealerSeat: number;
+  variant?: StudVariant;
   cards: Record<number, StudReplayCard[]>; previousCards?: Record<number, StudReplayCard[]>; sharedCard?: StudReplayCard;
   pot: number; round: string; active?: number | null; committed?: Record<number, number>; bets?: Record<number, number>;
   folded?: number[]; mucked?: number[]; labels?: Record<number, string>; winnings?: Record<number, number>;
   onEditSeat?: (seat: number) => void; onHeroCardSlot?: (index: number) => void;
 }) {
   const coords = mobileStudSeatCoords(players.length);
-  return <div aria-label="Seven-Card Stud table" className="relative w-full h-full rounded-3xl overflow-hidden" style={{
+  return <div aria-label={`${studGameLabel(variant)} table`} className="relative w-full h-full rounded-3xl overflow-hidden" style={{
     background: "radial-gradient(ellipse 70% 95% at 50% 50%, var(--smh-mobile-felt-top), var(--smh-mobile-felt-bottom))",
     boxShadow: "0 4px 24px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.06)",
   }}>
     <div className="absolute left-1/2 top-[41%] -translate-x-1/2 text-center pointer-events-none">
-      <p className="text-[8px] uppercase tracking-widest text-emerald-100/45">Stud High</p><p className="text-lg font-semibold text-white tabular-nums">${pot.toLocaleString()}</p>
+      <p className="text-[8px] uppercase tracking-widest text-emerald-100/45">{studGameLabel(variant, true)}</p><p className="text-lg font-semibold text-white tabular-nums">${pot.toLocaleString()}</p>
       <p className="text-[8px] uppercase text-white/45 max-w-16 mx-auto">{round}</p>
       {sharedCard?.present && <div aria-label="Shared seventh card" className="mt-2 flex flex-col items-center gap-1"><span className="text-[8px] text-emerald-200">Shared 7th</span><MobileStudCards slots={[sharedCard]} /></div>}
     </div>

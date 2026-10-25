@@ -35,11 +35,14 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
-## Stud High release
+## Stud release flags
 
 `ENABLE_STUD_HIGH=true` enables Seven-Card Stud High on the server, including
 desktop/mobile recorder entry points, dashboard filters, replay routes and
-social previews. It defaults off. Razz and Stud/8 remain unavailable.
+social previews. `ENABLE_RAZZ=true` independently enables the complete Razz
+recorder/replayer, dashboard filters and social previews. Both default off.
+Stud/8 remains unavailable. Set each flag only after verifying that format
+in the target environment; local QA flags do not enable a deployed release.
 
 New Stud recordings deal an individual seventh downcard to each live seat.
 The recorder assumes the dealer can supply those cards and does not infer

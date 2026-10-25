@@ -34,7 +34,7 @@ import { useAnnotationEdit } from "@/lib/replayer/use-annotation-edit";
 import { VerticalFelt, type FeltViewState } from "./VerticalFelt";
 import VerticalDrawFelt from "./VerticalDrawFelt";
 import VerticalStudFelt, { mobileStudFeltHeight } from "./VerticalStudFelt";
-import { studStakesLabel } from "@/components/poker/stud-ui";
+import { studGameLabel, studStakesLabel } from "@/components/poker/stud-ui";
 import { drawRoundLabel } from "@/components/poker/single-draw-ui";
 import { ReplayDock } from "./ReplayDock";
 import { AnnotationBalloon } from "./AnnotationBalloon";
@@ -417,7 +417,7 @@ function MobileReplayerInner({
               : `$${HAND.stakes.sb}/$${HAND.stakes.bb}`}
             {` · ${N}-handed`}
             {HAND.game.family === "draw" ? HAND.game.variant === "2-7_TRIPLE_DRAW" ? " · 2–7 TD" : " · 2–7 SD" : ""}
-            {HAND.game.family === "stud" ? " · Stud High" : ""}
+            {HAND.game.family === "stud" ? ` · ${studGameLabel(HAND.game.variant, true)}` : ""}
             {HAND.gameType && HAND.gameType !== "NLHE"
               ? ` · ${HAND.gameType}`
               : ""}
@@ -498,7 +498,7 @@ function MobileReplayerInner({
         style={{ padding: "8px 8px 0" }}
       >
         {cur.stud ? <div className="absolute inset-x-2 top-2 bottom-[112px]" style={{ minHeight: mobileStudFeltHeight(N) }}>
-          <VerticalStudFelt players={HAND.players} heroSeat={heroPos} dealerSeat={HAND.studRules?.dealerSeat ?? N - 1} cards={cur.stud.cards}
+          <VerticalStudFelt variant={HAND.game.family === "stud" ? HAND.game.variant : "STUD_HIGH"} players={HAND.players} heroSeat={heroPos} dealerSeat={HAND.studRules?.dealerSeat ?? N - 1} cards={cur.stud.cards}
             previousCards={cur.stud.kind === "muck" ? HAND.steps[step - 1]?.stud?.cards : undefined} sharedCard={cur.stud.sharedCard}
             pot={cur.pot} round={drawRoundLabel(cur.street)} active={cur.active} committed={committed} bets={streetBets}
             folded={cur.stud.foldedSeats} mucked={cur.stud.muckedSeats} winnings={cur.stud.winnings}

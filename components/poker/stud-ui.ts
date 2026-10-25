@@ -1,7 +1,8 @@
 import type { RecorderState } from "./engine";
+import type { StudVariant } from "./game-format";
 import {
   STUD_STREETS, buildStudTimeline, deriveStudBetting, initialStudState,
-  setStudStartingCards, updateStudPlayer, type StudLimitRules, type StudState,
+  setStudStartingCards, updateStudPlayer, type StudEngineVariant, type StudLimitRules, type StudState,
 } from "./stud-engine";
 import type { StudReplayCard } from "./stud-replay";
 
@@ -10,10 +11,13 @@ export type StudSetupPatch = {
   playerCount?: number; heroSeat?: number; dealerSeat?: number;
   ante?: number; bringIn?: number; smallBet?: number; limitRules?: StudLimitRules;
 };
-export function studDraftFromCommunity(source: RecorderState): StudDraft {
+export function studGameLabel(variant: StudVariant, short = false): string {
+  return variant === "RAZZ" ? "Razz" : variant === "STUD_HILO_8" ? "Stud Hi/Lo 8" : short ? "Stud High" : "Seven-Card Stud";
+}
+export function studDraftFromCommunity(source: RecorderState, variant: StudEngineVariant = "STUD_HIGH"): StudDraft {
   const playerCount = Math.min(8, source.playerCount);
   const heroSeat = Math.min(source.heroPosition, playerCount - 1);
-  const state = initialStudState({ playerCount, heroSeat, smallBet: source.bb, bringIn: source.bb / 2, ante: source.bb / 8 });
+  const state = initialStudState({ variant, playerCount, heroSeat, smallBet: source.bb, bringIn: source.bb / 2, ante: source.bb / 8 });
   state.players = state.players.map((player) => ({ ...player,
     name: source.players[player.seat === heroSeat ? source.heroPosition : player.seat]?.name ?? player.name,
     stack: source.players[player.seat === heroSeat ? source.heroPosition : player.seat]?.stack ?? player.stack,

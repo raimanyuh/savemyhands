@@ -33,7 +33,7 @@ import PlayingCard from "./PlayingCard";
 import HandFan from "./HandFan";
 import DrawTable from "./DrawTable";
 import StudTable from "./StudTable";
-import { studStakesLabel } from "./stud-ui";
+import { studGameLabel, studStakesLabel } from "./stud-ui";
 import { drawRoundLabel, drawGameLabel, drawStakesLabel } from "./single-draw-ui";
 import { seatXY } from "./lib";
 import { scaled } from "./scale";
@@ -544,7 +544,7 @@ function ReplayerInner({
             {handName || "Untitled hand"}
           </h2>
           {HAND.game.family === "draw" && <span className="text-xs text-emerald-300">{drawGameLabel(HAND.game.variant)} · {drawStakesLabel({ variant: HAND.game.variant, ...HAND.stakes })}</span>}
-          {HAND.game.family === "stud" && HAND.studRules && <span className="text-xs text-emerald-300">Seven-Card Stud · {studStakesLabel(HAND.studRules)}</span>}
+          {HAND.game.family === "stud" && HAND.studRules && <span className="text-xs text-emerald-300">{studGameLabel(HAND.game.variant)} · {studStakesLabel(HAND.studRules)}</span>}
         </div>
 
         {/* Table — capped by viewport height so the floating dock at the
@@ -554,7 +554,7 @@ function ReplayerInner({
           className="w-full flex flex-col items-center"
           style={{ maxWidth: `calc((100vh - 280px) * ${cur.stud && HAND.playerCount >= 6 ? 1.5 : 2})` }}
         >
-        {cur.stud ? <StudTable players={HAND.players} heroSeat={heroPos} dealerSeat={HAND.studRules?.dealerSeat ?? HAND.playerCount - 1} cards={cur.stud.cards}
+        {cur.stud ? <StudTable variant={HAND.game.family === "stud" ? HAND.game.variant : "STUD_HIGH"} players={HAND.players} heroSeat={heroPos} dealerSeat={HAND.studRules?.dealerSeat ?? HAND.playerCount - 1} cards={cur.stud.cards}
           sharedCard={cur.stud.sharedCard} pot={pot} round={drawRoundLabel(street)} active={cur.active} committed={committed} bets={streetBets}
           folded={cur.stud.foldedSeats} mucked={cur.stud.muckedSeats} winnings={cur.stud.winnings}
           previousCards={cur.stud.kind === "muck" ? HAND.steps[step - 1]?.stud?.cards : undefined}

@@ -20,7 +20,7 @@ import {
   studBringInSeat, unavailableStudCards, updateStudPlayer, type StudState,
 } from "./stud-engine";
 import { studRoundLabel } from "./stud-replay";
-import { changeStudSetup, missingStudSetupSeats, nextStudPhaseLabel, studLogEntries, studSizing, studStakesLabel, type StudDraft } from "./stud-ui";
+import { changeStudSetup, missingStudSetupSeats, nextStudPhaseLabel, studGameLabel, studLogEntries, studSizing, studStakesLabel, type StudDraft } from "./stud-ui";
 import { useStudRecorder, type StudRecorderController, type StudSaveOptions } from "./use-stud-recorder";
 
 const primary = "bg-emerald-500 text-zinc-950 hover:bg-emerald-400 font-semibold";
@@ -121,7 +121,7 @@ export function DesktopStudRecorder({ recorder, onSwitchGame }: { recorder: Stud
       <Input aria-label="Hand name" value={name} disabled={saving} onChange={(event) => setName(event.target.value)} className="text-xl font-semibold border-transparent px-0 max-w-lg" />
       <div className="flex flex-wrap items-center gap-3 text-sm relative z-30">
         <Button variant="outline" size="sm" disabled={!setup || saving} onClick={() => setSetupOpen(!setupOpen)}><Settings size={14} /> Stakes &amp; seats</Button>
-        <span className="text-emerald-300 font-semibold">Seven-Card Stud</span><span className="text-zinc-500">{studStakesLabel(state)}</span>
+        <span className="text-emerald-300 font-semibold">{studGameLabel(state.variant)}</span><span className="text-zinc-500">{studStakesLabel(state)}</span>
         <span className="text-xs uppercase tracking-wider rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-200">{round}</span>
         <div className="flex-1" /><Button variant="ghost" size="sm" onClick={() => setLogOpen(!logOpen)}>Log {state.events.length}</Button>
         {setup && <Button className={primary} disabled={missing.length > 0 || saving} onClick={() => apply((value) => startStudHand(value, { complete: openFullBet }))}>Start hand <ChevronRight size={14} /></Button>}
@@ -139,14 +139,15 @@ export function DesktopStudRecorder({ recorder, onSwitchGame }: { recorder: Stud
             <p className="text-xs text-zinc-500">The big bet is ${state.smallBet * 2}. Cards are dealt clockwise after the last seat dealt; equal exposed boards use this order.</p>
             <label className="text-xs text-zinc-400">Bet cap<select aria-label="Bet cap" className={selectClass} value={state.limitRules.maxBets} onChange={(event) => changeSetup({ limitRules: { ...state.limitRules, maxBets: Number(event.target.value) as 4 | 5 } })}><option value={4}>4 bets (bet + 3 raises)</option><option value={5}>5 bets (bet + 4 raises)</option></select></label>
             <div className="flex items-center gap-3 text-xs text-zinc-300"><Checkbox checked={state.limitRules.headsUpUncapped} ariaLabel="Uncapped when a round starts heads-up" onChange={(headsUpUncapped) => changeSetup({ limitRules: { ...state.limitRules, headsUpUncapped } })} className="size-5" /><span>Uncapped when a round starts heads-up</span></div>
-            <div className="flex items-center gap-3 text-xs text-zinc-300"><Checkbox checked={state.limitRules.fourthStreetBigBet} ariaLabel="Allow a fourth-street big bet with an open pair" onChange={(fourthStreetBigBet) => changeSetup({ limitRules: { ...state.limitRules, fourthStreetBigBet } })} className="size-5" /><span>Allow a fourth-street big bet with an open pair</span></div>
+            {state.variant === "STUD_HIGH" && <div className="flex items-center gap-3 text-xs text-zinc-300"><Checkbox checked={state.limitRules.fourthStreetBigBet} ariaLabel="Allow a fourth-street big bet with an open pair" onChange={(fourthStreetBigBet) => changeSetup({ limitRules: { ...state.limitRules, fourthStreetBigBet } })} className="size-5" /><span>Allow a fourth-street big bet with an open pair</span></div>}
+            {state.variant === "RAZZ" && <p className="text-xs text-emerald-200">Lowest five-card hand wins; aces are low and straights/flushes do not count. The highest door card brings in, then the lowest exposed hand acts first.</p>}
             <p className="text-xs text-zinc-500">Click each seat’s name or stack on the table to edit it.</p>
             <Button variant="outline" onClick={onSwitchGame}><ArrowLeft size={14} /> Hold’em / Omaha</Button>
           </div></>}
       </div>
       <div className={`flex items-start gap-6 ${side ? "flex-row" : "flex-col"}`}>
         <div className="flex-1 w-full min-w-0 flex justify-center pt-5 pb-4"><div className="w-full" style={{ maxWidth: `calc((100vh - ${side ? 240 : 440}px) * ${state.playerCount >= 6 ? 1.5 : 2})`, minWidth: "min(100%, 640px)" }}>
-          <StudTable players={state.players} heroSeat={state.heroSeat} dealerSeat={state.dealerSeat} cards={cards} pot={pot} round={round} active={activeSeat}
+          <StudTable variant={state.variant} players={state.players} heroSeat={state.heroSeat} dealerSeat={state.dealerSeat} cards={cards} pot={pot} round={round} active={activeSeat}
             committed={committed} bets={betting?.bets} folded={folded} mucked={state.muckedSeats} labels={labels}
             onEditPlayer={setup ? (seat, patch) => apply((value) => updateStudPlayer(value, seat, patch)) : undefined}
             onEditCards={setup ? setSetupSeat : undefined} />

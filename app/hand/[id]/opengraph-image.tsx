@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 import { getHandForViewing } from "@/lib/hands/db";
 import { SAMPLE_HAND_ID, getSampleHand } from "@/lib/sample-hand";
 import type { SavedHand } from "@/components/poker/hand";
-import { isStudHighEnabled } from "@/lib/poker-features";
+import { isStudVariantEnabled } from "@/lib/poker-features";
 
 // Per-hand OpenGraph image. Renders when a savemyhands.app/hand/<id>
 // link is pasted into Discord / iMessage / Slack / Twitter / etc. Falls
@@ -96,7 +96,7 @@ export default async function HandOgImage({
 
   // Hand not found / private. Render a minimal branded card and let
   // social platforms move on.
-  if (!hand || hand._full?.game?.family === "stud" && (!isStudHighEnabled() || hand._full.game.variant !== "STUD_HIGH")) {
+  if (!hand || hand._full?.game?.family === "stud" && !isStudVariantEnabled(hand._full.game.variant)) {
     return new ImageResponse(
       (
         <div
