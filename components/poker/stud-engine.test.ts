@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceStudPhase as advance, buildStudTimeline, deriveStudBetting as betting,
   initialStudState, pendingStudDealSeat, recordStudAction as act, recordStudDeal,
-  recordStudSharedSeventh, setStudMucked, setStudShownCards, setStudStartingCards,
+  restoreLegacyStudSharedSeventh, setStudMucked, setStudShownCards, setStudStartingCards,
   startStudHand, studAccounting, studBoardScore, studBringInSeat, studFirstToAct,
   studResult, undoStud, unavailableStudCards, updateStudPlayer,
   type StudState,
@@ -394,12 +394,12 @@ describe("Seven-Card Stud High engine", () => {
     expect(studResult(state)).toMatchObject({ resolved: true, totalPot: 2.5, winnings: { 0: 1.25, 1: 1.25 } });
   });
 
-  it("records a shared seventh once, incorporates it into exposed order, and preserves six personal slots", () => {
+  it("restores a legacy shared seventh with its original exposed order and six personal slots", () => {
     let state = start();
     for (let i = 0; i < 4; i++) { state = advance(finishBetting(state)); if (i < 3) state = deal(state); }
     expect(state).toMatchObject({ phase: "deal", street: "seventh-street" });
-    expect(() => recordStudSharedSeventh(state, "K♣")).toThrow("already in use");
-    const shared = recordStudSharedSeventh(state, "K♥");
+    expect(() => restoreLegacyStudSharedSeventh(state, "K♣")).toThrow("already in use");
+    const shared = restoreLegacyStudSharedSeventh(state, "K♥");
     expect(pendingStudDealSeat(shared)).toBeNull();
     expect(() => recordStudDeal(shared, { seat: 0, card: "6♥" })).toThrow("next live seat");
     expect(shared.players.every((player) => player.cards.length === 6)).toBe(true);
@@ -414,22 +414,28 @@ describe("Seven-Card Stud High engine", () => {
     expect(() => setStudShownCards(state, 1, holdings[1])).toThrow("all 6");
   });
 
-  it("requires a shared river before an impossible eight-player individual runout", () => {
+  it("records all eight individual rivers without inferring a shared card from the deck count", () => {
     let state = start({ playerCount: 8 });
     for (let i = 0; i < 4; i++) { state = advance(finishBetting(state)); if (i < 3) state = deal(state, false); }
-    const unused = deck.find((card) => !unavailableStudCards(state).has(card))!;
-    expect(() => recordStudDeal(state, { seat: 0, card: unused })).toThrow("Not enough individual cards");
-    state = advance(recordStudSharedSeventh(state, unused));
-    expect(state.players.every((player) => player.cards.length === 6)).toBe(true);
-    expect(state.events.filter((event) => event.type === "deal")).toHaveLength(48);
-    expect(state.events.filter((event) => event.type === "shared-deal")).toHaveLength(1);
+    expect(() => recordStudDeal(state, { seat: 0, card: "K♦" })).toThrow("already in use");
+    const before = state;
+    state = deal(state, false);
+    expect(state.players.every((player) => player.cards.length === 7)).toBe(true);
+    expect(state.events.filter((event) => event.type === "deal")).toHaveLength(56);
+    expect(state.events.some((event) => event.type === "shared-deal")).toBe(false);
+    expect(state.players.slice(1).every((player) => player.cards[6].card === undefined && player.cards[6].visibility === "down")).toBe(true);
+    expect(undoStud(undoStud(state)).players[7].cards).toHaveLength(6);
+    expect(before.players.every((player) => player.cards.length === 6)).toBe(true);
+    state = advance(finishBetting(state));
+    for (let seat = 1; seat < 8; seat++) state = setStudMucked(state, seat);
+    expect(studResult(state)).toMatchObject({ resolved: true, totalPot: 10, winnings: { 0: 10 } });
   });
 
   it("rejects invented opponent river identities and late shared-card changes", () => {
     let state = start();
     for (let i = 0; i < 4; i++) { state = advance(finishBetting(state)); if (i < 3) state = deal(state); }
     state = recordStudDeal(state, { seat: 0, card: "A♦" });
-    expect(() => recordStudSharedSeventh(state, "6♥")).toThrow("before individual");
+    expect(() => restoreLegacyStudSharedSeventh(state, "6♥")).toThrow("before individual");
     expect(() => recordStudDeal(state, { seat: 1, card: "6♠" })).toThrow("downcards");
     expect(recordStudDeal(state, { seat: 1 }).players[1].cards[6]).toEqual({ visibility: "down" });
   });

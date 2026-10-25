@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   advanceStudPhase as advance, deriveStudBetting as betting, initialStudState,
-  pendingStudDealSeat, recordStudAction as act, recordStudDeal, recordStudSharedSeventh,
+  pendingStudDealSeat, recordStudAction as act, recordStudDeal, restoreLegacyStudSharedSeventh,
   setStudMucked, setStudShownCards, setStudStartingCards, startStudHand, studAccounting,
   studResult, unavailableStudCards, updateStudPlayer, type StudState,
 } from "@/components/poker/stud-engine";
@@ -53,7 +53,7 @@ function complete(args: { state?: StudState; withBets?: boolean; holdings?: stri
     const current = betting(state)!;
     if (args.withBets && current.activeSeat !== null && current.canRaise) state = act(state, { seat: current.activeSeat, action: current.lastBet ? "raise" : "bet", amount: Math.min(current.minRaise, current.allInTarget) });
     state = advance(finishBetting(state));
-    if (street < 4) state = street === 3 && args.shared ? advance(recordStudSharedSeventh(state, args.shared)) : deal(state, holdings, args.automatic);
+    if (street < 4) state = street === 3 && args.shared ? advance(restoreLegacyStudSharedSeventh(state, args.shared)) : deal(state, holdings, args.automatic);
   }
   return state;
 }
@@ -257,7 +257,7 @@ describe("Stud save → load → replay", () => {
     expect(studToReplay(hand)!.steps.at(-1)).toMatchObject({ pot: 2.5, stud: { resolved: true, winnings: { 0: 1.25, 1: 1.25 } } });
   });
 
-  it("records one shared seventh outside six personal cards and never leaks it into earlier frames", () => {
+  it("replays a legacy shared seventh outside six personal cards without leaking it into earlier frames", () => {
     let state = complete({ shared: "K♥" });
     state = setStudShownCards(state, 1, ["K♠","9♦",...hands[1].slice(2, 6)]);
     state = setStudMucked(state, 2);
@@ -276,19 +276,23 @@ describe("Stud save → load → replay", () => {
     expect(replay.steps.at(-1)!.pot).toBe(studResult(state).totalPot);
   });
 
-  it.each([2, 3, 7, 8])("replays a complete %i-seat checkdown, including a shared eight-seat river", (playerCount) => {
+  it.each([2, 3, 7, 8])("saves and replays a complete %i-seat checkdown with individual seventh cards", (playerCount) => {
     let state = startStudHand(setup({ playerCount }));
     for (let street = 0; street < 5; street++) {
       state = advance(finishBetting(state));
-      if (street < 4) state = street === 3 && playerCount === 8
-        ? advance(recordStudSharedSeventh(state, deck.find((card) => !unavailableStudCards(state).has(card))!)) : deal(state, hands, true);
+      if (street < 4) state = deal(state, hands, true);
     }
     for (let seat = 1; seat < playerCount; seat++) state = setStudMucked(state, seat);
     const hand = saved(state);
     const replay = studToReplay(hand)!;
     expect(replay.steps.at(-1)).toMatchObject({ pot: 1.25 * playerCount, stud: { resolved: true } });
     expect(hand.result).toBe(1.25 * (playerCount - 1));
-    expect(replay.steps.filter((step) => step.stud.kind === "deal")).toHaveLength(playerCount * (playerCount === 8 ? 6 : 7));
+    expect(replay.steps.filter((step) => step.stud.kind === "deal")).toHaveLength(playerCount * 7);
+    expect(hand._full!.timeline!.some((event) => event.type === "shared-deal")).toBe(false);
+    expect(hand._full!.players[0].cards).toHaveLength(7);
+    const river = replay.steps.find((step) => step.stud.kind === "deal" && step.stud.cardIndex === 6 && step.active === 0)!;
+    expect(river.stud.sharedCard).toBeUndefined();
+    expect(replay.steps.every((step) => step.stud.cards[1].filter((slot) => slot.visibility === "down").every((slot) => !slot.faceUp && !slot.card))).toBe(true);
   });
 
   it("supports no antes and tables all-in for the ante before any bring-in", () => {

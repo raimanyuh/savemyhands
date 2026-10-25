@@ -2,7 +2,7 @@ import type { CardVisibility, HandTimelineEvent } from "./game-format";
 import type { ReplayHand, ReplayStep, SavedHand } from "./hand";
 import {
   advanceStudPhase, deriveStudBetting, initialStudState, pendingStudDealSeat,
-  recordStudAction, recordStudDeal, recordStudSharedSeventh, setStudMucked,
+  recordStudAction, recordStudDeal, restoreLegacyStudSharedSeventh, setStudMucked,
   setStudShownCards, setStudStartingCards, startStudHand, studAccounting,
   studFirstToAct, studResult, updateStudPlayer,
   type StudPotAward, type StudState, type StudStreet,
@@ -173,7 +173,7 @@ export function studToReplay(rec: SavedHand): StudReplayHand | null {
       emit(`${posOf(event.seat)} dealt ${event.visibility === "up" ? "an upcard" : "a downcard"}`, { ...detail, cardIndex: event.cardIndex }, { active: event.seat });
     } else if (event.type === "shared-deal") {
       if (event.cardIndex !== 6 || event.visibility !== "up") throw new Error("Invalid shared Stud card");
-      state = withoutHistory(recordStudSharedSeventh(state, event.card));
+      state = withoutHistory(restoreLegacyStudSharedSeventh(state, event.card));
       state.events[state.events.length - 1].id = event.id;
       sharedCard = { present: true, visibility: "up", faceUp: true, card: event.card };
       state = withoutHistory(advanceStudPhase(state));

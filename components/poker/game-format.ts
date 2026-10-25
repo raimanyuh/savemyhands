@@ -71,7 +71,7 @@ export type HandTimelineEvent =
     })
   | (TimelineEventBase & {
       type: "shared-deal";
-      /** Stud's shared seventh card, recorded once rather than per seat. */
+      /** Legacy Stud shared river. New recordings use individual downcards. */
       card: CardId;
       cardIndex: 6;
       visibility: "up";

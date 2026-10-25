@@ -15,7 +15,7 @@ import { CardRow } from "./CardPicker";
 import NumericInput from "./NumericInput";
 import StudTable from "./StudTable";
 import {
-  advanceStudPhase, recordStudAction, recordStudDeal, recordStudSharedSeventh,
+  advanceStudPhase, recordStudAction, recordStudDeal,
   setStudMucked, setStudShownCards, setStudStartingCards, startStudHand,
   studBringInSeat, unavailableStudCards, updateStudPlayer, type StudState,
 } from "./stud-engine";
@@ -59,7 +59,7 @@ function StudShowEditor({ state, seat, onCancel, onShow }: { state: StudState; s
   cards.forEach((card) => { if (card) used.add(card); });
   return <div className="rounded-xl border border-emerald-500/30 p-3 flex flex-col gap-4">
     <p className="text-sm font-semibold">S{seat + 1} · Show downcards</p>
-    <p className="text-xs text-zinc-400">Enter the missing cards in their original slots. Exposed cards are locked.{state.sharedSeventh ? " The shared seventh card stays on the table." : ""}</p>
+    <p className="text-xs text-zinc-400">Enter the missing cards in their original slots. Exposed cards are locked.</p>
     <div className="overflow-x-auto py-3 flex justify-center"><CardRow cards={cards} lockedIndexes={locked} used={used} size="sm" highlight autoAdvanceCount={cards.length} ariaLabelPrefix="Shown card"
       onPick={(index, card) => setCards((current) => current.map((value, i) => i === index ? card : value))}
       onClear={(card) => setCards((current) => current.map((value, index) => value === card && !locked.includes(index) ? null : value))} /></div>
@@ -69,23 +69,18 @@ function StudShowEditor({ state, seat, onCancel, onShow }: { state: StudState; s
 
 function StudDealPanel({ recorder }: { recorder: StudRecorderController }) {
   const { state, dealSeat, apply } = recorder;
-  const [shared, setShared] = useState(false);
   const [card, setCard] = useState<string | null>(null);
   const river = state.street === "seventh-street";
-  const canShare = river && !state.sharedSeventh && state.players.every((player) => player.cards.length <= 6);
   if (dealSeat === null) return <Button className={primary} onClick={() => apply(advanceStudPhase)}>Start betting <ChevronRight size={14} /></Button>;
-  if (!shared && river && dealSeat !== state.heroSeat) return <div className="flex flex-col gap-3">
+  if (river && dealSeat !== state.heroSeat) return <div className="flex flex-col gap-3">
     <p className="text-sm text-zinc-400">S{dealSeat + 1} receives a downcard. Its identity stays unknown.</p>
     <Button className={`h-12 ${primary}`} onClick={() => apply((value) => recordStudDeal(value, { seat: dealSeat }))}>Deal downcard to S{dealSeat + 1}</Button>
-    {canShare && <Button variant="outline" onClick={() => setShared(true)}>A shared seventh card was dealt</Button>}
   </div>;
   return <div className="flex flex-col gap-4">
-    <p className="text-sm text-zinc-300">{shared ? "Enter the shared seventh card." : river ? "Enter your seventh card, dealt face down." : `Enter S${dealSeat + 1}’s new upcard.`}</p>
-    <div className="flex justify-center py-2"><CardRow cards={[card]} used={unavailableStudCards(state)} ariaLabelPrefix={shared ? "Shared seventh card" : river ? "Hero river card" : "Upcard"} highlight
+    <p className="text-sm text-zinc-300">{river ? "Enter your seventh card, dealt face down." : `Enter S${dealSeat + 1}’s new upcard.`}</p>
+    <div className="flex justify-center py-2"><CardRow cards={[card]} used={unavailableStudCards(state)} ariaLabelPrefix={river ? "Hero river card" : "Upcard"} highlight
       onPick={(_index, picked) => setCard(picked)} onClear={() => setCard(null)} /></div>
-    <Button className={`h-11 ${primary}`} disabled={!card} onClick={() => card && apply((value) => shared ? recordStudSharedSeventh(value, card) : recordStudDeal(value, { seat: dealSeat, card }))}>{shared ? "Confirm shared seventh" : "Confirm dealt card"}</Button>
-    {canShare && <Button variant="ghost" onClick={() => { setShared(!shared); setCard(null); }}>{shared ? "Deal individual downcards" : "A shared seventh card was dealt"}</Button>}
-    {shared && <p className="text-xs text-zinc-500">Use only when the dealer dealt one shared river card for all live hands.</p>}
+    <Button className={`h-11 ${primary}`} disabled={!card} onClick={() => card && apply((value) => recordStudDeal(value, { seat: dealSeat, card }))}>Confirm dealt card</Button>
   </div>;
 }
 
@@ -152,7 +147,6 @@ export function DesktopStudRecorder({ recorder, onSwitchGame }: { recorder: Stud
       <div className={`flex items-start gap-6 ${side ? "flex-row" : "flex-col"}`}>
         <div className="flex-1 w-full min-w-0 flex justify-center pt-5 pb-4"><div className="w-full" style={{ maxWidth: `calc((100vh - ${side ? 240 : 440}px) * ${state.playerCount >= 6 ? 1.5 : 2})`, minWidth: "min(100%, 640px)" }}>
           <StudTable players={state.players} heroSeat={state.heroSeat} dealerSeat={state.dealerSeat} cards={cards} pot={pot} round={round} active={activeSeat}
-            sharedCard={state.sharedSeventh ? { present: true, visibility: "up", faceUp: true, card: state.sharedSeventh } : undefined}
             committed={committed} bets={betting?.bets} folded={folded} mucked={state.muckedSeats} labels={labels}
             onEditPlayer={setup ? (seat, patch) => apply((value) => updateStudPlayer(value, seat, patch)) : undefined}
             onEditCards={setup ? setSetupSeat : undefined} />

@@ -11,7 +11,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import NumericInput from "@/components/poker/NumericInput";
 import { startRouteProgress } from "@/lib/route-progress";
 import {
-  advanceStudPhase, recordStudAction, recordStudDeal, recordStudSharedSeventh, setStudMucked, setStudShownCards,
+  advanceStudPhase, recordStudAction, recordStudDeal, setStudMucked, setStudShownCards,
   setStudStartingCards, startStudHand, studBringInSeat, unavailableStudCards, updateStudPlayer, type StudState,
 } from "@/components/poker/stud-engine";
 import { changeStudSetup, missingStudSetupSeats, nextStudPhaseLabel, studLogEntries, studSizing, studStakesLabel } from "@/components/poker/stud-ui";
@@ -49,7 +49,7 @@ function MobileStudShowEditor({ state, seat, onCancel, onShow }: { state: StudSt
   cards.forEach((card, index) => { if (card && index !== slot) used.add(card); });
   return <>
     <p className="text-sm font-semibold">S{seat + 1} · Show downcards</p>
-    <p className="text-xs text-zinc-400">Tap the missing downcards. Known cards are locked in their original slots.{state.sharedSeventh ? " The shared river stays on the table." : ""}</p>
+    <p className="text-xs text-zinc-400">Tap the missing downcards. Known cards are locked in their original slots.</p>
     <div className="flex justify-center py-2"><MobileStudCards hero slots={editorSlots(cards, state, seat)} onSlot={setSlot} editableIndexes={editable} labelPrefix="Shown card" /></div>
     <div className="grid grid-cols-2 gap-2"><Button variant="outline" className="h-12" onClick={onCancel}>Cancel show</Button><Button className={primary} disabled={cards.some((card) => !card)} onClick={() => onShow(cards as string[])}>Confirm show</Button></div>
     <CardPickerSheet open={slot !== null} title={`S${seat + 1} · downcard ${(slot ?? 0) + 1}`} used={used} onClose={() => setSlot(null)} onPick={(card) => {
@@ -64,21 +64,17 @@ function MobileStudShowEditor({ state, seat, onCancel, onShow }: { state: StudSt
 
 function MobileStudDeal({ recorder }: { recorder: StudRecorderController }) {
   const { state, dealSeat, apply } = recorder;
-  const [shared, setShared] = useState(false);
   const [card, setCard] = useState<string | null>(null);
   const [picker, setPicker] = useState(false);
   const river = state.street === "seventh-street";
-  const canShare = river && !state.sharedSeventh && state.players.every((player) => player.cards.length <= 6);
   if (dealSeat === null) return <Button className={primary} onClick={() => apply(advanceStudPhase)}>Start betting</Button>;
-  const anonymous = !shared && river && dealSeat !== state.heroSeat;
+  const anonymous = river && dealSeat !== state.heroSeat;
   return <>
-    <p className="text-sm text-zinc-300">{shared ? "Enter the shared seventh card." : anonymous ? `S${dealSeat + 1} receives a downcard. Its identity stays unknown.` : river ? "Enter your seventh card, dealt face down." : `Enter S${dealSeat + 1}’s new upcard.`}</p>
+    <p className="text-sm text-zinc-300">{anonymous ? `S${dealSeat + 1} receives a downcard. Its identity stays unknown.` : river ? "Enter your seventh card, dealt face down." : `Enter S${dealSeat + 1}’s new upcard.`}</p>
     {anonymous ? <Button className={primary} onClick={() => apply((value) => recordStudDeal(value, { seat: dealSeat }))}>Deal downcard to S{dealSeat + 1}</Button>
-      : <><Button variant="outline" className="h-14" onClick={() => setPicker(true)}>{card ? `Change ${card}` : shared ? "Choose shared seventh" : river ? "Choose hero river card" : "Choose upcard"}</Button>
-        <Button className={primary} disabled={!card} onClick={() => card && apply((value) => shared ? recordStudSharedSeventh(value, card) : recordStudDeal(value, { seat: dealSeat, card }))}>{shared ? "Confirm shared seventh" : "Confirm dealt card"}</Button></>}
-    {canShare && <Button variant="ghost" className="h-11" onClick={() => { setShared(!shared); setCard(null); }}>{shared ? "Deal individual downcards" : "A shared seventh card was dealt"}</Button>}
-    {shared && <p className="text-xs text-zinc-500">Use only when the dealer dealt one shared river for all live hands.</p>}
-    <CardPickerSheet open={picker} title={shared ? "Shared seventh card" : river ? "Hero river card" : `S${dealSeat + 1} upcard`} used={unavailableStudCards(state)} onClose={() => setPicker(false)} onPick={(value) => { setCard(value); setPicker(false); }} />
+      : <><Button variant="outline" className="h-14" onClick={() => setPicker(true)}>{card ? `Change ${card}` : river ? "Choose hero river card" : "Choose upcard"}</Button>
+        <Button className={primary} disabled={!card} onClick={() => card && apply((value) => recordStudDeal(value, { seat: dealSeat, card }))}>Confirm dealt card</Button></>}
+    <CardPickerSheet open={picker} title={river ? "Hero river card" : `S${dealSeat + 1} upcard`} used={unavailableStudCards(state)} onClose={() => setPicker(false)} onPick={(value) => { setCard(value); setPicker(false); }} />
   </>;
 }
 
@@ -117,7 +113,6 @@ export default function MobileStudRecorder({ recorder, onSwitchGame }: { recorde
     <fieldset disabled={saving} className="contents">
       <div className="px-2 shrink-0" style={{ height: `max(${mobileStudFeltHeight(state.playerCount)}px, calc(100dvh - 350px))` }}>
         <VerticalStudFelt players={state.players} heroSeat={state.heroSeat} dealerSeat={state.dealerSeat} cards={cards} pot={pot} round={round} active={activeSeat}
-          sharedCard={state.sharedSeventh ? { present: true, visibility: "up", faceUp: true, card: state.sharedSeventh } : undefined}
           committed={committed} bets={betting?.bets} folded={folded} mucked={state.muckedSeats} labels={labels}
           onEditSeat={setup ? () => setSetupOpen(true) : undefined} onHeroCardSlot={setup ? (index) => chooseStarting(state.heroSeat, index) : undefined} />
       </div>

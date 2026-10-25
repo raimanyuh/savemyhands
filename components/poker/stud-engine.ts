@@ -33,6 +33,7 @@ export type StudCoreState = {
   events: HandTimelineEvent[];
   shownCards: Record<number, CardId[]>;
   muckedSeats: number[];
+  /** Read compatibility for histories saved before individual-only rivers. */
   sharedSeventh?: CardId;
 };
 export type StudState = StudCoreState & { history: StudCoreState[] };
@@ -370,9 +371,8 @@ export function recordStudDeal(state: StudState, input: { seat: number; card?: C
     assertCard(input.card);
     if (unavailableStudCards(state).has(input.card)) throw new Error(`Card is already in use: ${input.card}`);
   }
-  const dealt = state.players.reduce((total, player) => total + player.cards.length, 0);
-  const remaining = state.players.filter((player) => !foldedBefore(state).has(player.seat) && player.cards.length < 7).length;
-  if (dealt >= 52 || state.street === "seventh-street" && dealt + remaining > 52) throw new Error("Not enough individual cards remain; record the observed shared seventh card");
+  // Record individual cards without inferring deck exhaustion or reshuffles.
+  // Anonymous downcards carry no invented identities; known cards stay unique.
   const next = coreOf(state);
   const cardIndex = next.players[input.seat].cards.length;
   const slot: StudCard = { visibility, ...(input.card ? { card: input.card } : {}) };
@@ -380,9 +380,9 @@ export function recordStudDeal(state: StudState, input: { seat: number; card?: C
   next.events.push({ id: `deal-${state.street}-seat-${input.seat}-card-${cardIndex}`, round: state.street, type: "deal", seat: input.seat, cardIndex, ...slot });
   return commit(state, next);
 }
-/** Explicit observation, not an inferred deck simulation. Must be recorded
- * before any individual seventh card; folded cards are never recycled. */
-export function recordStudSharedSeventh(state: StudState, card: CardId): StudState {
+/** Legacy replay restoration only. New recorder flows deal individual rivers.
+ * Keep the original shared event so existing saves do not change their result. */
+export function restoreLegacyStudSharedSeventh(state: StudState, card: CardId): StudState {
   if (state.phase !== "deal" || state.street !== "seventh-street" || state.sharedSeventh || state.players.some((player) => player.cards.length > 6)) throw new Error("Record a shared seventh card before individual river cards");
   assertCard(card);
   if (unavailableStudCards(state).has(card)) throw new Error(`Card is already in use: ${card}`);

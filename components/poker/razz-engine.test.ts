@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceStudPhase as advance, buildStudTimeline, deriveStudBetting as betting,
   initialStudState, pendingStudDealSeat, recordStudAction as act, recordStudDeal,
-  recordStudSharedSeventh, setStudMucked, setStudShownCards, setStudStartingCards,
+  restoreLegacyStudSharedSeventh, setStudMucked, setStudShownCards, setStudStartingCards,
   startStudHand, studBoardScore, studBringInSeat, studFirstToAct, studResult,
   undoStud, updateStudPlayer, type StudState,
 } from "./stud-engine";
@@ -156,34 +156,39 @@ describe("Razz domain", () => {
     expect(studResult(setStudMucked(setStudMucked(state, 1), 2)).resolved).toBe(false);
     expect(undoStud(setStudShownCards(state, 1, hands[1]))).toEqual(state);
   });
-  it("includes a shared river in exposed low order and best-five ties while keeping six personal slots", () => {
+  it("retains a legacy shared river's exposed low order and best-five ties", () => {
     const holdings = [["A♠", "7♦", "2♣", "3♦", "4♥", "5♠"], ["A♥", "8♣", "3♣", "4♦", "5♥", "6♠"]];
     let state = startStudHand(setup({}, holdings));
     for (let street = 0; street < 3; street++) state = deal(advance(finishBetting(state)), holdings);
     expect(state.street).toBe("sixth-street");
     expect(studFirstToAct(state)).toBe(0);
     state = advance(finishBetting(state));
-    state = advance(recordStudSharedSeventh(state, "2♦"));
+    state = advance(restoreLegacyStudSharedSeventh(state, "2♦"));
     expect(studFirstToAct(state)).toBe(1);
     state = revealAll(advance(finishBetting(state)), holdings);
     expect(studResult(state)).toMatchObject({ resolved: true, totalPot: 2.5, winnings: { 0: 1.25, 1: 1.25 } });
     expect(state.players.every((player) => player.cards.length === 6)).toBe(true);
     expect(buildStudTimeline(state).filter((event) => event.type === "shared-deal")).toHaveLength(1);
   });
-  it("runs out an eight-player all-in with one shared seventh, preserving the physical deck limit", () => {
+  it("runs out an eight-player all-in with individual anonymous opponent rivers", () => {
     const deck = [..."23456789TJQKA"].flatMap((rank) => [..."♣♦♥♠"].map((suit) => rank + suit));
     const holdings = Array.from({ length: 8 }, (_, seat) => deck.slice(seat * 6, seat * 6 + 6));
     let state = startStudHand(setup({ stack: 1.25 }, holdings));
     for (let street = 0; street < 3; street++) state = deal(advance(finishBetting(state)), holdings);
     state = advance(finishBetting(state));
-    expect(() => recordStudDeal(state, { seat: pendingStudDealSeat(state)!, card: "A♦" })).toThrow("Not enough individual");
-    state = advance(recordStudSharedSeventh(state, "A♣"));
+    state = recordStudDeal(state, { seat: 0, card: "A♣" });
+    for (let seat = pendingStudDealSeat(state); seat !== null; seat = pendingStudDealSeat(state)) state = recordStudDeal(state, { seat });
+    state = advance(state);
     expect(betting(state)?.activeSeat).toBeNull();
-    state = revealAll(advance(state), holdings);
+    state = advance(state);
+    for (let seat = 1; seat < 8; seat++) state = setStudMucked(state, seat);
     const result = studResult(state);
     expect(result.resolved).toBe(true);
     expect(result.totalPot).toBe(10);
     expect(Object.values(result.winnings).reduce((a, b) => a + b, 0)).toBeCloseTo(10);
-    expect(buildStudTimeline(state).filter((event) => event.type === "deal")).toHaveLength(48);
+    expect(buildStudTimeline(state).filter((event) => event.type === "deal")).toHaveLength(56);
+    expect(state.players.every((player) => player.cards.length === 7)).toBe(true);
+    expect(state.players.slice(1).every((player) => !player.cards[6].card)).toBe(true);
+    expect(state.events.some((event) => event.type === "shared-deal")).toBe(false);
   });
 });

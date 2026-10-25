@@ -41,6 +41,12 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 desktop/mobile recorder entry points, dashboard filters, replay routes and
 social previews. It defaults off. Razz and Stud/8 remain unavailable.
 
+New Stud recordings deal an individual seventh downcard to each live seat.
+The recorder assumes the dealer can supply those cards and does not infer
+deck exhaustion or simulate reshuffles from anonymous card counts. Known
+card identities still cannot be duplicated. Previously saved shared-seventh
+histories retain their original replay and payouts for compatibility.
+
 Apply `supabase/migrations/0005_fractional_hand_results.sql` before enabling
 Stud in an environment. It widens `hands.result` to `numeric` for fractional
 antes and split awards while retaining ownership policies and private defaults.
