@@ -6,6 +6,7 @@ import { recordedToHand } from "@/components/poker/hand";
 import { getHandForViewing } from "@/lib/hands/db";
 import { createClient } from "@/lib/supabase/server";
 import { SAMPLE_HAND_ID, getSampleHand } from "@/lib/sample-hand";
+import { isStudHighEnabled } from "@/lib/poker-features";
 
 // Per-hand tab title. Combines with the root template "%s — savemyhands"
 // to render e.g. "AAxx vs JJ — savemyhands" in the browser tab and
@@ -22,6 +23,7 @@ export async function generateMetadata({
   }
   const fromDb = await getHandForViewing(id);
   if (!fromDb) return { title: "Hand" };
+  if (fromDb.hand._full?.game?.family === "stud" && (!isStudHighEnabled() || fromDb.hand._full.game.variant !== "STUD_HIGH")) return { title: "Hand" };
   return { title: fromDb.hand.name || "Untitled hand" };
 }
 
@@ -60,9 +62,7 @@ export default async function HandPage({
   }
 
   const replayHand = recordedToHand(result.hand);
-  // The Stud adapter is ready before its dedicated felt. Preserve the
-  // existing unsupported-format behavior until the UI slice is complete.
-  if (!replayHand || replayHand.game.family === "stud") notFound();
+  if (!replayHand || replayHand.game.family === "stud" && !isStudHighEnabled()) notFound();
 
   // Build the canonical share URL from the live request so dev (localhost)
   // and prod (vercel) both get the right host without a hardcoded constant.

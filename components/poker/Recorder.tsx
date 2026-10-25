@@ -1018,11 +1018,13 @@ function SetupPopover({
   dispatch,
   onClose,
   onSelectSingleDraw,
+  onSelectStud,
 }: {
   state: RecorderState;
   dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
   onClose: () => void;
   onSelectSingleDraw?: (state: RecorderState) => void;
+  onSelectStud?: (state: RecorderState) => void;
 }) {
   const { playerCount, sb, bb, straddleOn, straddleAmt, bombPotOn, bombPotAmt, doubleBoardOn, gameType, heroPosition } = state;
   const canStraddle = playerCount >= 4 && !bombPotOn;
@@ -1171,6 +1173,10 @@ function SetupPopover({
       {onSelectSingleDraw && <button type="button" onClick={() => onSelectSingleDraw(state)}
         className="ml-[102px] text-left text-[11.5px] text-emerald-300 hover:text-emerald-200 cursor-pointer">
         2–7 Single / Triple Draw <ChevronRight size={12} className="inline ml-1" />
+      </button>}
+      {onSelectStud && <button type="button" onClick={() => onSelectStud(state)}
+        className="ml-[102px] text-left text-[11.5px] text-emerald-300 hover:text-emerald-200 cursor-pointer">
+        Seven-Card Stud High <ChevronRight size={12} className="inline ml-1" />
       </button>}
 
       {/* Players */}
@@ -1513,6 +1519,7 @@ function MetaStrip({
   logOpen,
   setLogOpen,
   onSelectSingleDraw,
+  onSelectStud,
 }: {
   state: RecorderState;
   derived: ReturnType<typeof deriveStreet>;
@@ -1526,6 +1533,7 @@ function MetaStrip({
   logOpen: boolean;
   setLogOpen: (v: boolean) => void;
   onSelectSingleDraw?: (state: RecorderState) => void;
+  onSelectStud?: (state: RecorderState) => void;
 }) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const logWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -1714,6 +1722,7 @@ function MetaStrip({
                   dispatch={dispatch}
                   onClose={() => setPopoverOpen(false)}
                   onSelectSingleDraw={onSelectSingleDraw}
+                  onSelectStud={onSelectStud}
                 />
               )}
             </>
@@ -1996,9 +2005,10 @@ function ActionLog({
   );
 }
 
-export default function Recorder({ initialSetup, onSelectSingleDraw }: {
+export default function Recorder({ initialSetup, onSelectSingleDraw, onSelectStud }: {
   initialSetup?: RecorderState;
   onSelectSingleDraw?: (state: RecorderState) => void;
+  onSelectStud?: (state: RecorderState) => void;
 } = {}) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -2433,6 +2443,7 @@ export default function Recorder({ initialSetup, onSelectSingleDraw }: {
           logOpen={logOpen}
           setLogOpen={setLogOpen}
           onSelectSingleDraw={onSelectSingleDraw}
+          onSelectStud={onSelectStud}
         />
 
         {/* Layout container — wraps the felt and the action+notes region.

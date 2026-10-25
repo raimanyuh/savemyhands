@@ -47,12 +47,38 @@ export const GAME_LABEL: Record<DashboardGameType, string> = {
   RAZZ: "Razz",
   STUD_HILO_8: "Stud Hi/Lo 8",
 };
+export function dashboardGameOptions(enableStud = false): { value: DashboardGameType; label: string }[] {
+  return [
+    { value: "NLHE", label: "Hold'em" }, { value: "PLO4", label: "PLO 4-card" }, { value: "PLO5", label: "PLO 5-card" },
+    { value: "2-7_SINGLE_DRAW", label: "2–7 Single Draw" }, { value: "2-7_TRIPLE_DRAW", label: "2–7 Triple Draw" },
+    ...(enableStud ? [{ value: "STUD_HIGH" as const, label: "Seven-Card Stud High" }] : []),
+  ];
+}
 export function holeCountOf(h: SavedHand): 2 | 4 | 5 | 7 {
   if (h._full?.game?.family === "stud") return 7;
   const g = gameTypeOf(h);
   if (g === "PLO5" || g === "2-7_SINGLE_DRAW" || g === "2-7_TRIPLE_DRAW") return 5;
   if (g === "PLO4") return 4;
   return 2;
+}
+
+/** Keep Stud's seven ranks within the existing five-card column width.
+ * A shared river is labeled separately from the six personal cards. */
+export function HeroCardsPreview({ hand, size = "sm" }: { hand: SavedHand; size?: "sm" | "md" }) {
+  const full = hand._full;
+  const heroCards = full?.players?.find((player) => player.seat === (full.heroPosition ?? 0))?.cards;
+  const count = holeCountOf(hand);
+  const shared = full?.game?.family === "stud" ? full.timeline?.find((event) => event.type === "shared-deal") : undefined;
+  return <div aria-label="Hero cards" className="flex items-center" style={{ gap: 2, flexShrink: 0 }}>
+    {Array.from({ length: count }, (_, index) => {
+      const isShared = index === 6 && shared?.type === "shared-deal";
+      const card = isShared ? shared.card : heroCards?.[index] ?? "—";
+      return <span key={index} aria-label={`${isShared ? "Shared seventh card" : `Hero card ${index + 1}`} ${card === "—" ? "unknown" : card}`} title={isShared ? "Shared seventh card" : undefined}
+        className={isShared ? "rounded outline outline-dashed outline-emerald-300/50 outline-offset-1" : undefined}>
+        <MiniCard card={card} size={size} compact={count === 7} />
+      </span>;
+    })}
+  </div>;
 }
 
 // Double-board flag.
@@ -78,14 +104,17 @@ export const suitColor = (s: string) =>
 export function MiniCard({
   card,
   size = "sm",
+  compact = false,
 }: {
   card: string;
   size?: "sm" | "md";
+  compact?: boolean;
 }) {
   const dim =
     size === "md"
       ? { w: 26, h: 32, fs: 13, br: 5 }
       : { w: 22, h: 26, fs: 11, br: 4 };
+  if (compact) { dim.w = size === "md" ? 18 : 15; dim.fs = size === "md" ? 11 : 10; }
   if (!card || card === "—") {
     return (
       <div

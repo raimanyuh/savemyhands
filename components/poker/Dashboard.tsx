@@ -36,11 +36,12 @@ import { UsernamePicker } from "@/components/auth/UsernamePicker";
 import { potTypeOf, type SavedHand } from "./hand";
 import {
   GAME_LABEL,
+  dashboardGameOptions,
   MiniCard,
+  HeroCardsPreview,
   doubleBoardOf,
   gameTypeOf,
   heroPositionOf,
-  holeCountOf,
   multiwayOf,
 } from "./dashboard-shared";
 
@@ -788,21 +789,7 @@ function HandListRow({
       >
         {GAME_LABEL[gameTypeOf(hand)]}
       </span>
-      <div className="flex items-center gap-0.5">
-        {(() => {
-          const heroPos = hand._full?.heroPosition ?? 0;
-          const heroCards = hand._full?.players[heroPos]?.cards;
-          const count = holeCountOf(hand);
-          // Older saves predate `_full.players`, and a few sample hands
-          // don't carry hole cards either — render dashed placeholders
-          // so the column doesn't shift when a row is missing them. The
-          // 122px column fits 5 mini-cards (5×22 + 4×2) on a single
-          // row, so PLO 4 / 5 stay flat alongside NLHE.
-          return Array.from({ length: count }, (_, i) => (
-            <MiniCard key={i} card={heroCards?.[i] ?? "—"} />
-          ));
-        })()}
-      </div>
+      <HeroCardsPreview hand={hand} />
       <span
         className={`text-[12px] tabular-nums ${
           multiwayOf(hand) === null
@@ -836,7 +823,7 @@ function HandListRow({
         {potTypeOf(hand)}
       </span>
       <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-0.5">
+        {hand._full?.game && hand._full.game.family !== "community" ? <span className="text-xs text-zinc-600">—</span> : <><div className="flex items-center gap-0.5">
           {hand.board.map((c, i) => (
             <MiniCard key={i} card={c} />
           ))}
@@ -848,6 +835,7 @@ function HandListRow({
             ))}
           </div>
         )}
+        </>}
       </div>
       <div
         className="flex items-center gap-1 flex-wrap min-w-0"
@@ -960,12 +948,14 @@ export default function Dashboard({
   initialUsername,
   signOutAction,
   initialHands,
+  enableStud = false,
 }: {
   // The signed-in user's @username, or null if they haven't picked one yet.
   initialUsername: string | null;
   signOutAction?: () => void | Promise<void>;
   // Hands fetched on the server for the signed-in user.
   initialHands: SavedHand[];
+  enableStud?: boolean;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -1048,19 +1038,13 @@ export default function Dashboard({
         { value: "yes", label: "Multiway" },
         { value: "no", label: "Heads-up" },
       ],
-      gameType: [
-        { value: "NLHE", label: "Hold'em" },
-        { value: "PLO4", label: "PLO 4-card" },
-        { value: "PLO5", label: "PLO 5-card" },
-        { value: "2-7_SINGLE_DRAW", label: "2–7 Single Draw" },
-        { value: "2-7_TRIPLE_DRAW", label: "2–7 Triple Draw" },
-      ],
+      gameType: dashboardGameOptions(enableStud),
       doubleBoard: [
         { value: "single", label: "Single board" },
         { value: "double", label: "Double board" },
       ],
     };
-  }, [hands]);
+  }, [hands, enableStud]);
 
   const filtered = useMemo(() => {
     return hands.filter((h) => {

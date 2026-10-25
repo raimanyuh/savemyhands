@@ -34,3 +34,27 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Stud High release
+
+`ENABLE_STUD_HIGH=true` enables Seven-Card Stud High on the server, including
+desktop/mobile recorder entry points, dashboard filters, replay routes and
+social previews. It defaults off. Razz and Stud/8 remain unavailable.
+
+Apply `supabase/migrations/0005_fractional_hand_results.sql` before enabling
+Stud in an environment. It widens `hands.result` to `numeric` for fractional
+antes and split awards while retaining ownership policies and private defaults.
+Set the flag in the server environment, then restart/redeploy that environment.
+
+Before release, verify signed-in save → dashboard → reload → replay for
+Single Draw, Triple Draw and Stud, including a fractional Stud result. Confirm
+new hands are private, anonymous private URLs show the not-found page without
+hand data, public URLs replay without a session, and making the test hand
+private again removes anonymous
+access. Check game filters on desktop and mobile. Run `npm test`,
+`npx tsc --noEmit --incremental false`, `npm run lint` and `npm run build`.
+
+The existing hand loading boundary streams responses: Next.js can return
+HTTP 200 for a not-found page after streaming starts. Check the not-found UI,
+`noindex`, absence of hand data, and an empty anonymous database query as well
+as the status code when verifying privacy.

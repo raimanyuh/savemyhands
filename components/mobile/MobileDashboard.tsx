@@ -45,11 +45,11 @@ import {
 import { potTypeOf, type SavedHand } from "@/components/poker/hand";
 import {
   GAME_LABEL,
-  MiniCard,
+  dashboardGameOptions,
+  HeroCardsPreview,
   doubleBoardOf,
   gameTypeOf,
   heroPositionOf,
-  holeCountOf,
   multiwayOf,
 } from "@/components/poker/dashboard-shared";
 import { DashboardFilterSheet, type FilterState } from "./DashboardFilterSheet";
@@ -72,10 +72,12 @@ export default function MobileDashboard({
   initialUsername,
   signOutAction,
   initialHands,
+  enableStud = false,
 }: {
   initialUsername: string | null;
   signOutAction?: () => void | Promise<void>;
   initialHands: SavedHand[];
+  enableStud?: boolean;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -100,8 +102,8 @@ export default function MobileDashboard({
 
   // Distinct filter values discovered from the dataset.
   const filterOptions = useMemo(
-    () => buildFilterOptions(hands),
-    [hands],
+    () => buildFilterOptions(hands, enableStud),
+    [hands, enableStud],
   );
   const allTags = useMemo(
     () => [...new Set(hands.flatMap((h) => h.tags))].sort(),
@@ -847,9 +849,6 @@ function HandCard({
     cancel();
   };
 
-  const heroPos = hand._full?.heroPosition ?? 0;
-  const heroCards = hand._full?.players?.[heroPos]?.cards;
-  const holeCount = holeCountOf(hand);
   const game = gameTypeOf(hand);
   const dbOn = doubleBoardOf(hand);
   const heroPosName = heroPositionOf(hand);
@@ -891,18 +890,7 @@ function HandCard({
         {inSelectMode ? (
           <SelectionDot selected={selected} />
         ) : (
-          <div
-            className="flex items-center"
-            style={{ gap: 2, flexShrink: 0 }}
-          >
-            {Array.from({ length: holeCount }, (_, i) => (
-              <MiniCard
-                key={i}
-                card={heroCards?.[i] ?? "—"}
-                size="md"
-              />
-            ))}
-          </div>
+          <HeroCardsPreview hand={hand} size="md" />
         )}
         <div className="flex-1 min-w-0">
           <div
@@ -1411,7 +1399,7 @@ const emptyFilterState: FilterState = {
   doubleBoard: new Set(),
 };
 
-function buildFilterOptions(hands: SavedHand[]) {
+function buildFilterOptions(hands: SavedHand[], enableStud: boolean) {
   const venues = new Set<string>();
   const stakes = new Set<string>();
   const tags = new Set<string>();
@@ -1453,13 +1441,7 @@ function buildFilterOptions(hands: SavedHand[]) {
       { value: "yes", label: "Multiway" },
       { value: "no", label: "Heads-up" },
     ],
-    gameType: [
-      { value: "NLHE", label: "Hold'em" },
-      { value: "PLO4", label: "PLO 4-card" },
-      { value: "PLO5", label: "PLO 5-card" },
-      { value: "2-7_SINGLE_DRAW", label: "2–7 Single Draw" },
-      { value: "2-7_TRIPLE_DRAW", label: "2–7 Triple Draw" },
-    ],
+    gameType: dashboardGameOptions(enableStud),
     doubleBoard: [
       { value: "single", label: "Single board" },
       { value: "double", label: "Double board" },
