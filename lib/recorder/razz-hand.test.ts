@@ -210,7 +210,7 @@ describe("Razz save → load → replay", () => {
     expect(() => saved(setup())).toThrow("Finish");
     expect(() => saved(complete())).toThrow("show or muck");
     expect(() => buildStudHand({ state: resolve(), date: "2026-02-30" })).toThrow("valid YYYY-MM-DD");
-    expect(() => saved({ ...resolve(), variant: "STUD_HILO_8" as never })).toThrow("not ready");
+    expect(() => saved({ ...resolve(), variant: "UNKNOWN_STUD" as never })).toThrow("not ready");
     expect(() => saved({ ...resolve(), sharedSeventh: "T♦" })).toThrow("individual seventh");
   });
   it("rejects high-game openings, illegal low-board actors, big fourth-street bets and shared events", () => {

@@ -118,16 +118,19 @@ describe("Stud release routing", () => {
     expect(await ogHtml()).toContain("Razz");
     expect(await ogHtml()).not.toContain("Preflop");
   });
-  it("keeps the Stud/8 domain hidden even when both released Stud variants are enabled", async () => {
+  it("keeps a valid Stud/8 adapter payload hidden even when both released Stud variants are enabled", async () => {
     vi.stubEnv("ENABLE_STUD_HIGH", "true");
     vi.stubEnv("ENABLE_RAZZ", "true");
-    const hand = studHand();
-    hand._full!.game = { family: "stud", variant: "STUD_HILO_8", bettingStructure: "FL" };
+    let state = initialStudState({ variant: "STUD_HILO_8", playerCount: 2 });
+    state = setStudStartingCards(state, 0, ["A♠", "K♥", "2♣"]);
+    state = setStudStartingCards(state, 1, [null, null, "Q♦"]);
+    state = advanceStudPhase(recordStudAction(startStudHand(state), { seat: 1, action: "fold" }));
+    const hand = { ...buildStudHand({ state, name: "Unreleased Stud/8", date: "2026-10-25" }), id: "studhilo" };
     mocks.getHandForViewing.mockResolvedValue({ hand, isOwner: true, isAuthenticated: true, ownerUsername: "owner" });
-    expect(recordedToHand(hand)).toBeNull();
+    expect(recordedToHand(hand)?.game.variant).toBe("STUD_HILO_8");
     await expect(HandPage(params)).rejects.toThrow("NOT_FOUND");
     expect(await generateMetadata(params)).toEqual({ title: "Hand" });
-    expect(await ogHtml()).not.toContain("Stud release check");
+    expect(await ogHtml()).not.toContain("Unreleased Stud/8");
     expect(dashboardGameOptions(true, true).some((option) => option.value === "STUD_HILO_8")).toBe(false);
   });
   it("keeps the community sample available when Stud is disabled", async () => {

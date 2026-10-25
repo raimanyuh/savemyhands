@@ -12,12 +12,12 @@ export type BuildStudHandArgs = {
   notes?: string;
 };
 
-/** Pure Stud High / Razz payload builder. The legacy board/actions/blinds and pot-type
+/** Pure Stud High / Razz / Stud/8 payload builder. The legacy board/actions/blinds and pot-type
  * columns are compatibility containers; native Stud data lives in _full. */
 export function buildStudHand(args: BuildStudHandArgs): Omit<SavedHand, "id"> {
   const { state } = args;
-  if (state.variant !== "STUD_HIGH" && state.variant !== "RAZZ") throw new Error("This Stud variant is not ready to save");
-  if (state.variant === "RAZZ" && state.sharedSeventh) throw new Error("Razz requires individual seventh cards");
+  if (state.variant !== "STUD_HIGH" && state.variant !== "RAZZ" && state.variant !== "STUD_HILO_8") throw new Error("This Stud variant is not ready to save");
+  if (state.variant !== "STUD_HIGH" && state.sharedSeventh) throw new Error(`${state.variant === "RAZZ" ? "Razz" : "Stud/8"} requires individual seventh cards`);
   if (state.phase !== "showdown" && state.phase !== "done") throw new Error("Finish the hand before saving");
   if (!studResult(state).resolved) throw new Error("Every live hand must show or muck, and every pot needs a shown eligible winner");
   const [year, month, day] = args.date.split("-").map(Number);

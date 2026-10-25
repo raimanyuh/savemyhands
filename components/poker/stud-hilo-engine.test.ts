@@ -7,7 +7,6 @@ import {
   undoStud, updateStudPlayer, type StudState,
 } from "./stud-engine";
 import { changeStudSetup } from "./stud-ui";
-import { buildStudHand } from "@/lib/recorder/stud-hand";
 
 /** Allocate distinct real cards, cycling suits to avoid accidental flushes. */
 function table(ranks: string[]): string[][] {
@@ -244,11 +243,10 @@ describe("Seven-Card Stud eight-or-better domain", () => {
     expect(state.players.filter((player) => player.seat !== heroSeat).every((player) => !player.cards[6].card)).toBe(true);
     expect(buildStudTimeline(state).some((event) => event.type === "shared-deal")).toBe(false);
   });
-  it("rejects shared rivers and keeps the unfinished adapter unavailable", () => {
+  it("rejects shared rivers", () => {
     let state = startStudHand(setup());
     for (let street = 0; street < 3; street++) state = deal(advance(finishBetting(state)));
     state = advance(finishBetting(state));
     expect(() => restoreLegacyStudSharedSeventh(state, "2♠")).toThrow("individual seventh");
-    expect(() => buildStudHand({ state: revealAll(complete()), date: "2026-10-25" })).toThrow("not ready to save");
   });
 });

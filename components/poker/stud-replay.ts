@@ -89,8 +89,8 @@ function initialTimeline(rec: SavedHand, variant: StudEngineVariant) {
 export function studToReplay(rec: SavedHand): StudReplayHand | null {
   const full = rec._full;
   if (!full || full.schemaVersion !== 2 || full.game?.family !== "stud" ||
-      (full.game.variant !== "STUD_HIGH" && full.game.variant !== "RAZZ") || full.game.bettingStructure !== "FL" || !full.studRules || !full.timeline?.length) return null;
-  if (full.game.variant === "RAZZ" && (full.studRules.fourthStreetBigBet || full.timeline.some((event) => event.type === "shared-deal"))) throw new Error("Razz requires individual seventh cards and small bets on fourth street");
+      (full.game.variant !== "STUD_HIGH" && full.game.variant !== "RAZZ" && full.game.variant !== "STUD_HILO_8") || full.game.bettingStructure !== "FL" || !full.studRules || !full.timeline?.length) return null;
+  if (full.game.variant !== "STUD_HIGH" && (full.studRules.fourthStreetBigBet || full.timeline.some((event) => event.type === "shared-deal"))) throw new Error(`${full.game.variant === "RAZZ" ? "Razz" : "Stud/8"} requires individual seventh cards and small bets on fourth street`);
   const { started, prefixLength } = initialTimeline(rec, full.game.variant);
   let state: StudState = { ...started, events: [], history: [] };
   let round: StudReplayRound = "third-street";
@@ -215,7 +215,10 @@ export function studToReplay(rec: SavedHand): StudReplayHand | null {
   const result = studResult(state);
   round = "showdown";
   const winners = Object.keys(result.winnings).map(Number);
-  emit(result.resolved ? winners.map((seat) => `${posOf(seat)} wins $${result.winnings[seat]}`).join(" · ") : "Stud showdown — unresolved",
+  const resultLabel = state.variant === "STUD_HILO_8" && result.awards.some((award) => award.portion)
+    ? result.awards.map((award) => `${award.winners.map(posOf).join(" / ")} ${award.winners.length === 1 ? "wins" : "split"} ${award.portion} $${award.amount}`).join(" · ")
+    : winners.map((seat) => `${posOf(seat)} wins $${result.winnings[seat]}`).join(" · ");
+  emit(result.resolved ? resultLabel : "Stud showdown — unresolved",
     { kind: "result", resolved: result.resolved, awards: result.awards, winnings: result.winnings, nextToAct: null },
     { pot: result.totalPot, committedAfter: { ...result.committed }, streetBetsAfter: {}, ...(winners.length === 1 ? { winner: winners[0] } : {}) });
   return {

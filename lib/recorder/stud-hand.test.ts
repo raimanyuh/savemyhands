@@ -314,7 +314,7 @@ describe("Stud save → load → replay", () => {
 
   it("keeps unsupported Stud variants and incomplete metadata hidden", () => {
     const unsupported = saved();
-    unsupported._full!.game = { family: "stud", variant: "STUD_HILO_8", bettingStructure: "FL" };
+    unsupported._full!.game = { family: "stud", variant: "UNKNOWN_STUD" as never, bettingStructure: "FL" };
     expect(recordedToHand(unsupported)).toBeNull();
     const hand = saved();
     delete hand._full!.studRules;

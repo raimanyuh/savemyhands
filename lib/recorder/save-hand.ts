@@ -62,7 +62,7 @@ export async function buildAndSaveSingleDrawHand(
   return { id: saved.id };
 }
 
-/** Stud High/Razz share timeline visibility and variant-specific awards; no community equity. */
+/** Stud variants share timeline visibility and variant-specific awards; no community equity. */
 export async function buildAndSaveStudHand(args: BuildStudHandArgs): Promise<BuildAndSaveResult> {
   const saved = await saveHandAction(buildStudHand(args));
   return { id: saved.id };
