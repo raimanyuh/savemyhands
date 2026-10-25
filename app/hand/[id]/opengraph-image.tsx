@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 import { getHandForViewing } from "@/lib/hands/db";
 import { SAMPLE_HAND_ID, getSampleHand } from "@/lib/sample-hand";
 import type { SavedHand } from "@/components/poker/hand";
+import { isStudVariantEnabled } from "@/lib/poker-features";
 
 // Per-hand OpenGraph image. Renders when a savemyhands.app/hand/<id>
 // link is pasted into Discord / iMessage / Slack / Twitter / etc. Falls
@@ -95,7 +96,7 @@ export default async function HandOgImage({
 
   // Hand not found / private. Render a minimal branded card and let
   // social platforms move on.
-  if (!hand) {
+  if (!hand || hand._full?.game?.family === "stud" && !isStudVariantEnabled(hand._full.game.variant)) {
     return new ImageResponse(
       (
         <div
@@ -139,11 +140,14 @@ export default async function HandOgImage({
 
   const full = hand._full;
   const gameType = full?.gameType ?? "NLHE";
+  const drawGame = full?.game?.family === "draw" ? full.game : null;
+  const studGame = full?.game?.family === "stud" ? full.game : null;
+  const sharedRiver = studGame ? full?.timeline?.find((event) => event.type === "shared-deal") : undefined;
   const playerCount = full?.playerCount;
   const heroSeat = full?.heroPosition ?? 0;
   const hero = full?.players?.find((p) => p.seat === heroSeat);
   const heroCards: string[] = hero?.cards
-    ? (hero.cards.filter(Boolean) as string[]).slice(0, holeCardCount(gameType))
+    ? (hero.cards.filter(Boolean) as string[]).slice(0, studGame ? 7 : drawGame ? 5 : holeCardCount(gameType))
     : [];
 
   // Board(s). `hand.board` mirrors the row's column-store value (length 5
@@ -156,7 +160,7 @@ export default async function HandOgImage({
 
   const subtitleParts: string[] = [];
   if (hand.stakes) subtitleParts.push(`$${hand.stakes}`);
-  subtitleParts.push(gameType === "NLHE" ? "Hold'em" : `PLO ${gameType.slice(3)}-card`);
+  subtitleParts.push(studGame ? studGame.variant === "STUD_HIGH" ? "Seven-Card Stud" : studGame.variant === "RAZZ" ? "Razz" : "Stud Hi/Lo 8" : drawGame ? drawGame.variant === "2-7_TRIPLE_DRAW" ? "2–7 Triple Draw" : "2–7 Single Draw" : gameType === "NLHE" ? "Hold'em" : `PLO ${gameType.slice(3)}-card`);
   if (full?.bombPotOn) subtitleParts.push("Bomb pot");
   if (isDouble) subtitleParts.push("Double board");
   if (playerCount) subtitleParts.push(`${playerCount}-handed`);
@@ -264,7 +268,7 @@ export default async function HandOgImage({
             )}
           </div>
 
-          <div
+          {(!drawGame && !studGame) && <div
             style={{
               display: "flex",
               flexDirection: "column",
@@ -293,7 +297,11 @@ export default async function HandOgImage({
             {isDouble && board2.length > 0 && (
               <CardRow cards={board2} w={boardW} h={boardH} gap={10} />
             )}
-          </div>
+          </div>}
+          {sharedRiver?.type === "shared-deal" && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+            <div style={{ display: "flex", color: "#737373", fontSize: 18, letterSpacing: 3, textTransform: "uppercase" }}>Shared seventh</div>
+            <Card id={sharedRiver.card} w={boardW} h={boardH} />
+          </div>}
         </div>
 
         {/* Footer — brand mark + URL */}

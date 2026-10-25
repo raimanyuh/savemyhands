@@ -5,6 +5,7 @@ import { logout } from "@/app/actions/auth";
 import DashboardShell from "@/components/poker/DashboardShell";
 import { listMyHands } from "@/lib/hands/db";
 import { getMyProfile } from "@/lib/profiles/db";
+import { isRazzEnabled, isStudHighEnabled, isStudHiloEnabled } from "@/lib/poker-features";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -23,6 +24,9 @@ export default async function DashboardPage() {
       initialUsername={profile?.username ?? null}
       signOutAction={logout}
       initialHands={hands}
+      enableStud={isStudHighEnabled()}
+      enableRazz={isRazzEnabled()}
+      enableStudHilo={isStudHiloEnabled()}
     />
   );
 }

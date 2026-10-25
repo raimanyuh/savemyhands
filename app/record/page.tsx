@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import RecorderShell from "@/components/poker/RecorderShell";
+import { isRazzEnabled, isStudHighEnabled, isStudHiloEnabled } from "@/lib/poker-features";
 
 export const metadata: Metadata = { title: "New hand" };
 
@@ -13,5 +14,5 @@ export default async function RecordPage() {
 
   if (!user) redirect("/login");
 
-  return <RecorderShell />;
+  return <RecorderShell enableStud={isStudHighEnabled()} enableRazz={isRazzEnabled()} enableStudHilo={isStudHiloEnabled()} />;
 }

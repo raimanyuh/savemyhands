@@ -139,7 +139,7 @@ export function bubblePos(seatPos: SeatPos, isHero: boolean): SeatPos {
 }
 
 // Dealer "D" chip — sits at a small angular offset from the BTN seat so bets don't cover it.
-export function DealerButtonChip({ seatPos }: { seatPos: SeatPos }) {
+export function DealerButtonChip({ seatPos, position }: { seatPos: SeatPos; position?: SeatPos }) {
   const dx = seatPos.left - 50;
   const dy = seatPos.top - 50;
   const cos = Math.cos(0.32);
@@ -152,8 +152,8 @@ export function DealerButtonChip({ seatPos }: { seatPos: SeatPos }) {
     <div
       className="absolute z-30 flex items-center justify-center rounded-full pointer-events-none"
       style={{
-        left: `${left}%`,
-        top: `${top}%`,
+        left: `${position?.left ?? left}%`,
+        top: `${position?.top ?? top}%`,
         transform: "translate(-50%,-50%)",
         width: scaled(28),
         height: scaled(28),
@@ -308,7 +308,7 @@ export function StackDisplay({
 // Initial inline `--smh-u: 1` covers SSR and the brief window before the
 // effect runs — components render at design size on first paint, then
 // rescale to the actual felt width.
-export function TableSurface({ children }: { children: React.ReactNode }) {
+export function TableSurface({ children, aspectRatio = "2 / 1", className = "" }: { children: React.ReactNode; aspectRatio?: string; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -330,10 +330,10 @@ export function TableSurface({ children }: { children: React.ReactNode }) {
   return (
     <div
       ref={ref}
-      className="relative w-full"
+      className={`relative w-full ${className}`}
       style={
         {
-          aspectRatio: "2 / 1",
+          aspectRatio,
           "--smh-u": "1",
         } as React.CSSProperties
       }

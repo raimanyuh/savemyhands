@@ -31,6 +31,11 @@ import type { SavedHand } from "./hand";
 import { computeEquity } from "./equity";
 import PlayingCard from "./PlayingCard";
 import HandFan from "./HandFan";
+import DrawTable from "./DrawTable";
+import StudTable from "./StudTable";
+import StudAwards from "./StudAwards";
+import { studGameLabel, studStakesLabel } from "./stud-ui";
+import { drawRoundLabel, drawGameLabel, drawStakesLabel } from "./single-draw-ui";
 import { seatXY } from "./lib";
 import { scaled } from "./scale";
 import { BetBubble, DealerButtonChip, TableSurface } from "./table-pieces";
@@ -47,7 +52,7 @@ function StreetPill({ street }: { street: ReplayStep["street"] }) {
     <span
       className="px-2.5 h-6 inline-flex items-center rounded-md text-[10px] font-semibold uppercase tracking-[0.18em] border bg-[oklch(0.696_0.205_155_/_0.15)] text-[oklch(0.795_0.184_155)] border-[oklch(0.696_0.205_155_/_0.4)]"
     >
-      {street}
+      {drawRoundLabel(street)}
     </span>
   );
 }
@@ -59,6 +64,7 @@ export default function Replayer({
   handName,
   isOwner = false,
   isPublic = false,
+  onPublicChangeAction,
   isAuthenticated = true,
   ownerUsername,
   fullPayload,
@@ -71,6 +77,7 @@ export default function Replayer({
   handName?: string;
   isOwner?: boolean;
   isPublic?: boolean;
+  onPublicChangeAction?: (value: boolean) => void;
   // Drives both the "Dashboard ←" back link and (inversely) the anon
   // sign-up CTA. Defaults to true so the recorder/dashboard flows that
   // already gate auth upstream don't have to thread this prop.
@@ -93,6 +100,7 @@ export default function Replayer({
       handName={handName}
       isOwner={isOwner}
       isPublic={isPublic}
+      onPublicChangeAction={onPublicChangeAction}
       isAuthenticated={isAuthenticated}
       ownerUsername={ownerUsername ?? null}
       fullPayload={fullPayload}
@@ -107,6 +115,7 @@ function ReplayerInner({
   handName,
   isOwner,
   isPublic,
+  onPublicChangeAction,
   isAuthenticated,
   ownerUsername,
   fullPayload,
@@ -117,6 +126,7 @@ function ReplayerInner({
   handName?: string;
   isOwner: boolean;
   isPublic: boolean;
+  onPublicChangeAction?: (value: boolean) => void;
   isAuthenticated: boolean;
   ownerUsername: string | null;
   fullPayload?: SavedHand["_full"];
@@ -204,7 +214,7 @@ function ReplayerInner({
         }
         return s + 1;
       });
-    }, 1100);
+    }, HAND.steps[step].draw?.kind === "deal" || HAND.steps[step].stud?.kind === "deal" ? 140 : HAND.steps[step].stud?.kind === "shared-deal" ? 650 : HAND.steps[step].draw?.stage === "discard" ? 750 : 1100);
     return () => clearTimeout(t);
   }, [playing, step, HAND]);
 
@@ -229,6 +239,7 @@ function ReplayerInner({
         setStep((s) => Math.min(HAND.steps.length - 1, s + 1));
       } else if (e.key === " ") {
         e.preventDefault();
+        if (!playing && step === HAND.steps.length - 1) setStep(0);
         setPlaying((p) => !p);
       } else if (e.key === "Home") {
         e.preventDefault();
@@ -260,7 +271,7 @@ function ReplayerInner({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [HAND.steps.length, annotatedSteps]);
+  }, [HAND.steps.length, annotatedSteps, playing, step]);
 
   const cur = HAND.steps[step];
   // Memoize `board` so downstream useMemo deps don't see a fresh array
@@ -292,7 +303,7 @@ function ReplayerInner({
   // so the showdown overlay can render two badges per seat.
   const liveEquity = useMemo(() => {
     const map = new Map<number, Record<number, number>>();
-    if (!showEquity || HAND.equityByStep) return map;
+    if (HAND.game.family !== "community" || !showEquity || HAND.equityByStep) return map;
     for (let s = 0; s < HAND.steps.length; s++) {
       let stepBoard: string[] = [];
       for (let i = 0; i <= s; i++) {
@@ -314,7 +325,7 @@ function ReplayerInner({
   }, [showEquity, HAND]);
   const liveEquity2 = useMemo(() => {
     const map = new Map<number, Record<number, number>>();
-    if (!showEquity || !HAND.doubleBoardOn || HAND.equityByStep2) return map;
+    if (HAND.game.family !== "community" || !showEquity || !HAND.doubleBoardOn || HAND.equityByStep2) return map;
     for (let s = 0; s < HAND.steps.length; s++) {
       let stepBoard: string[] = [];
       for (let i = 0; i <= s; i++) {
@@ -371,7 +382,9 @@ function ReplayerInner({
   // Share toggle (owner-only). Optimistic local state so the UI updates
   // immediately; revert if the server action throws.
   const [sharePending, startShare] = useTransition();
-  const [optimisticPublic, setOptimisticPublic] = useState(isPublic);
+  const [localPublic, setLocalPublic] = useState(isPublic);
+  const optimisticPublic = onPublicChangeAction ? isPublic : localPublic;
+  const setOptimisticPublic = onPublicChangeAction ?? setLocalPublic;
   const togglePublic = () => {
     if (!handId) return;
     const next = !optimisticPublic;
@@ -475,7 +488,7 @@ function ReplayerInner({
                   </>
                 )}
               </Button>
-              <Button
+              {HAND.game.family === "community" && <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setShowEquity((v) => !v)}
@@ -488,7 +501,7 @@ function ReplayerInner({
               >
                 <Percent />
                 {showEquity ? "Hide equity" : "Show equity"}
-              </Button>
+              </Button>}
               {isOwner && handId && (
                 <Button
                   variant="outline"
@@ -538,6 +551,8 @@ function ReplayerInner({
           <h2 className="text-xl font-semibold tracking-tight">
             {handName || "Untitled hand"}
           </h2>
+          {HAND.game.family === "draw" && <span className="text-xs text-emerald-300">{drawGameLabel(HAND.game.variant)} · {drawStakesLabel({ variant: HAND.game.variant, ...HAND.stakes })}</span>}
+          {HAND.game.family === "stud" && HAND.studRules && <span className="text-xs text-emerald-300">{studGameLabel(HAND.game.variant)} · {studStakesLabel(HAND.studRules)}</span>}
         </div>
 
         {/* Table — capped by viewport height so the floating dock at the
@@ -545,9 +560,17 @@ function ReplayerInner({
             chrome above (header + back link + paddings) is ~200px. */}
         <div
           className="w-full flex flex-col items-center"
-          style={{ maxWidth: "calc((100vh - 280px) * 2)" }}
+          style={{ maxWidth: `calc((100vh - 280px) * ${cur.stud && HAND.playerCount >= 6 ? 1.5 : 2})` }}
         >
-        <TableSurface>
+        {cur.stud ? <StudTable variant={HAND.game.family === "stud" ? HAND.game.variant : "STUD_HIGH"} players={HAND.players} heroSeat={heroPos} dealerSeat={HAND.studRules?.dealerSeat ?? HAND.playerCount - 1} cards={cur.stud.cards}
+          sharedCard={cur.stud.sharedCard} pot={pot} round={drawRoundLabel(street)} active={cur.active} committed={committed} bets={streetBets}
+          folded={cur.stud.foldedSeats} mucked={cur.stud.muckedSeats} winnings={cur.stud.winnings}
+          previousCards={cur.stud.kind === "muck" ? HAND.steps[step - 1]?.stud?.cards : undefined}
+          labels={cur.action === "check" && cur.active !== undefined ? { [cur.active]: "check" } : {}} /> : cur.draw ? <DrawTable variant={HAND.game.family === "draw" ? HAND.game.variant : undefined} players={HAND.players} heroSeat={heroPos} cards={cur.draw.cards}
+          pot={pot} round={drawRoundLabel(street)} active={cur.active} committed={committed} bets={streetBets}
+          folded={cur.draw.foldedSeats} mucked={cur.draw.muckedSeats} winnings={cur.draw.winnings}
+          previousCards={cur.draw.stage === "discard" ? HAND.steps[step - 1]?.draw?.cards : undefined}
+          labels={cur.draw.kind === "draw" && cur.active !== undefined ? { [cur.active]: cur.draw.stage === "pat" ? "Pat" : cur.label.replace(/^\S+ /, "") } : cur.action === "check" && cur.active !== undefined ? { [cur.active]: "check" } : {}} /> : <TableSurface>
           {/* Pot + board(s). Stack a second row when this is a double-
               board hand and shift the whole stack up so hero cards still
               get clearance, mirroring the recorder. */}
@@ -1058,7 +1081,7 @@ function ReplayerInner({
               </>
             );
           })()}
-        </TableSurface>
+        </TableSurface>}
         </div>
 
         {/* The big "BTN bets $30" card and the always-rendered note row used
@@ -1067,6 +1090,8 @@ function ReplayerInner({
             seat and the seat-anchored note balloon (added next) replace the
             inline cards. Removing the reserved row stops the layout from
             shifting when scrubbing across annotated/non-annotated steps. */}
+
+        {HAND.game.variant === "STUD_HILO_8" && cur.stud?.resolved && <div className="w-full max-w-3xl mt-4"><StudAwards awards={cur.stud.awards} /></div>}
 
         {/* Hand info — venue / date / notes from the recorder. Owners always
             see the panel (with an Add notes affordance) even when empty so
@@ -1214,8 +1239,8 @@ function ReplayerInner({
               setStep(target);
             }}
             className="w-8 h-8 inline-flex items-center justify-center rounded-md text-zinc-300 hover:text-white hover:bg-white/8 cursor-pointer"
-            aria-label="Restart street"
-            title="Skip back to start of street"
+            aria-label={cur.draw ? "Restart round" : "Restart street"}
+            title={cur.draw ? "Skip back to start of round" : "Skip back to start of street"}
           >
             <RotateCcw size={14} />
           </button>
@@ -1230,7 +1255,10 @@ function ReplayerInner({
           </button>
           <button
             type="button"
-            onClick={() => setPlaying(!playing)}
+            onClick={() => {
+              if (!playing && step === HAND.steps.length - 1) setStep(0);
+              setPlaying(!playing);
+            }}
             className="w-10 h-10 rounded-full inline-flex items-center justify-center cursor-pointer"
             style={{
               background: "oklch(0.696 0.205 155)",
@@ -1397,7 +1425,7 @@ function ReplayerInner({
                   className="text-[9.5px] font-bold uppercase tracking-[0.18em] px-1 pt-1 pb-1"
                   style={{ color: "oklch(0.55 0 0)" }}
                 >
-                  {g.street}
+                  {drawRoundLabel(g.street)}
                 </div>
                 {g.items.map(({ i, s }) => {
                   const active = i === step;

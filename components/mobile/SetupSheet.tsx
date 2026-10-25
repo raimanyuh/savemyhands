@@ -30,6 +30,10 @@ export type SetupSheetProps = {
   onClose: () => void;
   state: RecorderState;
   dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
+  onSelectSingleDraw?: () => void;
+  onSelectStud?: () => void;
+  onSelectRazz?: () => void;
+  onSelectStudHilo?: () => void;
 };
 
 export function SetupSheet({
@@ -37,6 +41,10 @@ export function SetupSheet({
   onClose,
   state,
   dispatch,
+  onSelectSingleDraw,
+  onSelectStud,
+  onSelectRazz,
+  onSelectStudHilo,
 }: SetupSheetProps) {
   const {
     playerCount,
@@ -168,6 +176,10 @@ export function SetupSheet({
         style={{ padding: "8px 16px 16px", gap: 18 }}
       >
         {/* Game */}
+        {setupOnly && onSelectSingleDraw && <button type="button" onClick={onSelectSingleDraw} className="min-h-12 rounded-xl border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 font-semibold text-sm">2–7 Single / Triple Draw</button>}
+        {setupOnly && onSelectStud && <button type="button" onClick={onSelectStud} className="min-h-12 rounded-xl border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 font-semibold text-sm">Seven-Card Stud High</button>}
+        {setupOnly && onSelectRazz && <button type="button" onClick={onSelectRazz} className="min-h-12 rounded-xl border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 font-semibold text-sm">Razz</button>}
+        {setupOnly && onSelectStudHilo && <button type="button" onClick={onSelectStudHilo} className="min-h-12 rounded-xl border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 font-semibold text-sm">Stud Hi/Lo 8</button>}
         <Row label="Game">
           <ChipGroup
             options={[

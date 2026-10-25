@@ -504,6 +504,7 @@ export function CardRow({
   highlight = false,
   autoOpenOnHighlight = false,
   fan = false,
+  lockedIndexes = [],
 }: {
   cards: (string | null | undefined)[];
   used: Set<string>;
@@ -526,6 +527,8 @@ export function CardRow({
   // variant for filled cards and rotates each slot ±N° from the centre
   // with horizontal overlap so 4–5 cards fit inside a seat plate.
   fan?: boolean;
+  // Stud's already-exposed cards stay in their original slots at showdown.
+  lockedIndexes?: number[];
 }) {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -551,7 +554,7 @@ export function CardRow({
     if (disabled) return;
     if (!containerRef.current) return;
     for (let i = 0; i < cards.length; i++) {
-      if (!cards[i]) {
+      if (!cards[i] && !lockedIndexes.includes(i)) {
         setOpenIdx(i);
         setAnchor(containerRef.current);
         return;
@@ -575,7 +578,7 @@ export function CardRow({
     // container so the picker doesn't jump around as auto-advance
     // walks the slots.
     for (let i = 0; i < cards.length; i++) {
-      if (!cards[i]) {
+      if (!cards[i] && !lockedIndexes.includes(i)) {
         if (containerRef.current) {
           setOpenIdx(i);
           setAnchor(containerRef.current);
@@ -583,12 +586,13 @@ export function CardRow({
         return;
       }
     }
-  }, [highlight, autoOpenOnHighlight, disabled, anchor, cards]);
+  }, [highlight, autoOpenOnHighlight, disabled, anchor, cards, lockedIndexes]);
 
   const handlePick = (card: string) => {
     if (openIdx === null) return;
     onPick(openIdx, card);
-    const nextIdx = openIdx + 1;
+    let nextIdx = openIdx + 1;
+    while (nextIdx < autoAdvanceCount && lockedIndexes.includes(nextIdx)) nextIdx++;
     if (nextIdx < autoAdvanceCount && !cards[nextIdx]) {
       // Stable anchor: only move the active-slot ring, picker stays
       // pinned to the same row container.
@@ -618,7 +622,7 @@ export function CardRow({
   // every slot is filled we no-op (X first to edit). Disabled rows
   // also no-op.
   const canOpen =
-    !disabled && cards.some((c) => !c) && openIdx === null;
+    !disabled && cards.some((c, index) => !c && !lockedIndexes.includes(index)) && openIdx === null;
   const containerCursor = disabled
     ? "cursor-not-allowed"
     : cards.every(Boolean)
@@ -734,7 +738,7 @@ export function CardRow({
                 }}
               >
                 <FannedPlayingCard rank={rank} suit={suit} size={size} />
-                {onClear && (
+                {onClear && !disabled && !lockedIndexes.includes(i) && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -834,7 +838,7 @@ export function CardRow({
               style={{ pointerEvents: onClear ? "auto" : "none" }}
             >
               <PlayingCard rank={rank} suit={suit} size={size} />
-              {onClear && (
+              {onClear && !disabled && !lockedIndexes.includes(i) && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();

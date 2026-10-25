@@ -7,11 +7,16 @@
 // → existing desktop UI (tablet reuses desktop).
 
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { useState } from "react";
 import Replayer from "./Replayer";
 import MobileReplayer from "@/components/mobile/MobileReplayer";
 import type { ReplayHand, SavedHand } from "./hand";
 
-export default function ReplayerShell({
+export default function ReplayerShell(props: Parameters<typeof Replayer>[0]) {
+  return <ReplayerLayout key={props.hand.id} {...props} />;
+}
+
+function ReplayerLayout({
   hand,
   shareUrl,
   handId,
@@ -35,6 +40,7 @@ export default function ReplayerShell({
   fullPayload?: SavedHand["_full"];
 }) {
   const { isMobile } = useIsMobile();
+  const [sharedPublic, setSharedPublic] = useState(isPublic ?? false);
   if (isMobile) {
     return (
       <MobileReplayer
@@ -43,7 +49,8 @@ export default function ReplayerShell({
         handId={handId}
         handName={handName}
         isOwner={isOwner}
-        isPublic={isPublic}
+        isPublic={sharedPublic}
+        onPublicChangeAction={setSharedPublic}
         isAuthenticated={isAuthenticated}
         ownerUsername={ownerUsername}
         fullPayload={fullPayload}
@@ -57,7 +64,8 @@ export default function ReplayerShell({
       handId={handId}
       handName={handName}
       isOwner={isOwner}
-      isPublic={isPublic}
+      isPublic={sharedPublic}
+      onPublicChangeAction={setSharedPublic}
       isAuthenticated={isAuthenticated}
       ownerUsername={ownerUsername}
       fullPayload={fullPayload}

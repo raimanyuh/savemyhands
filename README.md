@@ -34,3 +34,38 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Stud release flags
+
+`ENABLE_STUD_HIGH=true` enables Seven-Card Stud High on the server, including
+desktop/mobile recorder entry points, dashboard filters, replay routes and
+social previews. `ENABLE_RAZZ=true` independently enables Razz, and
+`ENABLE_STUD_HILO_8=true` independently enables Stud Hi/Lo 8, including the
+desktop/mobile recorder, replayer, high/low payouts, filters and social previews.
+All three flags default off. Set each flag only after verifying that format
+in the target environment; local QA flags do not enable a deployed release.
+
+New Stud recordings deal an individual seventh downcard to each live seat.
+The recorder assumes the dealer can supply those cards and does not infer
+deck exhaustion or simulate reshuffles from anonymous card counts. Known
+card identities still cannot be duplicated. Previously saved shared-seventh
+histories retain their original replay and payouts for compatibility.
+
+Apply `supabase/migrations/0005_fractional_hand_results.sql` before enabling
+Stud in an environment. It widens `hands.result` to `numeric` for fractional
+antes and split awards while retaining ownership policies and private defaults.
+Set the flag in the server environment, then restart/redeploy that environment.
+
+Before release, verify signed-in save → dashboard → reload → replay for
+Single Draw, Triple Draw, Stud High, Razz and Stud/8, including fractional
+high/low and side-pot results. Confirm
+new hands are private, anonymous private URLs show the not-found page without
+hand data, public URLs replay without a session, and making the test hand
+private again removes anonymous
+access. Check game filters on desktop and mobile. Run `npm test`,
+`npx tsc --noEmit --incremental false`, `npm run lint` and `npm run build`.
+
+The existing hand loading boundary streams responses: Next.js can return
+HTTP 200 for a not-found page after streaming starts. Check the not-found UI,
+`noindex`, absence of hand data, and an empty anonymous database query as well
+as the status code when verifying privacy.

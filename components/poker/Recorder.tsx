@@ -41,6 +41,7 @@ import {
   TableSurface,
 } from "./table-pieces";
 import { CardRow } from "./CardPicker";
+import NumericInput from "./NumericInput";
 import HandFan from "./HandFan";
 import {
   committedBySeat,
@@ -979,45 +980,6 @@ function ActionBar({
 // recorder needs somewhere to set it during setup — added as an extra row so
 // no functionality is lost.
 
-// Numeric input that lets the user blank the field while typing without
-// snapping back to "0" on every keystroke. The committed value updates
-// only on blur (or Enter); empty / non-numeric values fall back to 0.
-// `key={value}` remounts when the parent updates the value externally
-// (e.g., loadDefaults) so the visible text re-syncs.
-function NumericInput({
-  value,
-  onCommit,
-  className,
-  ...rest
-}: {
-  value: number;
-  onCommit: (n: number) => void;
-} & Omit<
-  React.ComponentProps<"input">,
-  "value" | "defaultValue" | "type" | "onChange" | "onBlur"
->) {
-  return (
-    <Input
-      key={value}
-      type="number"
-      defaultValue={value}
-      onBlur={(e) => {
-        const raw = e.currentTarget.value;
-        const n = raw === "" ? 0 : Number(raw);
-        onCommit(Number.isFinite(n) ? n : 0);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          (e.currentTarget as HTMLInputElement).blur();
-        }
-      }}
-      className={className}
-      {...rest}
-    />
-  );
-}
-
 function StreetPill({
   phase,
   bombPotOn = false,
@@ -1055,10 +1017,18 @@ function SetupPopover({
   state,
   dispatch,
   onClose,
+  onSelectSingleDraw,
+  onSelectStud,
+  onSelectRazz,
+  onSelectStudHilo,
 }: {
   state: RecorderState;
   dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
   onClose: () => void;
+  onSelectSingleDraw?: (state: RecorderState) => void;
+  onSelectStud?: (state: RecorderState) => void;
+  onSelectRazz?: (state: RecorderState) => void;
+  onSelectStudHilo?: (state: RecorderState) => void;
 }) {
   const { playerCount, sb, bb, straddleOn, straddleAmt, bombPotOn, bombPotAmt, doubleBoardOn, gameType, heroPosition } = state;
   const canStraddle = playerCount >= 4 && !bombPotOn;
@@ -1203,6 +1173,23 @@ function SetupPopover({
           })}
         </div>
       </div>
+
+      {onSelectSingleDraw && <button type="button" onClick={() => onSelectSingleDraw(state)}
+        className="ml-[102px] text-left text-[11.5px] text-emerald-300 hover:text-emerald-200 cursor-pointer">
+        2–7 Single / Triple Draw <ChevronRight size={12} className="inline ml-1" />
+      </button>}
+      {onSelectStud && <button type="button" onClick={() => onSelectStud(state)}
+        className="ml-[102px] text-left text-[11.5px] text-emerald-300 hover:text-emerald-200 cursor-pointer">
+        Seven-Card Stud High <ChevronRight size={12} className="inline ml-1" />
+      </button>}
+      {onSelectRazz && <button type="button" onClick={() => onSelectRazz(state)}
+        className="ml-[102px] text-left text-[11.5px] text-emerald-300 hover:text-emerald-200 cursor-pointer">
+        Razz <ChevronRight size={12} className="inline ml-1" />
+      </button>}
+      {onSelectStudHilo && <button type="button" onClick={() => onSelectStudHilo(state)}
+        className="ml-[102px] text-left text-[11.5px] text-emerald-300 hover:text-emerald-200 cursor-pointer">
+        Stud Hi/Lo 8 <ChevronRight size={12} className="inline ml-1" />
+      </button>}
 
       {/* Players */}
       <div className="flex items-center gap-3.5">
@@ -1543,6 +1530,10 @@ function MetaStrip({
   setPopoverOpen,
   logOpen,
   setLogOpen,
+  onSelectSingleDraw,
+  onSelectStud,
+  onSelectRazz,
+  onSelectStudHilo,
 }: {
   state: RecorderState;
   derived: ReturnType<typeof deriveStreet>;
@@ -1555,6 +1546,10 @@ function MetaStrip({
   // Lifted to the parent so the log popover can use the parent's data.
   logOpen: boolean;
   setLogOpen: (v: boolean) => void;
+  onSelectSingleDraw?: (state: RecorderState) => void;
+  onSelectStud?: (state: RecorderState) => void;
+  onSelectRazz?: (state: RecorderState) => void;
+  onSelectStudHilo?: (state: RecorderState) => void;
 }) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const logWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -1742,6 +1737,10 @@ function MetaStrip({
                   state={state}
                   dispatch={dispatch}
                   onClose={() => setPopoverOpen(false)}
+                  onSelectSingleDraw={onSelectSingleDraw}
+                  onSelectStud={onSelectStud}
+                  onSelectRazz={onSelectRazz}
+                  onSelectStudHilo={onSelectStudHilo}
                 />
               )}
             </>
@@ -2024,12 +2023,18 @@ function ActionLog({
   );
 }
 
-export default function Recorder() {
+export default function Recorder({ initialSetup, onSelectSingleDraw, onSelectStud, onSelectRazz, onSelectStudHilo }: {
+  initialSetup?: RecorderState;
+  onSelectSingleDraw?: (state: RecorderState) => void;
+  onSelectStud?: (state: RecorderState) => void;
+  onSelectRazz?: (state: RecorderState) => void;
+  onSelectStudHilo?: (state: RecorderState) => void;
+} = {}) {
   const router = useRouter();
   const confirm = useConfirm();
   const toast = useToast();
-  const [state, dispatch] = useReducer(reducer, undefined, () =>
-    initialStateFromDefaults(),
+  const [state, dispatch] = useReducer(reducer, initialSetup, (setup) =>
+    setup ?? initialStateFromDefaults(),
   );
   // Tracks the in-flight save so the button can disable itself while the
   // server action runs.
@@ -2457,6 +2462,10 @@ export default function Recorder() {
           setPopoverOpen={setSetupPopoverOpen}
           logOpen={logOpen}
           setLogOpen={setLogOpen}
+          onSelectSingleDraw={onSelectSingleDraw}
+          onSelectStud={onSelectStud}
+          onSelectRazz={onSelectRazz}
+          onSelectStudHilo={onSelectStudHilo}
         />
 
         {/* Layout container — wraps the felt and the action+notes region.

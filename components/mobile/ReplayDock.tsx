@@ -13,6 +13,7 @@
 
 import { ChevronLeft, ChevronRight, Pause, Play, Pencil } from "lucide-react";
 import type { ReplayStep } from "@/components/poker/hand";
+import { drawRoundLabel } from "@/components/poker/single-draw-ui";
 
 const EMERALD = "oklch(0.696 0.205 155)";
 const EMERALD_BRIGHT = "oklch(0.745 0.198 155)";
@@ -300,7 +301,7 @@ function StreetPill({ street }: { street: ReplayStep["street"] }) {
         flexShrink: 0,
       }}
     >
-      {street}
+      {drawRoundLabel(street)}
     </span>
   );
 }

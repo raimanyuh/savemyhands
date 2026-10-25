@@ -14,6 +14,8 @@
 // caller can decide how to surface it.
 
 import { saveHandAction } from "@/lib/hands/actions";
+import { buildSingleDrawHand, type BuildSingleDrawHandArgs } from "./single-draw-hand";
+import { buildStudHand, type BuildStudHandArgs } from "./stud-hand";
 import {
   derivePotType,
   isMultiway,
@@ -23,6 +25,10 @@ import {
 import { precomputeEquityByStep } from "@/components/poker/equity";
 import { committedBySeatFinal } from "@/components/poker/engine";
 import type { RecorderState } from "@/components/poker/engine";
+import {
+  CURRENT_HAND_SCHEMA_VERSION,
+  communityGameDefinition,
+} from "@/components/poker/game-format";
 import {
   seatWinnings,
   type PotAward,
@@ -47,6 +53,20 @@ export type BuildAndSaveResult = {
   // /hand/<id> after save.
   id: string;
 };
+
+/** Draw has its own builder and evaluator; community equity does not apply. */
+export async function buildAndSaveSingleDrawHand(
+  args: BuildSingleDrawHandArgs,
+): Promise<BuildAndSaveResult> {
+  const saved = await saveHandAction(buildSingleDrawHand(args));
+  return { id: saved.id };
+}
+
+/** Stud variants share timeline visibility and variant-specific awards; no community equity. */
+export async function buildAndSaveStudHand(args: BuildStudHandArgs): Promise<BuildAndSaveResult> {
+  const saved = await saveHandAction(buildStudHand(args));
+  return { id: saved.id };
+}
 
 export async function buildAndSaveHand(
   args: BuildAndSaveArgs,
@@ -93,6 +113,8 @@ export async function buildAndSaveHand(
     fav: false,
     notes: state.notes.trim() || undefined,
     _full: {
+      schemaVersion: CURRENT_HAND_SCHEMA_VERSION,
+      game: communityGameDefinition(state.gameType),
       players: state.players,
       actions: state.actions,
       board: state.board,

@@ -15,10 +15,16 @@ export default function DashboardShell({
   initialUsername,
   signOutAction,
   initialHands,
+  enableStud = false,
+  enableRazz = false,
+  enableStudHilo = false,
 }: {
   initialUsername: string | null;
   signOutAction?: () => void | Promise<void>;
   initialHands: SavedHand[];
+  enableStud?: boolean;
+  enableRazz?: boolean;
+  enableStudHilo?: boolean;
 }) {
   const { isMobile } = useIsMobile();
   if (isMobile) {
@@ -27,6 +33,9 @@ export default function DashboardShell({
         initialUsername={initialUsername}
         signOutAction={signOutAction}
         initialHands={initialHands}
+        enableStud={enableStud}
+        enableRazz={enableRazz}
+        enableStudHilo={enableStudHilo}
       />
     );
   }
@@ -35,6 +44,9 @@ export default function DashboardShell({
       initialUsername={initialUsername}
       signOutAction={signOutAction}
       initialHands={initialHands}
+      enableStud={enableStud}
+      enableRazz={enableRazz}
+      enableStudHilo={enableStudHilo}
     />
   );
 }
