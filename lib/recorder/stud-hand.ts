@@ -12,11 +12,12 @@ export type BuildStudHandArgs = {
   notes?: string;
 };
 
-/** Pure Stud payload builder. The legacy board/actions/blinds and pot-type
+/** Pure Stud High / Razz payload builder. The legacy board/actions/blinds and pot-type
  * columns are compatibility containers; native Stud data lives in _full. */
 export function buildStudHand(args: BuildStudHandArgs): Omit<SavedHand, "id"> {
   const { state } = args;
-  if (state.variant !== "STUD_HIGH") throw new Error("This Stud variant is not ready to save");
+  if (state.variant !== "STUD_HIGH" && state.variant !== "RAZZ") throw new Error("This Stud variant is not ready to save");
+  if (state.variant === "RAZZ" && state.sharedSeventh) throw new Error("Razz requires individual seventh cards");
   if (state.phase !== "showdown" && state.phase !== "done") throw new Error("Finish the hand before saving");
   if (!studResult(state).resolved) throw new Error("Every live hand must show or muck, and every pot needs a shown eligible winner");
   const [year, month, day] = args.date.split("-").map(Number);
@@ -37,8 +38,9 @@ export function buildStudHand(args: BuildStudHandArgs): Omit<SavedHand, "id"> {
     multiway: new Set(timeline.flatMap((event) => event.type === "deal" && event.round === "fourth-street" ? [event.seat] : [])).size > 2,
     board: Array<string>(5).fill("—"), type: "LP", tags: [], result: 0, fav: false, notes,
     _full: {
-      schemaVersion: CURRENT_HAND_SCHEMA_VERSION, game: { family: "stud", variant: "STUD_HIGH", bettingStructure: "FL" },
-      studRules: { ante: state.ante, bringIn: state.bringIn, smallBet: state.smallBet, dealerSeat: state.dealerSeat, ...state.limitRules },
+      schemaVersion: CURRENT_HAND_SCHEMA_VERSION, game: { family: "stud", variant: state.variant, bettingStructure: "FL" },
+      studRules: { ante: state.ante, bringIn: state.bringIn, smallBet: state.smallBet, dealerSeat: state.dealerSeat, ...state.limitRules,
+        fourthStreetBigBet: state.variant === "STUD_HIGH" && state.limitRules.fourthStreetBigBet },
       timeline,
       players: state.players.map((player) => ({
         seat: player.seat, name: player.name, stack: player.stack,

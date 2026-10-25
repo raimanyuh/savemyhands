@@ -61,6 +61,9 @@ export default async function HandPage({
     result = fromDb;
   }
 
+  // The Razz adapter precedes its recorder/replayer UI release.
+  const game = result.hand._full?.game;
+  if (game?.family === "stud" && game.variant !== "STUD_HIGH") notFound();
   const replayHand = recordedToHand(result.hand);
   if (!replayHand || replayHand.game.family === "stud" && !isStudHighEnabled()) notFound();
 

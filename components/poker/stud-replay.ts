@@ -5,7 +5,7 @@ import {
   recordStudAction, recordStudDeal, restoreLegacyStudSharedSeventh, setStudMucked,
   setStudShownCards, setStudStartingCards, startStudHand, studAccounting,
   studFirstToAct, studResult, updateStudPlayer,
-  type StudPotAward, type StudState, type StudStreet,
+  type StudEngineVariant, type StudPotAward, type StudState, type StudStreet,
 } from "./stud-engine";
 
 export type StudReplayRound = StudStreet | "showdown";
@@ -47,11 +47,11 @@ export function studRoundLabel(round: StudReplayRound): string {
 /** Validate the initial deal against the domain's canonical ante/deal/
  * bring-in sequence. Stored opponent downcard values are ignored even if
  * a payload accidentally contains them. Final players[*].cards is unused. */
-function initialTimeline(rec: SavedHand) {
+function initialTimeline(rec: SavedHand, variant: StudEngineVariant) {
   const full = rec._full!;
   const rules = full.studRules!;
   let ready = initialStudState({
-    playerCount: full.playerCount, heroSeat: full.heroPosition ?? 0, dealerSeat: rules.dealerSeat,
+    variant, playerCount: full.playerCount, heroSeat: full.heroPosition ?? 0, dealerSeat: rules.dealerSeat,
     ante: rules.ante, bringIn: rules.bringIn, smallBet: rules.smallBet,
     limitRules: { maxBets: rules.maxBets, headsUpUncapped: rules.headsUpUncapped, fourthStreetBigBet: rules.fourthStreetBigBet },
   });
@@ -89,8 +89,9 @@ function initialTimeline(rec: SavedHand) {
 export function studToReplay(rec: SavedHand): StudReplayHand | null {
   const full = rec._full;
   if (!full || full.schemaVersion !== 2 || full.game?.family !== "stud" ||
-      full.game.variant !== "STUD_HIGH" || full.game.bettingStructure !== "FL" || !full.studRules || !full.timeline?.length) return null;
-  const { started, prefixLength } = initialTimeline(rec);
+      (full.game.variant !== "STUD_HIGH" && full.game.variant !== "RAZZ") || full.game.bettingStructure !== "FL" || !full.studRules || !full.timeline?.length) return null;
+  if (full.game.variant === "RAZZ" && (full.studRules.fourthStreetBigBet || full.timeline.some((event) => event.type === "shared-deal"))) throw new Error("Razz requires individual seventh cards and small bets on fourth street");
+  const { started, prefixLength } = initialTimeline(rec, full.game.variant);
   let state: StudState = { ...started, events: [], history: [] };
   let round: StudReplayRound = "third-street";
   let initialComplete = false;

@@ -7,7 +7,6 @@ import {
   undoStud, updateStudPlayer, type StudState,
 } from "./stud-engine";
 import { changeStudSetup } from "./stud-ui";
-import { buildStudHand } from "@/lib/recorder/stud-hand";
 
 const hands = [
   ["A♣", "2♦", "K♠", "3♣", "4♦", "5♥", "6♠"],
@@ -139,7 +138,6 @@ describe("Razz domain", () => {
     expect(events.filter((event) => event.type === "deal" && event.seat !== heroSeat && event.visibility === "down").every((event) => !("card" in event))).toBe(true);
     expect(events.filter((event) => event.type === "show")).toHaveLength(3);
     expect(studResult(JSON.parse(JSON.stringify(state)))).toEqual(studResult(state));
-    expect(() => buildStudHand({ state, date: "2026-10-24" })).toThrow("not ready to save");
   });
   it("awards the entire pot to a nine-low without an eight-or-better qualifier", () => {
     const holdings = [["A♣", "2♦", "K♠", "3♣", "4♦", "9♥", "T♠"], ["A♦", "2♥", "Q♠", "3♦", "5♥", "T♣", "J♠"]];

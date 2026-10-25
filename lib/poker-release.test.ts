@@ -7,7 +7,7 @@ import HandPage, { generateMetadata } from "@/app/hand/[id]/page";
 import HandOgImage from "@/app/hand/[id]/opengraph-image";
 import { advanceStudPhase, initialStudState, recordStudAction, setStudStartingCards, startStudHand } from "@/components/poker/stud-engine";
 import { dashboardGameOptions, HeroCardsPreview } from "@/components/poker/dashboard-shared";
-import type { SavedHand } from "@/components/poker/hand";
+import { recordedToHand, type SavedHand } from "@/components/poker/hand";
 import { buildStudHand } from "./recorder/stud-hand";
 import { SAMPLE_HAND_ID, getSampleHand } from "./sample-hand";
 
@@ -94,6 +94,19 @@ describe("Stud release routing", () => {
       expect(await generateMetadata(params)).toEqual({ title: "Hand" });
       expect(await ogHtml()).not.toContain("Stud release check");
     }
+  });
+  it("keeps a valid Razz adapter payload hidden from routes, metadata and social previews", async () => {
+    vi.stubEnv("ENABLE_STUD_HIGH", "true");
+    let state = initialStudState({ variant: "RAZZ", playerCount: 2 });
+    state = setStudStartingCards(state, 0, ["A♠", "K♥", "2♣"]);
+    state = setStudStartingCards(state, 1, [null, null, "Q♦"]);
+    state = advanceStudPhase(recordStudAction(startStudHand(state), { seat: 0, action: "fold" }));
+    const hand = { ...buildStudHand({ state, name: "Unreleased Razz", date: "2026-10-24" }), id: "razzcheck" };
+    expect(recordedToHand(hand)?.game.variant).toBe("RAZZ");
+    mocks.getHandForViewing.mockResolvedValue({ hand, isOwner: true, isAuthenticated: true, ownerUsername: "owner" });
+    await expect(HandPage(params)).rejects.toThrow("NOT_FOUND");
+    expect(await generateMetadata(params)).toEqual({ title: "Hand" });
+    expect(await ogHtml()).not.toContain("Unreleased Razz");
   });
   it("keeps the community sample available when Stud is disabled", async () => {
     const page = await HandPage({ params: Promise.resolve({ id: SAMPLE_HAND_ID }) });
