@@ -47,12 +47,13 @@ export const GAME_LABEL: Record<DashboardGameType, string> = {
   RAZZ: "Razz",
   STUD_HILO_8: "Stud Hi/Lo 8",
 };
-export function dashboardGameOptions(enableStud = false, enableRazz = false): { value: DashboardGameType; label: string }[] {
+export function dashboardGameOptions(enableStud = false, enableRazz = false, enableStudHilo = false): { value: DashboardGameType; label: string }[] {
   return [
     { value: "NLHE", label: "Hold'em" }, { value: "PLO4", label: "PLO 4-card" }, { value: "PLO5", label: "PLO 5-card" },
     { value: "2-7_SINGLE_DRAW", label: "2–7 Single Draw" }, { value: "2-7_TRIPLE_DRAW", label: "2–7 Triple Draw" },
     ...(enableStud ? [{ value: "STUD_HIGH" as const, label: "Seven-Card Stud High" }] : []),
     ...(enableRazz ? [{ value: "RAZZ" as const, label: "Razz" }] : []),
+    ...(enableStudHilo ? [{ value: "STUD_HILO_8" as const, label: "Stud Hi/Lo 8" }] : []),
   ];
 }
 export function holeCountOf(h: SavedHand): 2 | 4 | 5 | 7 {

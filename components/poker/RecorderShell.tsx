@@ -15,14 +15,14 @@ import { singleDrawDraftFromCommunity, type SingleDrawDraft } from "./single-dra
 import Recorder from "./Recorder";
 import MobileRecorder from "@/components/mobile/MobileRecorder";
 
-export default function RecorderShell({ enableStud = false, enableRazz = false }: { enableStud?: boolean; enableRazz?: boolean }) {
+export default function RecorderShell({ enableStud = false, enableRazz = false, enableStudHilo = false }: { enableStud?: boolean; enableRazz?: boolean; enableStudHilo?: boolean }) {
   const { isMobile } = useIsMobile();
   const [communityDraft, setCommunityDraft] = useState<RecorderState>();
   const [drawDraft, setDrawDraft] = useState<SingleDrawDraft>();
   const [studDraft, setStudDraft] = useState<StudDraft>();
   // SingleDrawRecorder owns one controller across responsive layouts.
   if (drawDraft) return <SingleDrawRecorder initialDraft={drawDraft} onSwitchGame={() => setDrawDraft(undefined)} />;
-  if (studDraft && (studDraft.state.variant === "RAZZ" ? enableRazz : enableStud)) return <StudRecorder initialDraft={studDraft} onSwitchGame={() => setStudDraft(undefined)} />;
+  if (studDraft && (studDraft.state.variant === "RAZZ" ? enableRazz : studDraft.state.variant === "STUD_HILO_8" ? enableStudHilo : enableStud)) return <StudRecorder initialDraft={studDraft} onSwitchGame={() => setStudDraft(undefined)} />;
   const selectSingleDraw = (state: RecorderState) => {
     setCommunityDraft(state);
     setDrawDraft(singleDrawDraftFromCommunity(state));
@@ -35,6 +35,10 @@ export default function RecorderShell({ enableStud = false, enableRazz = false }
     setCommunityDraft(state);
     setStudDraft(studDraftFromCommunity(state, "RAZZ"));
   } : undefined;
-  if (isMobile) return <MobileRecorder initialSetup={communityDraft} onSelectSingleDraw={selectSingleDraw} onSelectStud={selectStud} onSelectRazz={selectRazz} />;
-  return <Recorder initialSetup={communityDraft} onSelectSingleDraw={selectSingleDraw} onSelectStud={selectStud} onSelectRazz={selectRazz} />;
+  const selectStudHilo = enableStudHilo ? (state: RecorderState) => {
+    setCommunityDraft(state);
+    setStudDraft(studDraftFromCommunity(state, "STUD_HILO_8"));
+  } : undefined;
+  if (isMobile) return <MobileRecorder initialSetup={communityDraft} onSelectSingleDraw={selectSingleDraw} onSelectStud={selectStud} onSelectRazz={selectRazz} onSelectStudHilo={selectStudHilo} />;
+  return <Recorder initialSetup={communityDraft} onSelectSingleDraw={selectSingleDraw} onSelectStud={selectStud} onSelectRazz={selectRazz} onSelectStudHilo={selectStudHilo} />;
 }

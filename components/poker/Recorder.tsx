@@ -1020,6 +1020,7 @@ function SetupPopover({
   onSelectSingleDraw,
   onSelectStud,
   onSelectRazz,
+  onSelectStudHilo,
 }: {
   state: RecorderState;
   dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
@@ -1027,6 +1028,7 @@ function SetupPopover({
   onSelectSingleDraw?: (state: RecorderState) => void;
   onSelectStud?: (state: RecorderState) => void;
   onSelectRazz?: (state: RecorderState) => void;
+  onSelectStudHilo?: (state: RecorderState) => void;
 }) {
   const { playerCount, sb, bb, straddleOn, straddleAmt, bombPotOn, bombPotAmt, doubleBoardOn, gameType, heroPosition } = state;
   const canStraddle = playerCount >= 4 && !bombPotOn;
@@ -1183,6 +1185,10 @@ function SetupPopover({
       {onSelectRazz && <button type="button" onClick={() => onSelectRazz(state)}
         className="ml-[102px] text-left text-[11.5px] text-emerald-300 hover:text-emerald-200 cursor-pointer">
         Razz <ChevronRight size={12} className="inline ml-1" />
+      </button>}
+      {onSelectStudHilo && <button type="button" onClick={() => onSelectStudHilo(state)}
+        className="ml-[102px] text-left text-[11.5px] text-emerald-300 hover:text-emerald-200 cursor-pointer">
+        Stud Hi/Lo 8 <ChevronRight size={12} className="inline ml-1" />
       </button>}
 
       {/* Players */}
@@ -1527,6 +1533,7 @@ function MetaStrip({
   onSelectSingleDraw,
   onSelectStud,
   onSelectRazz,
+  onSelectStudHilo,
 }: {
   state: RecorderState;
   derived: ReturnType<typeof deriveStreet>;
@@ -1542,6 +1549,7 @@ function MetaStrip({
   onSelectSingleDraw?: (state: RecorderState) => void;
   onSelectStud?: (state: RecorderState) => void;
   onSelectRazz?: (state: RecorderState) => void;
+  onSelectStudHilo?: (state: RecorderState) => void;
 }) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const logWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -1732,6 +1740,7 @@ function MetaStrip({
                   onSelectSingleDraw={onSelectSingleDraw}
                   onSelectStud={onSelectStud}
                   onSelectRazz={onSelectRazz}
+                  onSelectStudHilo={onSelectStudHilo}
                 />
               )}
             </>
@@ -2014,11 +2023,12 @@ function ActionLog({
   );
 }
 
-export default function Recorder({ initialSetup, onSelectSingleDraw, onSelectStud, onSelectRazz }: {
+export default function Recorder({ initialSetup, onSelectSingleDraw, onSelectStud, onSelectRazz, onSelectStudHilo }: {
   initialSetup?: RecorderState;
   onSelectSingleDraw?: (state: RecorderState) => void;
   onSelectStud?: (state: RecorderState) => void;
   onSelectRazz?: (state: RecorderState) => void;
+  onSelectStudHilo?: (state: RecorderState) => void;
 } = {}) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -2455,6 +2465,7 @@ export default function Recorder({ initialSetup, onSelectSingleDraw, onSelectStu
           onSelectSingleDraw={onSelectSingleDraw}
           onSelectStud={onSelectStud}
           onSelectRazz={onSelectRazz}
+          onSelectStudHilo={onSelectStudHilo}
         />
 
         {/* Layout container — wraps the felt and the action+notes region.

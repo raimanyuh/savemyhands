@@ -6,7 +6,7 @@ import { useToast } from "@/components/ui/toast";
 import { startRouteProgress } from "@/lib/route-progress";
 import { buildAndSaveStudHand } from "@/lib/recorder/save-hand";
 import { buildStudHand, type BuildStudHandArgs } from "@/lib/recorder/stud-hand";
-import { deriveStudBetting, pendingStudDealSeat, studAccounting, undoStud, type StudState } from "./stud-engine";
+import { deriveStudBetting, pendingStudDealSeat, studAccounting, studResult, undoStud, type StudState } from "./stud-engine";
 import { studRecorderCards, type StudDraft } from "./stud-ui";
 
 export type StudSaveOptions = {
@@ -32,6 +32,7 @@ export function useStudRecorder(initialDraft: StudDraft, { onSaveAction = buildA
   const activeSeat = betting?.activeSeat ?? dealSeat;
   const folded = state.events.flatMap((event) => event.type === "action" && event.action === "fold" ? [event.seat] : []);
   const accounting = studAccounting(state, finished);
+  const result = finished ? studResult(state) : null;
   const cards = studRecorderCards(state);
   const labels: Record<number, string> = {};
   if (betting) for (const event of state.events) if (event.round === state.street && event.type === "action") {
@@ -74,7 +75,7 @@ export function useStudRecorder(initialDraft: StudDraft, { onSaveAction = buildA
   return { state, name, setName, notes, setNotes, venue, setVenue, date, setDate,
     editingSeat, setEditingSeat, openFullBet, setOpenFullBet, saving, setup, finished,
     betting, dealSeat, activeSeat, folded, committed: accounting.committed, pot: accounting.totalPot,
-    cards, labels, resolution, apply, undo, save,
+    cards, labels, awards: result?.resolved ? result.awards : undefined, resolution, apply, undo, save,
   };
 }
 export type StudRecorderController = ReturnType<typeof useStudRecorder>;

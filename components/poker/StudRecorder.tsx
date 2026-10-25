@@ -14,13 +14,14 @@ import type { ActionType } from "./engine";
 import { CardRow } from "./CardPicker";
 import NumericInput from "./NumericInput";
 import StudTable from "./StudTable";
+import StudAwards from "./StudAwards";
 import {
   advanceStudPhase, recordStudAction, recordStudDeal,
   setStudMucked, setStudShownCards, setStudStartingCards, startStudHand,
   studBringInSeat, unavailableStudCards, updateStudPlayer, type StudState,
 } from "./stud-engine";
 import { studRoundLabel } from "./stud-replay";
-import { changeStudSetup, missingStudSetupSeats, nextStudPhaseLabel, studGameLabel, studLogEntries, studSizing, studStakesLabel, type StudDraft } from "./stud-ui";
+import { changeStudSetup, formatStudAmount, missingStudSetupSeats, nextStudPhaseLabel, studGameLabel, studLogEntries, studSizing, studStakesLabel, type StudDraft } from "./stud-ui";
 import { useStudRecorder, type StudRecorderController, type StudSaveOptions } from "./use-stud-recorder";
 
 const primary = "bg-emerald-500 text-zinc-950 hover:bg-emerald-400 font-semibold";
@@ -141,6 +142,7 @@ export function DesktopStudRecorder({ recorder, onSwitchGame }: { recorder: Stud
             <div className="flex items-center gap-3 text-xs text-zinc-300"><Checkbox checked={state.limitRules.headsUpUncapped} ariaLabel="Uncapped when a round starts heads-up" onChange={(headsUpUncapped) => changeSetup({ limitRules: { ...state.limitRules, headsUpUncapped } })} className="size-5" /><span>Uncapped when a round starts heads-up</span></div>
             {state.variant === "STUD_HIGH" && <div className="flex items-center gap-3 text-xs text-zinc-300"><Checkbox checked={state.limitRules.fourthStreetBigBet} ariaLabel="Allow a fourth-street big bet with an open pair" onChange={(fourthStreetBigBet) => changeSetup({ limitRules: { ...state.limitRules, fourthStreetBigBet } })} className="size-5" /><span>Allow a fourth-street big bet with an open pair</span></div>}
             {state.variant === "RAZZ" && <p className="text-xs text-emerald-200">Lowest five-card hand wins; aces are low and straights/flushes do not count. The highest door card brings in, then the lowest exposed hand acts first.</p>}
+            {state.variant === "STUD_HILO_8" && <p className="text-xs text-emerald-200">High and low split the pot. Low needs five different ranks, eight or lower; aces are low and straights/flushes do not count against low. Without a qualifying low, high wins the whole pot. Lowest door card brings in; highest exposed hand acts first afterward.</p>}
             <p className="text-xs text-zinc-500">Click each seat’s name or stack on the table to edit it.</p>
             <Button variant="outline" onClick={onSwitchGame}><ArrowLeft size={14} /> Hold’em / Omaha</Button>
           </div></>}
@@ -178,7 +180,7 @@ export function DesktopStudRecorder({ recorder, onSwitchGame }: { recorder: Stud
                         <Button variant="ghost" size="sm" onClick={() => apply((value) => setStudMucked(value, player.seat, !mucked))}>{mucked ? "Undo muck" : "Muck"}</Button>
                       </div>;
                     })}
-                  {resolution.payload && editingSeat === null ? <><p className="text-sm text-emerald-300">Hero result: {resolution.payload.result >= 0 ? "+" : "−"}${Math.abs(resolution.payload.result).toLocaleString()}</p><Button className={`h-11 ${primary}`} onClick={save}><Save size={14} /> Save &amp; replay</Button></>
+                  {resolution.payload && editingSeat === null ? <>{state.variant === "STUD_HILO_8" && <StudAwards awards={recorder.awards} />}<p className="text-sm text-emerald-300">Hero result: {resolution.payload.result >= 0 ? "+" : "−"}${formatStudAmount(Math.abs(resolution.payload.result))}</p><Button className={`h-11 ${primary}`} onClick={save}><Save size={14} /> Save &amp; replay</Button></>
                     : <p className="text-xs text-zinc-500">{editingSeat !== null ? "Confirm or cancel the shown hand before saving." : resolution.reason}</p>}
                 </> : null}
             </fieldset>

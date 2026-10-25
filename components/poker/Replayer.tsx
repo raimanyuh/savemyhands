@@ -33,6 +33,7 @@ import PlayingCard from "./PlayingCard";
 import HandFan from "./HandFan";
 import DrawTable from "./DrawTable";
 import StudTable from "./StudTable";
+import StudAwards from "./StudAwards";
 import { studGameLabel, studStakesLabel } from "./stud-ui";
 import { drawRoundLabel, drawGameLabel, drawStakesLabel } from "./single-draw-ui";
 import { seatXY } from "./lib";
@@ -63,6 +64,7 @@ export default function Replayer({
   handName,
   isOwner = false,
   isPublic = false,
+  onPublicChangeAction,
   isAuthenticated = true,
   ownerUsername,
   fullPayload,
@@ -75,6 +77,7 @@ export default function Replayer({
   handName?: string;
   isOwner?: boolean;
   isPublic?: boolean;
+  onPublicChangeAction?: (value: boolean) => void;
   // Drives both the "Dashboard ←" back link and (inversely) the anon
   // sign-up CTA. Defaults to true so the recorder/dashboard flows that
   // already gate auth upstream don't have to thread this prop.
@@ -97,6 +100,7 @@ export default function Replayer({
       handName={handName}
       isOwner={isOwner}
       isPublic={isPublic}
+      onPublicChangeAction={onPublicChangeAction}
       isAuthenticated={isAuthenticated}
       ownerUsername={ownerUsername ?? null}
       fullPayload={fullPayload}
@@ -111,6 +115,7 @@ function ReplayerInner({
   handName,
   isOwner,
   isPublic,
+  onPublicChangeAction,
   isAuthenticated,
   ownerUsername,
   fullPayload,
@@ -121,6 +126,7 @@ function ReplayerInner({
   handName?: string;
   isOwner: boolean;
   isPublic: boolean;
+  onPublicChangeAction?: (value: boolean) => void;
   isAuthenticated: boolean;
   ownerUsername: string | null;
   fullPayload?: SavedHand["_full"];
@@ -376,7 +382,9 @@ function ReplayerInner({
   // Share toggle (owner-only). Optimistic local state so the UI updates
   // immediately; revert if the server action throws.
   const [sharePending, startShare] = useTransition();
-  const [optimisticPublic, setOptimisticPublic] = useState(isPublic);
+  const [localPublic, setLocalPublic] = useState(isPublic);
+  const optimisticPublic = onPublicChangeAction ? isPublic : localPublic;
+  const setOptimisticPublic = onPublicChangeAction ?? setLocalPublic;
   const togglePublic = () => {
     if (!handId) return;
     const next = !optimisticPublic;
@@ -1082,6 +1090,8 @@ function ReplayerInner({
             seat and the seat-anchored note balloon (added next) replace the
             inline cards. Removing the reserved row stops the layout from
             shifting when scrubbing across annotated/non-annotated steps. */}
+
+        {HAND.game.variant === "STUD_HILO_8" && cur.stud?.resolved && <div className="w-full max-w-3xl mt-4"><StudAwards awards={cur.stud.awards} /></div>}
 
         {/* Hand info — venue / date / notes from the recorder. Owners always
             see the panel (with an Add notes affordance) even when empty so

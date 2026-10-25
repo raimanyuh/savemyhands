@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import FannedPlayingCard from "@/components/poker/FannedPlayingCard";
 import type { StudReplayCard } from "@/components/poker/stud-replay";
 import type { StudVariant } from "@/components/poker/game-format";
-import { studGameLabel } from "@/components/poker/stud-ui";
+import { formatStudAmount, studGameLabel } from "@/components/poker/stud-ui";
 
 /** Seven ordered slots. Visibility is physical; faceUp controls identity. */
 export function MobileStudCards({ slots, previousSlots, hero = false, onSlot, editableIndexes, labelPrefix = "Card" }: {
@@ -78,7 +78,7 @@ export default function VerticalStudFelt({ players, heroSeat, dealerSeat, cards,
       const hero = player.seat === heroSeat;
       const coord = coords[(player.seat - heroSeat + players.length) % players.length];
       const out = folded.includes(player.seat) || mucked.includes(player.seat);
-      const status = (winnings[player.seat] ?? 0) > 0 ? `Wins $${winnings[player.seat].toLocaleString()}` : labels[player.seat] || ((bets[player.seat] ?? 0) > 0 ? `$${bets[player.seat]}` : "");
+      const status = (winnings[player.seat] ?? 0) > 0 ? `Wins $${formatStudAmount(winnings[player.seat])}` : labels[player.seat] || ((bets[player.seat] ?? 0) > 0 ? `$${bets[player.seat]}` : "");
       const plate = <>
         <p className="text-[9px] leading-3 text-zinc-400 font-semibold">S{player.seat + 1}{hero && <span className="ml-1 text-emerald-300">YOU</span>}{player.seat === dealerSeat && <span className="ml-1 text-zinc-200" title="Last seat dealt">D</span>}</p>
         <p className="text-[11px] leading-[13px] font-medium truncate text-zinc-100">{out ? folded.includes(player.seat) ? "Folded" : "Mucked" : player.name || `Seat ${player.seat + 1}`}</p>

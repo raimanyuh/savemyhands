@@ -8,6 +8,10 @@ export function isRazzEnabled(): boolean {
   return process.env.ENABLE_RAZZ === "true";
 }
 
+export function isStudHiloEnabled(): boolean {
+  return process.env.ENABLE_STUD_HILO_8 === "true";
+}
+
 export function isStudVariantEnabled(variant: string): boolean {
-  return variant === "STUD_HIGH" ? isStudHighEnabled() : variant === "RAZZ" ? isRazzEnabled() : false;
+  return variant === "STUD_HIGH" ? isStudHighEnabled() : variant === "RAZZ" ? isRazzEnabled() : variant === "STUD_HILO_8" ? isStudHiloEnabled() : false;
 }

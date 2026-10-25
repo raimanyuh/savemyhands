@@ -6,7 +6,7 @@ import { scaled } from "./scale";
 import { BetBubble, DealerButtonChip, NameDisplay, StackDisplay, TableSurface } from "./table-pieces";
 import type { StudReplayCard } from "./stud-replay";
 import type { StudVariant } from "./game-format";
-import { studGameLabel } from "./stud-ui";
+import { formatStudAmount, studGameLabel } from "./stud-ui";
 
 export function studSeatXY(visualSeat: number, count: number) {
   if (visualSeat === 0) return { left: 50, top: 89 };
@@ -91,7 +91,7 @@ export default function StudTable({ players, heroSeat, dealerSeat, cards, shared
           {onEditPlayer ? <StackDisplay value={player.stack} onCommit={(stack) => onEditPlayer(player.seat, { stack })} /> : <span className="text-emerald-300 font-semibold tabular-nums" style={{ fontSize: scaled(13) }}>${Math.max(0, player.stack - (committed[player.seat] ?? 0)).toLocaleString()}</span>}
           {onEditCards && <button type="button" onClick={() => onEditCards(player.seat)} className="text-emerald-200 hover:text-white cursor-pointer underline underline-offset-2" style={{ fontSize: scaled(9) }} aria-label={`Choose ${hero ? "hero cards" : `S${player.seat + 1} door card`}`}>{hero ? "Choose cards" : "Choose door card"}</button>}
         </div>
-        {(winnings[player.seat] ?? 0) > 0 && <div className="absolute mt-1 inset-x-0 text-center text-emerald-200 font-semibold whitespace-nowrap" style={{ top: hero ? "var(--smh-stud-hero-award-top, 100%)" : "100%", fontSize: scaled(11) }}>Wins ${winnings[player.seat].toLocaleString()}</div>}
+        {(winnings[player.seat] ?? 0) > 0 && <div className="absolute mt-1 inset-x-0 text-center text-emerald-200 font-semibold whitespace-nowrap" style={{ top: hero ? "var(--smh-stud-hero-award-top, 100%)" : "100%", fontSize: scaled(11) }}>Wins ${formatStudAmount(winnings[player.seat])}</div>}
       </div>;
     })}
     {players.filter((player) => !folded.includes(player.seat) && !mucked.includes(player.seat)).map((player) => {

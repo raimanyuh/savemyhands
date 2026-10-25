@@ -14,6 +14,10 @@ export type StudSetupPatch = {
 export function studGameLabel(variant: StudVariant, short = false): string {
   return variant === "RAZZ" ? "Razz" : variant === "STUD_HILO_8" ? "Stud Hi/Lo 8" : short ? "Stud High" : "Seven-Card Stud";
 }
+/** Preserve fractional split awards without rounding them to whole cents. */
+export function formatStudAmount(amount: number): string {
+  return amount.toLocaleString("en-US", { maximumFractionDigits: 8 });
+}
 export function studDraftFromCommunity(source: RecorderState, variant: StudEngineVariant = "STUD_HIGH"): StudDraft {
   const playerCount = Math.min(8, source.playerCount);
   const heroSeat = Math.min(source.heroPosition, playerCount - 1);

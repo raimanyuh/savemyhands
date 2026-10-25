@@ -39,9 +39,10 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 `ENABLE_STUD_HIGH=true` enables Seven-Card Stud High on the server, including
 desktop/mobile recorder entry points, dashboard filters, replay routes and
-social previews. `ENABLE_RAZZ=true` independently enables the complete Razz
-recorder/replayer, dashboard filters and social previews. Both default off.
-Stud/8 remains unavailable. Set each flag only after verifying that format
+social previews. `ENABLE_RAZZ=true` independently enables Razz, and
+`ENABLE_STUD_HILO_8=true` independently enables Stud Hi/Lo 8, including the
+desktop/mobile recorder, replayer, high/low payouts, filters and social previews.
+All three flags default off. Set each flag only after verifying that format
 in the target environment; local QA flags do not enable a deployed release.
 
 New Stud recordings deal an individual seventh downcard to each live seat.
@@ -56,7 +57,8 @@ antes and split awards while retaining ownership policies and private defaults.
 Set the flag in the server environment, then restart/redeploy that environment.
 
 Before release, verify signed-in save → dashboard → reload → replay for
-Single Draw, Triple Draw and Stud, including a fractional Stud result. Confirm
+Single Draw, Triple Draw, Stud High, Razz and Stud/8, including fractional
+high/low and side-pot results. Confirm
 new hands are private, anonymous private URLs show the not-found page without
 hand data, public URLs replay without a session, and making the test hand
 private again removes anonymous

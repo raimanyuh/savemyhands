@@ -44,6 +44,7 @@ async function ogHtml() {
 beforeEach(() => {
   vi.stubEnv("ENABLE_STUD_HIGH", "");
   vi.stubEnv("ENABLE_RAZZ", "");
+  vi.stubEnv("ENABLE_STUD_HILO_8", "");
   mocks.getUser.mockResolvedValue({ data: { user: { id: "owner" } } });
   mocks.getHandForViewing.mockResolvedValue({ hand: studHand(), isOwner: true, isAuthenticated: true, ownerUsername: "owner" });
   mocks.listMyHands.mockResolvedValue([]);
@@ -118,7 +119,7 @@ describe("Stud release routing", () => {
     expect(await ogHtml()).toContain("Razz");
     expect(await ogHtml()).not.toContain("Preflop");
   });
-  it("keeps a valid Stud/8 adapter payload hidden even when both released Stud variants are enabled", async () => {
+  it("gates Stud/8 entry, routes, metadata, filters and social previews independently", async () => {
     vi.stubEnv("ENABLE_STUD_HIGH", "true");
     vi.stubEnv("ENABLE_RAZZ", "true");
     let state = initialStudState({ variant: "STUD_HILO_8", playerCount: 2 });
@@ -132,6 +133,16 @@ describe("Stud release routing", () => {
     expect(await generateMetadata(params)).toEqual({ title: "Hand" });
     expect(await ogHtml()).not.toContain("Unreleased Stud/8");
     expect(dashboardGameOptions(true, true).some((option) => option.value === "STUD_HILO_8")).toBe(false);
+    vi.stubEnv("ENABLE_STUD_HIGH", "");
+    vi.stubEnv("ENABLE_RAZZ", "");
+    vi.stubEnv("ENABLE_STUD_HILO_8", "true");
+    expect((await RecordPage()).props).toMatchObject({ enableStud: false, enableRazz: false, enableStudHilo: true });
+    expect((await DashboardPage()).props).toMatchObject({ enableStud: false, enableRazz: false, enableStudHilo: true });
+    expect((await HandPage(params)).props.hand.game.variant).toBe("STUD_HILO_8");
+    expect(await generateMetadata(params)).toEqual({ title: "Unreleased Stud/8" });
+    expect(await ogHtml()).toContain("Stud Hi/Lo 8");
+    expect(await ogHtml()).not.toContain("Preflop");
+    expect(dashboardGameOptions(false, false, true).filter((option) => option.value.startsWith("STUD") || option.value === "RAZZ")).toEqual([{ value: "STUD_HILO_8", label: "Stud Hi/Lo 8" }]);
   });
   it("keeps the community sample available when Stud is disabled", async () => {
     const page = await HandPage({ params: Promise.resolve({ id: SAMPLE_HAND_ID }) });

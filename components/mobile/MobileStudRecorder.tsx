@@ -14,7 +14,8 @@ import {
   advanceStudPhase, recordStudAction, recordStudDeal, setStudMucked, setStudShownCards,
   setStudStartingCards, startStudHand, studBringInSeat, unavailableStudCards, updateStudPlayer, type StudState,
 } from "@/components/poker/stud-engine";
-import { changeStudSetup, missingStudSetupSeats, nextStudPhaseLabel, studGameLabel, studLogEntries, studSizing, studStakesLabel } from "@/components/poker/stud-ui";
+import { changeStudSetup, formatStudAmount, missingStudSetupSeats, nextStudPhaseLabel, studGameLabel, studLogEntries, studSizing, studStakesLabel } from "@/components/poker/stud-ui";
+import StudAwards from "@/components/poker/StudAwards";
 import { studRoundLabel, type StudReplayCard } from "@/components/poker/stud-replay";
 import type { StudRecorderController } from "@/components/poker/use-stud-recorder";
 import { CardPickerSheet } from "./CardPickerSheet";
@@ -136,7 +137,7 @@ export default function MobileStudRecorder({ recorder, onSwitchGame }: { recorde
                       {player.seat !== state.heroSeat && <Button variant="outline" className="h-11" onClick={() => setEditingSeat(player.seat)}>{shown && !mucked ? "Edit downcards" : "Show downcards"}</Button>}
                       <Button variant="ghost" className="h-11" onClick={() => apply((value) => setStudMucked(value, player.seat, !mucked))}>{mucked ? "Undo muck" : "Muck"}</Button></div>;
                   })}
-                {resolution.payload && editingSeat === null ? <p className="text-sm text-emerald-300">Hero result: {resolution.payload.result >= 0 ? "+" : "−"}${Math.abs(resolution.payload.result).toLocaleString()}</p> : <p className="text-xs text-zinc-500">{editingSeat !== null ? "Confirm or cancel the shown hand before saving." : resolution.reason}</p>}
+                {resolution.payload && editingSeat === null ? <>{state.variant === "STUD_HILO_8" && <StudAwards awards={recorder.awards} />}<p className="text-sm text-emerald-300">Hero result: {resolution.payload.result >= 0 ? "+" : "−"}${formatStudAmount(Math.abs(resolution.payload.result))}</p></> : <p className="text-xs text-zinc-500">{editingSeat !== null ? "Confirm or cancel the shown hand before saving." : resolution.reason}</p>}
                 <Button className={primary} disabled={!resolution.payload || editingSeat !== null} onClick={save}>{saving ? "Saving…" : "Save & replay"}</Button>
               </> : null}
       </section>
@@ -164,6 +165,7 @@ export default function MobileStudRecorder({ recorder, onSwitchGame }: { recorde
         <div className="flex items-center gap-3 text-xs text-zinc-300"><Checkbox checked={state.limitRules.headsUpUncapped} ariaLabel="Uncapped when a round starts heads-up" onChange={(headsUpUncapped) => changeSetup({ limitRules: { ...state.limitRules, headsUpUncapped } })} className="size-5" /><span>Uncapped when a round starts heads-up</span></div>
         {state.variant === "STUD_HIGH" && <div className="flex items-center gap-3 text-xs text-zinc-300"><Checkbox checked={state.limitRules.fourthStreetBigBet} ariaLabel="Allow a fourth-street big bet with an open pair" onChange={(fourthStreetBigBet) => changeSetup({ limitRules: { ...state.limitRules, fourthStreetBigBet } })} className="size-5" /><span>Allow a fourth-street big bet with an open pair</span></div>}
         {state.variant === "RAZZ" && <p className="text-xs text-emerald-200">Lowest five-card hand wins; aces are low and straights/flushes do not count. Highest door card brings in; lowest exposed hand acts first afterward.</p>}
+        {state.variant === "STUD_HILO_8" && <p className="text-xs text-emerald-200">High and low split the pot. Low needs five different ranks, eight or lower; aces are low and straights/flushes do not count against low. Without a qualifying low, high wins the whole pot. Lowest door card brings in; highest exposed hand acts first afterward.</p>}
         {state.players.map((player) => <div key={player.seat} className="grid grid-cols-[28px_1fr_84px] items-center gap-2"><span className="text-xs text-zinc-400">S{player.seat + 1}</span><Input aria-label={`S${player.seat + 1} name`} className="h-11" value={player.name} onChange={(event) => apply((value) => updateStudPlayer(value, player.seat, { name: event.target.value }))} /><NumericInput aria-label={`S${player.seat + 1} stack`} className="h-11" value={player.stack} min={.01} step="any" onCommit={(stack) => apply((value) => updateStudPlayer(value, player.seat, { stack }))} /></div>)}
         <Button variant="outline" className="h-11" onClick={onSwitchGame}>Hold’em / Omaha</Button>
       </div>

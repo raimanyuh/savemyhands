@@ -74,12 +74,14 @@ export default function MobileDashboard({
   initialHands,
   enableStud = false,
   enableRazz = false,
+  enableStudHilo = false,
 }: {
   initialUsername: string | null;
   signOutAction?: () => void | Promise<void>;
   initialHands: SavedHand[];
   enableStud?: boolean;
   enableRazz?: boolean;
+  enableStudHilo?: boolean;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -104,8 +106,8 @@ export default function MobileDashboard({
 
   // Distinct filter values discovered from the dataset.
   const filterOptions = useMemo(
-    () => buildFilterOptions(hands, enableStud, enableRazz),
-    [hands, enableStud, enableRazz],
+    () => buildFilterOptions(hands, enableStud, enableRazz, enableStudHilo),
+    [hands, enableStud, enableRazz, enableStudHilo],
   );
   const allTags = useMemo(
     () => [...new Set(hands.flatMap((h) => h.tags))].sort(),
@@ -999,7 +1001,7 @@ function HandCard({
           }}
         >
           {hand.result > 0 ? "+" : hand.result < 0 ? "−" : ""}$
-          {Math.abs(hand.result).toLocaleString()}
+          {Math.abs(hand.result).toLocaleString("en-US", { maximumFractionDigits: 8 })}
         </span>
       </div>
 
@@ -1401,7 +1403,7 @@ const emptyFilterState: FilterState = {
   doubleBoard: new Set(),
 };
 
-function buildFilterOptions(hands: SavedHand[], enableStud: boolean, enableRazz: boolean) {
+function buildFilterOptions(hands: SavedHand[], enableStud: boolean, enableRazz: boolean, enableStudHilo: boolean) {
   const venues = new Set<string>();
   const stakes = new Set<string>();
   const tags = new Set<string>();
@@ -1443,7 +1445,7 @@ function buildFilterOptions(hands: SavedHand[], enableStud: boolean, enableRazz:
       { value: "yes", label: "Multiway" },
       { value: "no", label: "Heads-up" },
     ],
-    gameType: dashboardGameOptions(enableStud, enableRazz),
+    gameType: dashboardGameOptions(enableStud, enableRazz, enableStudHilo),
     doubleBoard: [
       { value: "single", label: "Single board" },
       { value: "double", label: "Double board" },

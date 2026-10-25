@@ -34,6 +34,7 @@ import { useAnnotationEdit } from "@/lib/replayer/use-annotation-edit";
 import { VerticalFelt, type FeltViewState } from "./VerticalFelt";
 import VerticalDrawFelt from "./VerticalDrawFelt";
 import VerticalStudFelt, { mobileStudFeltHeight } from "./VerticalStudFelt";
+import StudAwards from "@/components/poker/StudAwards";
 import { studGameLabel, studStakesLabel } from "@/components/poker/stud-ui";
 import { drawRoundLabel } from "@/components/poker/single-draw-ui";
 import { ReplayDock } from "./ReplayDock";
@@ -60,6 +61,7 @@ export default function MobileReplayer({
   handName,
   isOwner = false,
   isPublic = false,
+  onPublicChangeAction,
   isAuthenticated = true,
   ownerUsername,
   fullPayload,
@@ -73,6 +75,7 @@ export default function MobileReplayer({
   handName?: string;
   isOwner?: boolean;
   isPublic?: boolean;
+  onPublicChangeAction?: (value: boolean) => void;
   isAuthenticated?: boolean;
   ownerUsername?: string | null;
   fullPayload?: SavedHand["_full"];
@@ -87,6 +90,7 @@ export default function MobileReplayer({
       handName={handName}
       isOwner={isOwner}
       isPublic={isPublic}
+      onPublicChangeAction={onPublicChangeAction}
       isAuthenticated={isAuthenticated}
       ownerUsername={ownerUsername ?? null}
       fullPayload={fullPayload}
@@ -101,6 +105,7 @@ function MobileReplayerInner({
   handName,
   isOwner,
   isPublic,
+  onPublicChangeAction,
   isAuthenticated,
   ownerUsername,
   fullPayload,
@@ -111,6 +116,7 @@ function MobileReplayerInner({
   handName?: string;
   isOwner: boolean;
   isPublic: boolean;
+  onPublicChangeAction?: (value: boolean) => void;
   isAuthenticated: boolean;
   ownerUsername: string | null;
   fullPayload?: SavedHand["_full"];
@@ -120,6 +126,7 @@ function MobileReplayerInner({
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [payoutsOpen, setPayoutsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   // `_full` payload mirror — see desktop Replayer for rationale. The
   // mobile replayer doesn't have a notes editor today (deferred to
@@ -296,7 +303,9 @@ function MobileReplayerInner({
   };
 
   // Owner-only public/private toggle.
-  const [optimisticPublic, setOptimisticPublic] = useState(isPublic);
+  const [localPublic, setLocalPublic] = useState(isPublic);
+  const optimisticPublic = onPublicChangeAction ? isPublic : localPublic;
+  const setOptimisticPublic = onPublicChangeAction ?? setLocalPublic;
   const [sharePending, startShare] = useTransition();
   const togglePublic = () => {
     if (!handId) return;
@@ -489,6 +498,8 @@ function MobileReplayerInner({
         </div>
       )}
 
+      {HAND.game.variant === "STUD_HILO_8" && cur.stud?.resolved && <div className="px-3 py-1 flex justify-end"><button type="button" className="min-h-11 px-3 rounded-lg border border-emerald-400/25 text-xs font-semibold text-emerald-200" onClick={() => setPayoutsOpen(true)}>View high/low payouts</button></div>}
+
       {/* Felt — flex:1, with bottom padding reserved for the floating
           dock so the dock never overlaps the hero plate. The felt
           itself uses bottomInset=96 to lift seats upward beyond what
@@ -544,6 +555,8 @@ function MobileReplayerInner({
           canEditAnno && !annotation ? beginEditAnno : undefined
         }
       />
+
+      <BottomSheet open={payoutsOpen && HAND.game.variant === "STUD_HILO_8" && !!cur.stud?.resolved} onOpenChange={setPayoutsOpen} title="High and low payouts"><div className="p-4"><StudAwards awards={cur.stud?.awards} /></div></BottomSheet>
 
       {/* Share sheet — copy + (owner-only) public toggle */}
       <BottomSheet

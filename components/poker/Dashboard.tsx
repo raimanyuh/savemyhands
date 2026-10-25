@@ -889,7 +889,7 @@ function HandListRow({
           }`}
         >
           {hand.result > 0 ? "+" : hand.result < 0 ? "−" : ""}$
-          {Math.abs(hand.result).toLocaleString()}
+          {Math.abs(hand.result).toLocaleString("en-US", { maximumFractionDigits: 8 })}
         </span>
       </div>
       <div
@@ -950,6 +950,7 @@ export default function Dashboard({
   initialHands,
   enableStud = false,
   enableRazz = false,
+  enableStudHilo = false,
 }: {
   // The signed-in user's @username, or null if they haven't picked one yet.
   initialUsername: string | null;
@@ -958,6 +959,7 @@ export default function Dashboard({
   initialHands: SavedHand[];
   enableStud?: boolean;
   enableRazz?: boolean;
+  enableStudHilo?: boolean;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -1040,13 +1042,13 @@ export default function Dashboard({
         { value: "yes", label: "Multiway" },
         { value: "no", label: "Heads-up" },
       ],
-      gameType: dashboardGameOptions(enableStud, enableRazz),
+      gameType: dashboardGameOptions(enableStud, enableRazz, enableStudHilo),
       doubleBoard: [
         { value: "single", label: "Single board" },
         { value: "double", label: "Double board" },
       ],
     };
-  }, [hands, enableStud, enableRazz]);
+  }, [hands, enableStud, enableRazz, enableStudHilo]);
 
   const filtered = useMemo(() => {
     return hands.filter((h) => {
@@ -1380,7 +1382,7 @@ export default function Dashboard({
                 }
               >
                 {totalResult >= 0 ? "+" : "−"}$
-                {Math.abs(totalResult).toLocaleString()}
+                {Math.abs(totalResult).toLocaleString("en-US", { maximumFractionDigits: 8 })}
               </span>
             </p>
           </div>

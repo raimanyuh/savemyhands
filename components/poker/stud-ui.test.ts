@@ -19,23 +19,23 @@ function setup() {
   return setStudStartingCards(state, 2, [null,null,"J♣"]);
 }
 describe("Stud UI state derivations", () => {
-  it("starts a Razz draft with low rules while retaining table profiles and metadata", () => {
+  it.each(["RAZZ", "STUD_HILO_8"] as const)("starts a %s draft with low rules while retaining table profiles and metadata", (variant) => {
     const source = initialState();
     source.heroPosition = 2;
     source.players[2].name = "Low hero";
     source.handName = "Razz night";
-    const draft = studDraftFromCommunity(source, "RAZZ");
-    expect(draft).toMatchObject({ name: "Razz night", state: { variant: "RAZZ", heroSeat: 2, limitRules: { fourthStreetBigBet: false } } });
+    const draft = studDraftFromCommunity(source, variant);
+    expect(draft).toMatchObject({ name: "Razz night", state: { variant, heroSeat: 2, limitRules: { fourthStreetBigBet: false } } });
     expect(draft.state.players[2].name).toBe("Low hero");
-    expect(studGameLabel(draft.state.variant)).toBe("Razz");
+    expect(studGameLabel(draft.state.variant)).toBe(variant === "RAZZ" ? "Razz" : "Stud Hi/Lo 8");
     expect(studGameLabel("STUD_HIGH", true)).toBe("Stud High");
   });
-  it("labels both Razz felts correctly and leaves every undealt slot empty", () => {
-    const state = studDraftFromCommunity(initialState(), "RAZZ").state;
-    const props = { variant: "RAZZ" as const, players: state.players, heroSeat: state.heroSeat, dealerSeat: state.dealerSeat, cards: studRecorderCards(state), pot: 0, round: "Setup" };
+  it.each(["RAZZ", "STUD_HILO_8"] as const)("labels both %s felts correctly and leaves every undealt slot empty", (variant) => {
+    const state = studDraftFromCommunity(initialState(), variant).state;
+    const props = { variant, players: state.players, heroSeat: state.heroSeat, dealerSeat: state.dealerSeat, cards: studRecorderCards(state), pot: 0, round: "Setup" };
     for (const Felt of [StudTable, VerticalStudFelt]) {
       const html = renderToStaticMarkup(createElement(Felt, props));
-      expect(html).toContain("Razz");
+      expect(html).toContain(variant === "RAZZ" ? "Razz" : "Stud Hi/Lo 8");
       expect(html).not.toContain("Stud High");
       expect(html).not.toContain("Shared 7th");
       expect(html).toContain("Empty card slot");
